@@ -51,7 +51,7 @@ export function demoProjects(sprints: Sprint[]): ProjectSnapshot[] {
         priority: i.type === 'Bug' ? (r() < (weak ? 0.25 : 0.08) ? 'Highest' : r() < 0.5 ? 'High' : 'Medium') : 'Medium',
         reporter: i.type === 'Bug' ? (r() < 0.3 ? 'Support' : r() < 0.5 ? 'QA' : i.assignee) : i.assignee,
         assignee: i.assignee, created: i.created, resolved: i.resolved, points: i.points, epic: i.epic ?? null, inSprint: true,
-        labels: i.type === 'Bug' ? (r() < 0.15 ? [] : [r() < (weak ? 0.45 : 0.15) ? 'production' : 'qa']) : [],
+        labels: i.type === 'Bug' ? (r() < 0.15 ? [] : [r() < (weak ? 0.45 : 0.15) ? 'production' : 'qa']) : r() < 0.12 ? ['tech-debt'] : r() < 0.05 ? ['security'] : [],
       });
     }
     const people = [...new Set([...seen.values()].map((x) => x.assignee).filter((x): x is string => !!x))];

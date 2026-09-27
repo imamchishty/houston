@@ -22,7 +22,9 @@ export function median(xs: number[]) {
 // Median cycle time per size bucket, learned from every done ticket on the board.
 export function learnBaseline(sprints: Sprint[]): Record<string, number> {
   const buckets: Record<string, number[]> = {};
-  for (const s of sprints) for (const i of s.issues) {
+  // Each ticket once: a ticket carried across sprints is listed in each of them.
+  const unique = new Map<string, Issue>(); for (const s of sprints) for (const i of s.issues) unique.set(i.key, i);
+  for (const i of unique.values()) {
     const d = cycleDays(i);
     if (d == null || i.statusCategory !== 'done' || i.type === 'Sub-task') continue;
     (buckets[sizeBucket(i.points)] ??= []).push(d);

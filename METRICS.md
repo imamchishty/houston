@@ -145,6 +145,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `rework_rate` Rework rate | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
 | `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
 | `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
+| `qa_rejection` QA rejection rate | Tickets sent back from QA (qa, in qa, testing, in testing) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection. | under 15% |
 | `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
 | `time_to_restore` Time to restore (median) | Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor). | under 24 hours |
 | `bug_lead_time` Bug lead time (median) | Median days from bug created to resolved, bugs resolved in the period. | under 14 days |
@@ -176,9 +177,16 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
 | `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
 | `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
+| `flow_efficiency` Flow efficiency | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | over 40% |
+| `stage_coding` Coding time (median) | Median hours from a PR's first commit (author date) to the PR being opened. 0 of 0 PRs have commit dates. |  |
+| `stage_review` Review time (median) | Median hours from PR opened to merged. |  |
+| `stage_deploy` Waiting to deploy (median) | Median hours from merge to the first successful production deploy of its repo. |  |
+| `flow_velocity` Flow velocity | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
+| `flow_time` Flow time (median) | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | under 14 days |
+| `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
 | `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
 
-Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+Change failure rate: `CFR_SOURCE=hotfix` (default), `bugs`, or `linked` (a deploy followed within 24 hours by a significant bug, incident or hotfix; each failure linked to one deploy). Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
 14-day churn is not measured: it needs line-level history the GitHub API does not provide.
 
 ## Current sprint
@@ -189,6 +197,20 @@ Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priori
 - Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
 - Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
 
+
+## Flow
+
+- Status history: every status change from the Jira changelog, read in full. Flow runs from the first move into an
+  in-progress status to resolution, in working hours (weekends left out, in the team's time zone).
+- Waiting statuses: `JIRA_WAIT_STATUSES` (default Blocked, Ready for Review, Ready for QA, Awaiting Deploy, Ready for Release,
+  Waiting, On Hold), and any to-do status after work started. Everything else in progress is active.
+- QA statuses: `JIRA_QA_STATUSES` (default QA, In QA, Testing, In Testing). Sent back = from a QA status to a to-do status or to
+  an in-progress status that is neither QA nor waiting.
+- Lead time stages: coding = first commit (author date) to PR opened; review = opened to merged; waiting to deploy = merged to
+  the first successful deploy of its repo. The weekly chart sums hours, so stages add up to the whole.
+- Flow distribution: bugs are defects; `FLOW_RISK_LABELS` risks; `FLOW_DEBT_LABELS` debt; everything else features.
+- Work in progress age on the sprint board: flagged when over 3x the team's median cycle time for that ticket size (each ticket
+  counted once in the median). Queued: open sprint items in a waiting status.
 
 ## Simple dashboard
 

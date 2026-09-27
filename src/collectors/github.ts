@@ -50,11 +50,12 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
   const out: PullRequest[] = [];
   for (const p of list) {
     if (p.created_at < since) continue;
-    const [detail, reviews, comments, files] = await Promise.all([
+    const [detail, reviews, comments, files, commits] = await Promise.all([
       gh<any>(`/repos/${repoPath(repo)}/pulls/${p.number}`),
       all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/reviews`, 200),
       all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/comments`, 200),
       all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/files`, 300),
+      all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/commits`, 250),
     ]);
     const author = canonical(p.user?.login) ?? 'unknown';
     // A review counts only from another person: compare raw logins (PEOPLE maps logins to names, so the author's
@@ -81,6 +82,7 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
       // GitHub's own revert button makes 'Revert "<title>"' on a revert-<n>-<branch> branch.
       isRevert: /^revert\b/i.test(p.title ?? '') || /^revert-\d+/i.test(p.head?.ref ?? ''),
       botReviews: [...reviews, ...comments].filter((x: any) => isBot(x.user)).length,
+      firstCommitAt: commits.map((c: any) => c.commit?.author?.date).filter(Boolean).sort()[0] ?? null,
     });
   }
   return out;

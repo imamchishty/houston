@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { workingDays } from './cost.js';
-import { doneInSprint } from './cycle.js';
+import { doneInSprint, learnBaseline, sizeBucket } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
 
 // The sprint in progress for each team: time and points left, whether it will make it, and what is in flight.
@@ -44,9 +44,19 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
   const byStatus = [...items.reduce((m, i) => m.set(i.status, (m.get(i.status) ?? 0) + 1), new Map<string, number>())]
     .map(([status, count]) => ({ status, count })).sort((a, b) => b.count - a.count);
   const bugs = items.filter((i) => /^bug$/i.test(i.type));
+  // WIP age: days since work first started. Old = more than 3x the team's median cycle time for that ticket size
+  // (learned from the team's finished tickets), so a 1 point ticket is old sooner than an 8 point one.
+  const norm = learnBaseline(sprints);
   const inProgress = items.filter((i) => i.statusCategory === 'inprogress')
-    .map((i) => ({ key: i.key, summary: i.summary, status: i.status, points: i.points, days: i.inProgressSince ? Math.round(((now - Date.parse(i.inProgressSince)) / DAY) * 10) / 10 : null, ...(named ? { assignee: i.assignee } : {}) }))
+    .map((i) => {
+      const days = i.inProgressSince ? Math.round(((now - Date.parse(i.inProgressSince)) / DAY) * 10) / 10 : null;
+      const typical = norm[sizeBucket(i.points)] ?? null;
+      return { key: i.key, summary: i.summary, status: i.status, points: i.points, days, typical, old: days != null && typical != null && days > 3 * typical, ...(named ? { assignee: i.assignee } : {}) };
+    })
     .sort((a, b) => (b.days ?? 0) - (a.days ?? 0));
+  // Queued work: of the tickets not yet done, how many sit in a waiting status (Ready for ..., Blocked).
+  const open = items.filter((i) => i.statusCategory !== 'done');
+  const queued = open.filter((i) => config.jira.waitStatuses.includes(i.status.toLowerCase()));
   const cycle = done.filter((i) => i.inProgressSince)
     .map((i) => ({ key: i.key, summary: i.summary, points: i.points, days: Math.round(((Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY) * 10) / 10 }))
     .sort((a, b) => b.days - a.days);
@@ -85,7 +95,9 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
     outlook,
     burndown, byStatus, statusType, bugTrend, cycleByDay,
     bugs: { total: bugs.length, resolved: bugs.filter((b) => b.statusCategory === 'done').length },
-    inProgress, cycle, velocity, wip, state: sp.state, id: sp.id,
+    inProgress, cycle, velocity, wip,
+    queued: { count: queued.length, of: open.length, pct: open.length ? Math.round((100 * queued.length) / open.length) : 0, statuses: [...new Set(queued.map((i) => i.status))] },
+    oldWip: inProgress.filter((x) => x.old).length, state: sp.state, id: sp.id,
     sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),
   };
 }

@@ -10,6 +10,7 @@ import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
 import { dataQuality } from './dataQuality.js';
+import { diagFor } from './diag.js';
 import { simpleDashboard } from './simple.js';
 import { doraSeries, PERIODS } from './dora.js';
 import { slice, quality, predictability, efficiency, perTeam, flatMeasures, withPrevious, type Period } from './reports.js';
@@ -200,7 +201,7 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     const prev = cards[1];
     const gaps = c.findings.filter((f) => f.rag !== 'green');
     const bdd = boardData(req.params.board);
-    const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features, named: req.query.named === '1' && namedFor(req as any) });
+    const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features, diag: diagFor(req.params.board), named: req.query.named === '1' && namedFor(req as any) });
     const lines = [
       `# ${c.board}: ${md(c.sprintName)}`,
       '',
@@ -237,7 +238,7 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     const history = store.scorecards().filter((c) => c.board === req.params.board).sort((a, b) => a.sprintId - b.sprintId);
     if (!history.length) return reply.code(404).send({ error: `No scorecards for ${req.params.board}` });
     const bd = boardData(req.params.board);
-    const ctx = { card: bd.latest, history: bd.history, quality: bd.quality, people: bd.people, flow: bd.flow, github: bd.github, docs: bd.docs, docsPeople: bd.docsPeople, features: bd.features, named: namedFor(req as any) };
+    const ctx = { card: bd.latest, history: bd.history, quality: bd.quality, people: bd.people, flow: bd.flow, github: bd.github, docs: bd.docs, docsPeople: bd.docsPeople, features: bd.features, diag: diagFor(req.params.board), named: namedFor(req as any) };
     return { board: req.params.board, recommendations: recommend(ctx), headcountGate: headcountGate(ctx) };
   });
 

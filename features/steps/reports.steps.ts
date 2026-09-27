@@ -4,7 +4,7 @@ import type { Slice, Measure } from '../../src/reports.js';
 import type { PullRequest, WorkItem, Epic, MainCommit } from '../../src/types.js';
 
 // A hand-built slice: exactly the rows in the scenario, nothing from the demo data.
-let s: Slice, measures: Measure[] = [];
+let s: Slice, measures: Measure[] = [], groups: any[] = [];
 const iso = (d: string) => new Date(d.length === 10 ? `${d}T12:00:00Z` : `${d}:00Z`).toISOString(); // dates at midday, times as UTC
 const yes = (v: string | undefined) => /^(yes|true|y)$/i.test(v ?? '');
 const blank = (v: string | undefined) => !v || !v.trim();
@@ -19,6 +19,7 @@ Given("the team's Jira project is {string} and repos merge into {string}", funct
   s.projectKeys = [key]; s.defaultBranches = { 'org/repo': branch };
 });
 Given('change failure rate counts significant bugs', function () { process.env.CFR_SOURCE = 'bugs'; });
+Given('change failure rate is linked to deployments', function () { process.env.CFR_SOURCE = 'linked'; });
 
 Given('these pull requests:', function (t: DataTable) {
   s.prs = t.hashes().map((r): PullRequest => ({
@@ -28,7 +29,7 @@ Given('these pull requests:', function (t: DataTable) {
     reviewers: Number(r.reviews ?? 0) > 0 ? ['b'] : [], reviewCount: Number(r.reviews ?? 0),
     jiraKeys: blank(r.tickets) ? [] : r.tickets.split(',').map((x) => x.trim()), areas: [],
     isHotfix: yes(r.hotfix), draft: yes(r.draft), branch: `b${r.pr}`, baseBranch: r.base || 'main',
-    reviewComments: Number(r.comments ?? 0), isRevert: yes(r.revert),
+    reviewComments: Number(r.comments ?? 0), isRevert: yes(r.revert), firstCommitAt: blank(r['first commit']) ? null : iso(r['first commit']),
   }));
 });
 Given('these deploys:', function (t: DataTable) {
@@ -38,7 +39,7 @@ Given('these work items:', function (t: DataTable) {
   s.items = t.hashes().map((r): WorkItem => ({
     key: r.key, type: r.type, status: blank(r.resolved) ? 'To Do' : 'Done', statusCategory: blank(r.resolved) ? 'todo' : 'done',
     priority: r.priority || null, reporter: null, assignee: null, created: iso(r.created), resolved: blank(r.resolved) ? null : iso(r.resolved),
-    points: blank(r.points) ? null : Number(r.points), epic: r.epic || null, inSprint: yes(r.sprint),
+    points: blank(r.points) ? null : Number(r.points), epic: r.epic || null, inSprint: yes(r.sprint), labels: blank(r.labels) ? [] : [r.labels],
   }));
 });
 Given('these commits on main:', function (t: DataTable) {
@@ -64,9 +65,25 @@ Given('these labelled bugs:', function (t: DataTable) {
 });
 Then(/^(\w+) notes "([^"]+)"$/, function (id: string, note: string) { assert.equal(m(id).note, note); });
 
+// Sprint tickets built from status histories: category from the status name, start = first in-progress status,
+// resolved = when it reached Done.
+Given('these ticket histories:', function (t: DataTable) {
+  const cat = (st: string) => (/^done$/i.test(st) ? 'done' : /^to do$/i.test(st) ? 'new' : 'indeterminate');
+  const byKey = new Map<string, { at: string; to: string; category: string }[]>();
+  for (const r of t.hashes()) byKey.set(r.key, [...(byKey.get(r.key) ?? []), { at: iso(r.at), to: r.status, category: cat(r.status) }]);
+  const issues = [...byKey.entries()].map(([key, h]) => {
+    const done = h.find((x) => x.category === 'done');
+    return { key, summary: key, type: 'Story', status: h[h.length - 1].to, statusCategory: (done ? 'done' : 'inprogress') as 'done' | 'inprogress', points: 1, assignee: null,
+      hasAcceptanceCriteria: true, created: h[0].at, resolved: done?.at ?? null, addedToSprintAt: null, sprintIds: [1],
+      inProgressSince: h.find((x) => x.category === 'indeterminate')?.at ?? null, statusHistory: h };
+  });
+  s.sprints = [{ id: 1, name: 'ABC Sprint 1', board: 'ABC', goal: 'g', start: '2026-09-01T00:00:00.000Z', end: '2026-09-30T00:00:00.000Z', state: 'closed', issues }];
+});
+
 When('the reports are calculated', async function () {
   const { quality, predictability, efficiency, flatMeasures } = await import('../../src/reports.js');
-  measures = [quality(s), predictability(s), efficiency(s)].flatMap(flatMeasures);
+  groups = [quality(s), predictability(s), efficiency(s)].flatMap((r) => r.groups);
+  measures = groups.flatMap((g: { measures: Measure[] }) => g.measures);
 });
 
 const m = (id: string) => { const x = measures.find((y) => y.id === id); assert.ok(x, `no measure ${id}`); return x!; };
@@ -84,4 +101,17 @@ Then(/^(\w+) (meets|misses) its target of (under|over) ([\d.]+)$/, function (id:
   const x = m(id);
   assert.deepEqual(x.target, { op: dir === 'under' ? '<' : '>', value: Number(v) });
   assert.equal(x.met, verdict === 'meets');
+});
+
+Then(/^the time in "([^"]+)" is (\d+) hours, "([^"]+)" (\d+), "([^"]+)" (\d+) and "([^"]+)" (\d+)$/, function (s1: string, h1: string, s2: string, h2: string, s3: string, h3: string, s4: string, h4: string) {
+  const a = [s1, h1, s2, h2, s3, h3, s4, h4];
+  const heat = groups.find((g) => g.heatmap)?.heatmap as { status: string; hours: number }[];
+  for (let k = 0; k < a.length; k += 2) assert.equal(heat.find((h) => h.status === a[k])?.hours, Number(a[k + 1]), a[k]);
+});
+Then('the flow distribution is {int} features, {int} defects, {int} risks and {int} debt', function (f: number, d: number, r: number, debt: number) {
+  const dist = groups.find((g) => g.distribution)?.distribution as { kind: string; items: number }[];
+  assert.deepEqual(Object.fromEntries(dist.map((x) => [x.kind, x.items])), { Features: f, Defects: d, Risks: r, Debt: debt });
+});
+Then(/^flow_velocity is ([\d.]+) items a week from (\d+) done$/, function (v: string, n: string) {
+  const x = m('flow_velocity'); assert.deepEqual({ value: x.value, num: x.num }, { value: Number(v), num: Number(n) });
 });

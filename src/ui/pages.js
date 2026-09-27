@@ -8,7 +8,8 @@ const outlookChip = (o) => { const [c, i] = OUTLOOK[o] ?? ['none', '·']; return
 
 // ---------- Measure tiles (reports and dashboard headlines) ----------
 const unitOf = (m) => (m.unit === '%' ? '%' : m.unit === 'count' ? '' : ` ${m.unit}`);
-const targetText = (t, m) => (t ? `Target: ${t.op === '<' ? 'under' : 'over'} ${t.value}${m.unit === '%' ? '%' : m.unit === 'count' ? '' : ' ' + m.unit}` : '');
+const unitWord = (u, v) => (u === '%' ? '%' : u === 'count' ? '' : ` ${v === 1 ? u.replace(/s$/, '') : u}`);
+const targetText = (t, m) => (t ? `Target: ${t.op === '<' ? 'under' : 'over'} ${t.value}${unitWord(m.unit, t.value)}` : '');
 function metChip(m) {
   if (m.value == null) return '<span class="st none">Not measured</span>';
   if (m.met == null) return '';
@@ -21,7 +22,7 @@ function measureTile(m, opts = {}) {
   return `<div class="mtile">
     <div class="mt">${esc(m.title)}</div>
     <div class="mv">${m.value == null ? '<span class="muted">·</span>' : `${esc(chartFmt(m.value))}<small>${esc(unitOf(m))}</small>`}</div>
-    <div class="ms">${countsText(m)}${m.trend ? ` · ${trendArrow(m.trend)} than ${esc(chartFmt(m.previous))}${esc(unitOf(m))}` : ''}</div>
+    <div class="ms">${countsText(m)}${m.trend ? ` · ${trendArrow(m.trend)}${m.trend === 'same' ? '' : ` than ${esc(chartFmt(m.previous))}${esc(unitOf(m))}`}` : ''}</div>
     ${m.note ? `<div class="ms">${esc(m.note)}</div>` : ''}
     <div class="mg">${metChip(m)} <span class="muted">${esc(targetText(m.target, m))}</span>${m.smallSample ? '<span class="st amber" title="Too few items to trust this value: under 10 for a rate, under 5 for a median"><i aria-hidden="true">●</i>Small sample</span>' : ''}</div>
     ${about}${failing}
@@ -35,6 +36,7 @@ const REPORTS = {
   efficiency: { title: 'Efficiency', intro: 'Where work waits: from a pull request being opened to merged, and from a ticket being started to done.' },
 };
 const FILT = { team: 'all', days: 30 };
+const pctOf = (x, t) => { const sum = t.coding + t.review + t.deploy; return sum ? `${Math.round((100 * x) / sum)}%` : '·'; };
 
 async function reportPage(name, teams) {
   const r = REPORTS[name];
@@ -50,6 +52,18 @@ async function reportPage(name, teams) {
     ${d.groups.map((g) => `<section class="group"><h2>${esc(g.title)}</h2><p class="muted">${esc(g.question)}</p>
       <div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>
       ${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}
+      ${g.heatmap?.length ? `<div class="card mt"><h3>Where tickets spend their time</h3>
+        <table class="t"><tr><th>Status</th><th>Kind</th><th class="num">Share of time</th><th></th><th class="num">Median per ticket</th><th class="num">Tickets</th></tr>
+        ${g.heatmap.map((h, k) => `<tr><td>${esc(h.status)}</td><td>${h.waiting ? '<span class="st amber"><i aria-hidden="true">●</i>Waiting</span>' : '<span class="muted">Active</span>'}</td>
+          <td class="num">${esc(h.share)}%</td><td class="heatbar"><div class="track"><i class="${h.waiting ? (k < 2 ? 'k-s2 hot' : 'k-s2') : 'k-s1'}" data-w="${esc(h.share)}" data-max="${esc(Math.max(...g.heatmap.map((x) => x.share), 1))}"></i></div></td>
+          <td class="num">${esc(h.medianHours)} h</td><td class="num">${esc(h.tickets)}</td></tr>`).join('')}</table>
+        <p class="note">Working hours from first start to done, tickets resolved in the period. Waiting statuses in orange; the biggest are where to look first.</p></div>` : ''}
+      ${g.stages ? `<div class="card mt"><h3>Lead time by stage, per week</h3>${barChart('stages', { labels: g.stages.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), stacked: true, unit: 'hours', W: 900, H: 200, series: [
+          { name: 'Coding', key: 's1', values: g.stages.weekly.map((w) => Math.round(w.coding)) }, { name: 'Review', key: 's2', values: g.stages.weekly.map((w) => Math.round(w.review)) }, { name: 'Waiting to deploy', key: 'muted', values: g.stages.weekly.map((w) => Math.round(w.deploy)) }] })}
+        <p class="note">Total hours across the PRs deployed each week, so the stages add up exactly. Of all lead time in the period: coding ${esc(pctOf(g.stages.total.coding, g.stages.total))}, review ${esc(pctOf(g.stages.total.review, g.stages.total))}, waiting to deploy ${esc(pctOf(g.stages.total.deploy, g.stages.total))}.</p></div>` : ''}
+      ${g.distribution ? `<div class="twocol mt"><div class="card"><h3>Flow distribution</h3>${barChart('dist', { labels: g.distribution.map((d) => d.kind), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.distribution.map((d) => d.items) }] })}
+          <p class="note">Bugs are defects; debt and risk come from labels; everything else is feature work.</p></div>
+        <div class="card"><h3>Flow velocity by week</h3>${barChart('vel', { labels: g.velocityByWeek.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.velocityByWeek.map((w) => w.items) }] })}</div></div>` : ''}
       ${g.trend?.length ? `<div class="card mt"><h3>Escaped bugs by week</h3>${barChart('esc-' + g.id, { labels: g.trend.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: '', W: 900, H: 180, series: [
         { name: 'Significant bugs found in production', key: 's2', values: g.trend.map((w) => w.significantBugs) }, { name: 'Incidents (Sev0 to Sev2)', key: 's1', values: g.trend.map((w) => w.incidents) }] })}
         <p class="note">Significant = priority ${esc('in JIRA_SIGNIFICANT_PRIORITIES')}; bugs labelled pre-release are left out.</p></div>` : ''}
@@ -89,8 +103,8 @@ function sprintBoard(cs) {
       <p class="note">Outlook: points done per working day so far (${esc(p.done)} in ${esc(cs.workingDaysElapsed)} days), carried to the end of the sprint: ${esc(p.projected)} of ${esc(p.scope)} points.</p></div>
     <div class="card sb-wip"><h3>Work in progress <span class="muted">${esc(cs.inProgress.length)} items, ${esc(cs.wip.people)} people${cs.wip.overLimit ? ` · <span class="down">${esc(cs.wip.overLimit)} ${cs.wip.overLimit === 1 ? 'person has' : 'people have'} more than ${esc(cs.wip.limit)} at once</span>` : ` · nobody over ${esc(cs.wip.limit)} at once`}</span></h3>
       ${cs.wip.over?.length ? `<p class="note">Over the limit: ${cs.wip.over.map((o) => `${esc(o.name)} (${esc(o.count)})`).join(', ')}. Starting fewer things finishes more.</p>` : ''}${cs.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days</th>${named ? '<th>Assignee</th>' : ''}</tr>
-      ${cs.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num ${x.days > 5 ? 'warn' : ''}">${esc(x.days ?? '·')}</td>${named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : ''}</tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}
-      <p class="note">${esc(cs.inProgress.length)} items. Days in progress over 5 are highlighted.</p></div>
+      ${cs.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num ${x.old ? 'warn' : ''}" title="${x.typical != null ? `Normal for this size: ${esc(x.typical)} days` : 'No normal yet for this size'}">${esc(x.days ?? '·')}${x.old ? ' ▲' : ''}</td>${named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : ''}</tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}
+      <p class="note">▲ in progress more than 3× the team's normal time for its size (${esc(cs.oldWip)} ${cs.oldWip === 1 ? 'item' : 'items'}). Queued: ${esc(cs.queued.count)} of ${esc(cs.queued.of)} open items (${esc(cs.queued.pct)}%) are waiting${cs.queued.statuses.length ? ` in ${esc(cs.queued.statuses.join(', '))}` : ''}.</p></div>
     <div class="card sb-burn"><h3>Sprint burndown</h3>${lineChart('sb-burn', { labels: days, xLabel: shortDate, unit: 'points', whole: true, H: 240, W: 560, series: [
       { name: 'Remaining', key: 's1', values: cs.burndown.map((b) => b.remaining), area: true, dots: true },
       { name: 'Ideal', key: 'muted', values: cs.burndown.map((b) => b.ideal), dashed: true },
@@ -197,3 +211,16 @@ document.addEventListener('change', async (e) => {
   const box = document.querySelector('.sboard'); if (!box) return;
   box.outerHTML = sprintBoard(cs); sizeBars();
 });
+
+// Speed next to stability: going faster only counts if it holds.
+function speedStabilityRow(ss) {
+  const cell = (m) => {
+    const v = m.value == null ? '·' : `${chartFmt(m.value)}${m.unit === '%' ? '%' : ''}`;
+    const sub = m.tier ? `DORA ${m.tier}` : m.target ? targetText(m.target, m) : '';
+    const tr = m.trend ? trendArrow(m.trend) : m.better === true ? '<span class="up">▲ better</span>' : m.better === false ? '<span class="down">▼ worse</span>' : '';
+    return `<div class="ssm"><div class="mt">${esc(m.title)}</div><div class="mv">${esc(v)}<small>${m.unit === '%' || m.unit === 'count' ? '' : ' ' + esc(m.unit)}</small></div><div class="ms">${esc(sub)} ${tr}</div></div>`;
+  };
+  return `<div class="ss"><div class="card"><h3>Speed</h3><div class="ssr">${ss.speed.map(cell).join('')}</div></div>
+    <div class="card"><h3>Stability</h3><div class="ssr">${ss.stability.map(cell).join('')}</div></div></div>
+    <p class="note">All teams, last 30 days. Speed only counts if stability holds: read the two sides together.</p>`;
+}

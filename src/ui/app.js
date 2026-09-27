@@ -199,6 +199,7 @@ async function overview() {
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
     ${alertsPanel(d.alerts)}
+    ${speedStabilityRow(d.speedStability)}
     ${dashActivity(d)}
     ${dashHeadlines(d)}
     ${dashSprints(d)}

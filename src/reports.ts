@@ -3,6 +3,7 @@ import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, PullRequest, Sprint, WorkItem } from './types.js';
 import { hoursExcludingWeekends, weekOf } from './time.js';
+import { flow } from './flow.js';
 
 // Quality, Predictability and Efficiency: every measure with the counts behind it, its target and whether it is met.
 // One set of functions feeds the dashboard headline, the summary pages and the detailed reports, so they always agree.
@@ -33,10 +34,10 @@ export const TARGETS: Record<string, Target> = {
   pr_review_rate: { op: '>', value: 95 }, pr_review_comment_rate: { op: '>', value: 50 },
   time_to_restore: { op: '<', value: 24 }, bug_lead_time: { op: '<', value: 14 },
   bug_fix_find: { op: '>', value: 80 }, bug_workload: { op: '<', value: 20 }, revert_ratio: { op: '<', value: 5 },
-  sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 },
+  sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 }, qa_rejection: { op: '<', value: 15 }, flow_efficiency: { op: '>', value: 40 },
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 }, epics_with_due_date: { op: '>', value: 80 },
-  pr_lead_time: { op: '<', value: 2.5 }, pr_cycle_hours: { op: '<', value: 60 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  pr_lead_time: { op: '<', value: 2.5 }, pr_cycle_hours: { op: '<', value: 60 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -96,7 +97,24 @@ export function quality(s: Slice) {
 
   // Change failure rate, by the configured definition.
   let cfr: Measure;
-  if (source === 'bugs') {
+  if (source === 'linked') {
+    // Deployment linked: a successful production deploy failed if a significant bug, an incident or a hotfix PR
+    // appears within 24 hours after it. Each failure is linked to the one most recent deploy before it (same repo
+    // for a hotfix PR), so one incident never fails several deploys. A time link, not proof of cause.
+    const ok = deploysOk.map((d) => ({ ...d, t: Date.parse(d.at) })).sort((a, b) => a.t - b.t);
+    const failed = new Set<number>();
+    const link = (at: string, repo?: string) => {
+      const t = Date.parse(at);
+      let best = -1; ok.forEach((d, k) => { if (d.t <= t && t - d.t <= DAY && (!repo || d.repo === repo)) best = k; });
+      if (best >= 0) failed.add(best);
+    };
+    for (const b of bugsCreated.filter(significant)) link(b.created);
+    for (const i of s.incidents.filter((x) => inWin(s, x.firedAt))) link(i.firedAt);
+    for (const p of merged.filter((x) => x.isHotfix)) link(p.createdAt, p.repo);
+    cfr = rate('change_failure_rate', 'Change failure rate', failed.size, ok.length,
+      'Successful production deploys followed within 24 hours by a significant bug, an incident or a hotfix PR ÷ successful deploys. Each failure is linked to the one most recent deploy before it (same repo for hotfixes). A time link, not proof of cause.',
+      ['deploys followed by a failure', 'deploys'], [...failed].map((k) => `${ok[k].repo.split('/')[1]}@${ok[k].at.slice(0, 16)}`));
+  } else if (source === 'bugs') {
     const failures = bugsCreated.filter(significant), per = deploysOk.length ? deploysOk.length : merged.length;
     cfr = rate('change_failure_rate', 'Change failure rate', failures.length, per,
       `Significant bugs created (priority ${config.jira.significant.join(', ')}) ÷ ${deploysOk.length ? 'successful production deploys' : 'PRs merged to the default branch'}, in the period.`,
@@ -139,6 +157,9 @@ export function quality(s: Slice) {
         trend: [...weeks.entries()].map(([week, v]) => ({ week, ...v })) },
       { id: 'bug_prevention', title: 'Bug prevention', question: 'Do our processes stop bugs getting in?', measures: [
         rate('pr_review_rate', 'PR review rate', reviewed.length, merged.length, 'Merged PRs with at least one review by someone other than the author ÷ merged PRs.', ['reviewed', 'merged PRs'], merged.filter((p) => p.reviewCount === 0).map(ref)),
+        (() => { const f = flow(s); return rate('qa_rejection', 'QA rejection rate', f.qa.rejected.length, f.qa.entered,
+          `Tickets sent back from QA (${config.jira.qaStatuses.join(', ')}) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection.`,
+          ['sent back', 'entered QA'], f.qa.rejected); })(),
         rate('pr_review_comment_rate', 'PR review comment rate', commented.length, merged.length, 'Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs.', ['with review comments', 'merged PRs'], merged.filter((p) => !(p.reviewComments ?? 0)).map(ref)),
       ] },
       { id: 'bug_resolution', title: 'Bug resolution', question: 'How quickly do we fix what matters?', measures: [
@@ -226,6 +247,38 @@ export function efficiency(s: Slice) {
         med('review_time', 'Review to merge (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.firstReviewAt!, p.mergedAt!) / 24), 'days', 'Median days from first review to merge, PRs merged in the period.', 'reviewed PRs'),
         (() => { const xs = merged.map((p) => p.additions + p.deletions); const v = xs.length ? Math.round(median(xs)) : null; return { id: 'pr_size', title: 'PR size (median)', value: v, unit: 'count' as const, num: null, den: xs.length, denLabel: 'merged PRs', target: TARGETS.pr_size, met: metTarget(v, TARGETS.pr_size), how: 'Median lines changed (additions + deletions) per PR merged in the period.', smallSample: xs.length > 0 && xs.length < MIN_MEDIAN_SAMPLE }; })(),
       ] },
+      (() => {
+        const f = flow(s);
+        const eff = rate('flow_efficiency', 'Flow efficiency', Math.round(f.activeHours), Math.round(f.activeHours + f.waitingHours),
+          `Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: ${config.jira.waitStatuses.join(', ')}, or back in to do. Weekends left out.`,
+          ['active hours', 'hours from start to done']);
+        eff.note = `${f.tickets} tickets with a full status history.`;
+        const stage = (id: string, title: string, v: number | null, how: string): Measure => ({ id, title, value: v == null ? null : round1(v), unit: 'hours', num: null, den: f.stages.prs, denLabel: 'deployed PRs', target: null, met: null, how, smallSample: f.stages.prs > 0 && f.stages.prs < MIN_MEDIAN_SAMPLE });
+        return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff,
+          stage('stage_coding', 'Coding time (median)', f.stages.median.coding, `Median hours from a PR's first commit (author date) to the PR being opened. ${f.stages.withFirstCommit} of ${f.stages.prs} PRs have commit dates.`),
+          stage('stage_review', 'Review time (median)', f.stages.median.review, 'Median hours from PR opened to merged.'),
+          stage('stage_deploy', 'Waiting to deploy (median)', f.stages.median.deploy, 'Median hours from merge to the first successful production deploy of its repo.'),
+        ], heatmap: f.heatmap, stages: f.stages };
+      })(),
+      // The Flow Framework's five: velocity, time, load and distribution here; efficiency in "Where work waits".
+      (() => {
+        const done = s.items.filter((i) => !isSub(i) && i.statusCategory === 'done' && inWin(s, i.resolved));
+        const weeksN = Math.max(1, (s.to - s.from) / (7 * DAY));
+        const kind = (i: WorkItem) => isBug(i) ? 'Defects' : (i.labels ?? []).some((l) => config.jira.riskLabels.includes(l)) ? 'Risks' : (i.labels ?? []).some((l) => config.jira.debtLabels.includes(l)) ? 'Debt' : 'Features';
+        const dist = ['Features', 'Defects', 'Risks', 'Debt'].map((k) => ({ kind: k, items: done.filter((i) => kind(i) === k).length }));
+        const byWeek = new Map<string, number>(); for (let t = s.from; t < s.to; t += 7 * DAY) byWeek.set(weekOf(new Date(t).toISOString(), config.tzOffset), 0);
+        for (const i of done) { const w = weekOf(i.resolved!, config.tzOffset); if (byWeek.has(w)) byWeek.set(w, byWeek.get(w)! + 1); }
+        const load = s.items.filter((i) => !isSub(i) && i.statusCategory === 'inprogress').length;
+        const velocity: Measure = { id: 'flow_velocity', title: 'Flow velocity', value: round1(done.length / weeksN), unit: 'count', num: done.length, den: null, numLabel: 'items done',
+          target: null, met: null, how: 'Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams.', smallSample: done.length > 0 && done.length < MIN_RATE_SAMPLE };
+        const loadM: Measure = { id: 'flow_load', title: 'Flow load', value: load, unit: 'count', num: null, den: null, target: null, met: null,
+          how: 'Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team.' };
+        return { id: 'flow_framework', title: 'Flow Framework', question: 'How much value flows, how fast, and on what kind of work?', measures: [
+          velocity,
+          med('flow_time', 'Flow time (median)', done.map((i) => (Date.parse(i.resolved!) - Date.parse(i.created)) / DAY), 'days', 'Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked.', 'items done'),
+          loadM,
+        ], distribution: dist, velocityByWeek: [...byWeek.entries()].map(([week, items]) => ({ week, items })) };
+      })(),
       { id: 'ticket_flow', title: 'Ticket flow', question: 'Once work starts, how long until it is done?', measures: [
         med('cycle_time', 'Cycle time (median)', uniq.map((i) => (Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY), 'days', 'Median days from moving to In Progress to resolved, sprint tickets resolved in the period.', 'tickets'),
       ] },

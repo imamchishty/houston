@@ -88,6 +88,12 @@ export const config = {
     // Which priorities count as significant (serious bugs, and the bug based change failure rate)
     significant: (process.env.JIRA_SIGNIFICANT_PRIORITIES ?? 'Highest,Blocker,Critical,P1').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
     days: Number(process.env.JIRA_DAYS ?? 90),
+    // Statuses where work waits rather than moves (flow efficiency, queued work), and QA statuses (QA rejection).
+    waitStatuses: (process.env.JIRA_WAIT_STATUSES ?? 'Blocked,Ready for Review,Ready for QA,Awaiting Deploy,Ready for Release,Waiting,On Hold').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    // Flow distribution: labels that make a ticket debt or risk work (bugs are defects, everything else features)
+    debtLabels: (process.env.FLOW_DEBT_LABELS ?? 'tech-debt,techdebt,debt,refactor,refactoring,maintenance,upgrade').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    riskLabels: (process.env.FLOW_RISK_LABELS ?? 'security,risk,compliance,vulnerability,audit').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    qaStatuses: (process.env.JIRA_QA_STATUSES ?? 'QA,In QA,Testing,In Testing').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
     history: Number(process.env.SPRINT_HISTORY ?? 6),
   },
 };

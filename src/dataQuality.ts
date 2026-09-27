@@ -31,6 +31,8 @@ export function dataQuality(): DataCheck[] {
       const share = pct(tagged, bugItems.length);
       add(t, 'Bug environment labels', share < 70 ? 'warn' : 'ok', `${share}% of bugs are labelled production (${config.bugs.prodLabels.join('/')}) or pre-release (${config.bugs.qaLabels.join('/')}).${share < 70 ? ' Unlabelled bugs are left out of defect leakage; label them, or set BUG_PROD_LABELS / BUG_QA_LABELS / JIRA_BUG_ENV_FIELD to what the team uses.' : ''}`, ['defect leakage', 'escaped bugs trend']);
     }
+    const labelled = items.filter((i) => (i.labels ?? []).some((l) => config.jira.debtLabels.includes(l) || config.jira.riskLabels.includes(l))).length;
+    add(t, 'Debt and risk labels', labelled ? 'ok' : 'warn', labelled ? `${labelled} items labelled as debt or risk work.` : `No item carries a debt (${config.jira.debtLabels.slice(0, 3).join(', ')}…) or risk (${config.jira.riskLabels.slice(0, 3).join(', ')}…) label, so flow distribution shows only features and defects. Label that work, or set FLOW_DEBT_LABELS / FLOW_RISK_LABELS.`, ['flow distribution']);
     const prios = new Set(items.filter((i) => /^bug$/i.test(i.type)).map((i) => (i.priority ?? '').toLowerCase()).filter(Boolean));
     const sig = config.jira.significant.filter((x) => prios.has(x));
     if ((process.env.CFR_SOURCE ?? 'hotfix') === 'bugs')

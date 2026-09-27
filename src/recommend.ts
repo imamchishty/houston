@@ -28,6 +28,7 @@ type Ctx = {
   docsPeople?: { name: string; created: number; edited: number; adrs: number; runbooks: number }[];
   features?: { score: number; rag: Rag; findings: Finding[] } | null;
   named?: boolean;                  // false for shared outputs: names become a count
+  diag?: import('./diag.js').Diag;  // flow numbers for the three flow diagnoses
 };
 const dc = (c: Ctx, id: string) => c.docs?.findings.find((x) => x.ruleId === id);
 const ft = (c: Ctx, id: string) => c.features?.findings.find((x) => x.ruleId === id);
@@ -260,6 +261,28 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
     };
   },
 ];
+
+// Flow diagnoses: two numbers that point at one root cause together.
+patterns.push(
+  (c) => {
+    const d = c.diag; if (!d || d.flowEfficiency == null || d.pickupHours == null || !(d.flowEfficiency < 40 && d.pickupHours > 24)) return null;
+    return { id: 'review_first', title: 'Review before starting new work', owner: 'Team', horizon: 'This sprint', impact: 'high',
+      why: `Tickets are actively worked ${Math.round(d.flowEfficiency)}% of the time from start to done, and a pull request waits a median ${Math.round(d.pickupHours)} hours for its first review. Work is written, then sits waiting for each other.`,
+      what: ['Team rule: before picking up a new ticket, review any open pull request that is waiting.', 'Start the day with reviews, not new code.', 'Measure again in two sprints: time to first review under a day, flow efficiency above 40%.'] };
+  },
+  (c) => {
+    const d = c.diag; if (!d || d.qaRejection == null || !(d.qaRejection > 20 && (d.sprintCompletion ?? 0) >= 70)) return null;
+    return { id: 'definition_of_done', title: 'Tighten the definition of done', owner: 'Tech lead', horizon: 'Next 2 sprints', impact: 'high',
+      why: `${Math.round(d.qaRejection)}% of tickets that reach QA are sent back, while the team finishes ${Math.round(d.sprintCompletion!)}% of what it commits to. Work is being handed to QA before it is ready, so it counts as progress and comes back as rework.`,
+      what: ['Definition of done before QA: acceptance criteria met, tests written and passing, reviewed.', 'The developer demonstrates the ticket against its acceptance criteria before moving it to QA.', 'Every rejection gets a one line reason in the retro: missing test, unclear criteria, or environment.'] };
+  },
+  (c) => {
+    const d = c.diag; if (!d || !(d.oldWip >= 2 && d.deploysPerWeek != null && d.deploysPerWeek < 1)) return null;
+    return { id: 'smaller_tickets', title: 'Break work into pieces under two days', owner: 'Tech lead', horizon: 'Next 2 sprints', impact: 'high',
+      why: `${d.oldWip} tickets have been in progress more than three times longer than normal for their size, and the team releases ${d.deploysPerWeek} times a week. Big tickets take weeks, so there is little to release.`,
+      what: ['Split any ticket estimated above 3 points in refinement.', 'Each ticket should be releasable on its own within two days of starting.', 'Release every ticket that is finished, rather than batching them.'] };
+  },
+);
 
 export function recommend(c: Ctx): Recommendation[] {
   const out = patterns.map((p) => p(c)).filter((r): r is Recommendation => !!r);

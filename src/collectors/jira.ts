@@ -37,6 +37,7 @@ function hasAC(fields: any): boolean {
 export function fromChangelog(changelog: any, sprintId: number, categories: Map<string, string>) {
   let addedToSprintAt: string | null = null;
   let inProgressSince: string | null = null;
+  const statusHistory: { at: string; to: string; category: string }[] = [];
   for (const h of changelog?.histories ?? []) {
     for (const it of h.items ?? []) {
       if (it.field === 'Sprint' && String(it.to ?? '').split(',').map((x: string) => x.trim()).includes(String(sprintId))) {
@@ -46,10 +47,12 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
         const cat = categories.get(String(it.to ?? ''));
         const started = cat ? cat === 'indeterminate' : /in progress/i.test(it.toString ?? ''); // name only if the status is unknown
         if (started && (!inProgressSince || h.created < inProgressSince)) inProgressSince = h.created;
+        statusHistory.push({ at: h.created, to: String(it.toString ?? ''), category: cat ?? (started ? 'indeterminate' : /done|closed|resolved/i.test(it.toString ?? '') ? 'done' : 'new') });
       }
     }
   }
-  return { addedToSprintAt, inProgressSince };
+  statusHistory.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return { addedToSprintAt, inProgressSince, statusHistory };
 }
 
 // Every status's category (new / indeterminate / done), once per run.
@@ -100,6 +103,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
         addedToSprintAt: cl.addedToSprintAt,
         sprintIds: (f.closedSprints ?? []).map((s: any) => s.id).concat(f.sprint ? [f.sprint.id] : []),
         inProgressSince: cl.inProgressSince,
+        statusHistory: cl.statusHistory,
         // Company-managed projects use the Epic Link field; team-managed ones make the epic the parent.
         epic: f[config.jira.epicField] ?? (f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic' ? f.parent.key : null),
       });

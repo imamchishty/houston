@@ -15,6 +15,8 @@ export interface Issue {
   sprintIds: number[];     // every sprint this issue has been in (carry-over detection)
   inProgressSince: string | null;
   epic?: string | null;     // parent epic (feature) key, for cost per feature
+  // Every status change, oldest first: when, the status entered, and its Jira category (new / indeterminate / done).
+  statusHistory?: { at: string; to: string; category: string }[];
 }
 
 export interface Sprint {
@@ -110,6 +112,7 @@ export interface PullRequest {
   baseBranch?: string;            // branch it merges into
   reviewComments?: number;        // review comments and non-empty review bodies by someone other than the author
   isRevert?: boolean;             // GitHub revert PR ('Revert "..."' title or revert-NNN branch)
+  firstCommitAt?: string | null;  // earliest commit author date in the PR (survives rebases), for coding time
   botReviews?: number;            // reviews and comments by bots, left out of every review measure (for the data check)
 }
 

@@ -4,6 +4,7 @@ import { claudeReport } from './claude.js';
 import { BANDS } from './metrics.js';
 import { slice, quality, predictability, efficiency, activitySummary, flatMeasures, withPrevious } from './reports.js';
 import { currentSprints } from './sprintNow.js';
+import { doraSeries } from './dora.js';
 import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
@@ -48,6 +49,16 @@ export function dashboard(now = Date.now()) {
     { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_lead_time', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
   ].map((h) => ({ ...h, measures: h.measures.map(({ failing, how, ...m }) => m) }));
 
+  // Speed next to stability, all teams, last 30 days: the tension leadership should see at a glance.
+  const dora = doraSeries('all', 30, now).metrics, dm = (id: string) => dora.find((x) => x.id === id)!;
+  const wp = flatMeasures(withPrevious('all', 30, (x) => ({ groups: [...efficiency(x).groups, ...quality(x).groups] }), now));
+  const mm = (id: string) => { const { failing, how, ...m } = wp.find((x) => x.id === id)!; return m; };
+  const speedStability = {
+    speed: [{ id: 'lead_time', title: 'Lead time for changes', value: dm('lead_time').value, unit: 'days', tier: dm('lead_time').tier, better: dm('lead_time').better },
+      { id: 'deploy_frequency', title: 'Deployment frequency', value: dm('deploy_frequency').value, unit: 'per week', tier: dm('deploy_frequency').tier, better: dm('deploy_frequency').better }, mm('flow_efficiency')],
+    stability: [mm('change_failure_rate'), mm('qa_rejection'), { id: 'time_to_restore', title: 'Time to restore', value: dm('time_to_restore').value, unit: 'hours', tier: dm('time_to_restore').tier, better: dm('time_to_restore').better }],
+  };
+
   // Team health alerts: every target a team missed in the last 30 days, per team. Red when it was missed the
   // 30 days before as well (a pattern, not a blip); amber when it is new. Small samples never raise an alert.
   const alerts = boards.flatMap((board) => (['quality', 'predictability', 'efficiency'] as const).flatMap((page) => {
@@ -75,6 +86,7 @@ export function dashboard(now = Date.now()) {
     generatedAt: new Date(now).toISOString(),
     activity: { days: 30, ...activitySummary(s30) },
     alerts,
+    speedStability,
     headlines,
     sprints: currentSprints(false, now).map(({ burndown, byStatus, statusType, bugTrend, cycleByDay, inProgress, cycle, velocity, ...sp }) => sp),
     projects,

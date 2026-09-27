@@ -48,6 +48,7 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
       jiraKeys: r() < (weak ? 0.55 : 0.92) ? [`${board}-${1000 + Math.floor(r() * 400)}`] : [],
       areas, isHotfix: false, draft: false,
       branch: `${p.lane}/${board}-${n}`, baseBranch: 'main',
+      firstCommitAt: new Date(created - (weak ? 6 + r() * 40 : 1 + r() * 12) * hour).toISOString(),
       reviewComments: rev.length ? (r() < (weak ? 0.45 : 0.8) ? 1 + Math.floor(r() * 5) : 0) : 0,
     });
     // Hotfixes and reverts: a revert is also a hotfix for change failure; its title and branch follow GitHub's revert button.
