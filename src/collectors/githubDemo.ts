@@ -1,4 +1,4 @@
-import type { CiRun, Deploy, GithubSnapshot, PullRequest } from '../types.js';
+import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest } from '../types.js';
 
 function rng(seed: number) { let s = seed; return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296); }
 const day = 86_400_000, hour = 3_600_000;
@@ -33,7 +33,9 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
     const areas = crossLane ? ['frontend', 'backend'] : [p.lane];
     if (r() < 0.3) areas.push('tests');
     const noReview = weak && r() < 0.18;
-    const rev = noReview ? [] : [reviewers[Math.floor(r() * reviewers.length)]].filter((x) => x !== p.name);
+    // Reviewer is never the author (a self review does not count, and would make the demo look worse than it is).
+    const others = reviewers.filter((x) => x !== p.name);
+    const rev = noReview || !others.length ? [] : [others[Math.floor(r() * others.length)]];
     prs.push({
       repo: `m42/${board.toLowerCase()}-${p.lane === 'frontend' ? 'web' : 'api'}`, number: n++, title: `${p.lane} change ${i}`, author: p.name,
       createdAt: new Date(created).toISOString(),
@@ -44,8 +46,14 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
       additions: Math.round(size * 0.7), deletions: Math.round(size * 0.3), changedFiles: 1 + Math.floor(size / 80),
       reviewers: rev, reviewCount: rev.length ? 1 + Math.floor(r() * 3) : 0,
       jiraKeys: r() < (weak ? 0.55 : 0.92) ? [`${board}-${1000 + Math.floor(r() * 400)}`] : [],
-      areas, isHotfix: r() < (weak ? 0.12 : 0.03), draft: false,
+      areas, isHotfix: false, draft: false,
+      branch: `${p.lane}/${board}-${n}`, baseBranch: 'main',
+      reviewComments: rev.length ? (r() < (weak ? 0.45 : 0.8) ? 1 + Math.floor(r() * 5) : 0) : 0,
     });
+    // Hotfixes and reverts: a revert is also a hotfix for change failure; its title and branch follow GitHub's revert button.
+    const last = prs[prs.length - 1], kind = r();
+    if (kind < (weak ? 0.05 : 0.01)) Object.assign(last, { title: `Revert "${last.title}"`, branch: `revert-${last.number - 1}-${last.branch}`, isRevert: true, isHotfix: true });
+    else if (kind < (weak ? 0.12 : 0.03)) Object.assign(last, { title: `hotfix: ${last.title}`, branch: `hotfix/${board}-${last.number}`, isHotfix: true });
   }
   const ci: CiRun[] = []; const deploys: Deploy[] = [];
   for (let t = since; t < until; t += (weak ? 0.5 : 0.2) * day) {
@@ -54,7 +62,13 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
   for (let t = since; t < until; t += (weak ? 9 : 0.7) * day) {
     deploys.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), ref: 'sha', success: r() < (weak ? 0.75 : 0.96) });
   }
-  return { board, since: new Date(since).toISOString(), until: new Date(until).toISOString(), repos: [`m42/${board.toLowerCase()}-api`, `m42/${board.toLowerCase()}-web`], prs, deploys, ci };
+  // Commits on main: one per merged PR (squash merges), plus direct pushes and plain git merges the weak team still does.
+  const repos = [`m42/${board.toLowerCase()}-api`, `m42/${board.toLowerCase()}-web`];
+  const mainCommits: MainCommit[] = prs.filter((p) => p.mergedAt).map((p) => ({ repo: p.repo, sha: `pr${p.number}`, at: p.mergedAt!, merge: false, viaPr: true }));
+  for (let i = 0; i < (weak ? 34 : 3); i++) mainCommits.push({ repo: repos[i % 2], sha: `direct${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: false, viaPr: false });
+  for (let i = 0; i < (weak ? 6 : 0); i++) mainCommits.push({ repo: repos[0], sha: `merge${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: true, viaPr: false });
+  return { board, since: new Date(since).toISOString(), until: new Date(until).toISOString(), repos, prs, deploys, ci,
+    defaultBranches: Object.fromEntries(repos.map((x) => [x, 'main'])), mainCommits };
 }
 
 export function demoGithub(): GithubSnapshot[] {

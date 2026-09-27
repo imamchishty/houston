@@ -1,5 +1,6 @@
 import { config } from '../config.js';
-import type { CiRun, Deploy, GithubSnapshot, PullRequest } from '../types.js';
+import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest } from '../types.js';
+import { store } from '../store/index.js';
 import { canonical } from '../identity.js';
 
 // GitHub REST v3. Works against GitHub Enterprise Server (https://<host>/api/v3) and github.com.
@@ -64,6 +65,11 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
       areas: [...new Set(files.map((f: any) => laneFor(f.filename)))],
       isHotfix: /hotfix|revert/i.test(`${p.title} ${p.head?.ref ?? ''}`),
       draft: !!p.draft,
+      branch: p.head?.ref ?? '', baseBranch: p.base?.ref ?? '',
+      // Review comments (inline) plus reviews that say something, by anyone but the author.
+      reviewComments: comments.filter(others).length + reviews.filter((x: any) => others(x) && String(x.body ?? '').trim()).length,
+      // GitHub's own revert button makes 'Revert "<title>"' on a revert-<n>-<branch> branch.
+      isRevert: /^revert\b/i.test(p.title ?? '') || /^revert-\d+/i.test(p.head?.ref ?? ''),
     });
   }
   return out;
@@ -84,13 +90,34 @@ async function runs(repo: string, since: string): Promise<{ ci: CiRun[]; deploys
   return { ci, deploys };
 }
 
+// Commits on the default branch in the window, each marked by whether GitHub links it to a merged PR.
+// Asking per commit is the only way that is right for merge, squash and rebase merges alike, so answers from the
+// previous collection are reused and only new commits are looked up.
+async function mainCommits(repo: string, branch: string, since: string, known: Map<string, boolean>): Promise<MainCommit[]> {
+  const list = await all<any>(`/repos/${repoPath(repo)}/commits?sha=${encodeURIComponent(branch)}&since=${encodeURIComponent(since)}`, 2000);
+  const out: MainCommit[] = [];
+  for (const c of list) {
+    let viaPr = known.get(c.sha);
+    if (viaPr === undefined) {
+      const prs = await gh<any[]>(`/repos/${repoPath(repo)}/commits/${encodeURIComponent(c.sha)}/pulls`);
+      viaPr = prs.some((p) => p.merged_at && p.base?.ref === branch);
+    }
+    out.push({ repo, sha: c.sha, at: c.commit?.committer?.date ?? c.commit?.author?.date, merge: (c.parents ?? []).length > 1, viaPr });
+  }
+  return out;
+}
+
 export async function collectGithub(): Promise<GithubSnapshot[]> {
   const until = new Date();
   const since = new Date(until.getTime() - config.github.days * 86_400_000).toISOString();
   const out: GithubSnapshot[] = [];
   for (const b of config.github.repos) {
-    const snap: GithubSnapshot = { board: b.name, since, until: until.toISOString(), repos: b.repos, prs: [], deploys: [], ci: [] };
+    const snap: GithubSnapshot = { board: b.name, since, until: until.toISOString(), repos: b.repos, prs: [], deploys: [], ci: [], defaultBranches: {}, mainCommits: [] };
+    const known = new Map((store.github().find((g) => g.board === b.name)?.mainCommits ?? []).map((c) => [c.sha, c.viaPr] as const));
     for (const repo of b.repos) {
+      const branch = (await gh<any>(`/repos/${repoPath(repo)}`)).default_branch ?? 'main';
+      snap.defaultBranches![repo] = branch;
+      snap.mainCommits!.push(...(await mainCommits(repo, branch, since, known)));
       snap.prs.push(...(await pullRequests(repo, since)));
       const r = await runs(repo, since);
       snap.ci.push(...r.ci);

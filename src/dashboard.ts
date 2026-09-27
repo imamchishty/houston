@@ -2,6 +2,13 @@ import { store } from './store/index.js';
 import { teamSummary } from './summary.js';
 import { claudeReport } from './claude.js';
 import { BANDS } from './metrics.js';
+import { slice, quality, predictability, efficiency, activitySummary, flatMeasures } from './reports.js';
+import { currentSprints } from './sprintNow.js';
+import { featureCosts } from './cost.js';
+import { costRates } from './claude.js';
+import { rosterFor } from './identity.js';
+import { config } from './config.js';
+import { boardData } from './board.js';
 
 // Everything on the home page in one call: every team's status, what needs attention, and whether the data is fresh.
 // Team level only, so it is safe for any signed in user or API token.
@@ -32,8 +39,34 @@ export function dashboard(now = Date.now()) {
   const claude = boards.map((b) => claudeReport(b, false)).filter((c) => c.usageConnected);
   const roster = claude.reduce((t, c) => t + c.rosterSize, 0);
 
+  // Headlines: one measure per summary page, last 30 days, all teams. The same functions as the reports.
+  const s30 = slice('all', 30, now);
+  const pick = (r: ReturnType<typeof quality>, id: string) => flatMeasures(r).find((m) => m.id === id)!;
+  const headlines = [
+    { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers and the team?', measures: ['change_failure_rate', 'rework_rate'].map((id) => pick(quality(s30), id)) },
+    { page: 'predictability', title: 'Predictability', question: 'Does the team deliver what it plans?', measures: ['sprint_completion', 'prs_traceable'].map((id) => pick(predictability(s30), id)) },
+    { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_lead_time', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
+  ].map((h) => ({ ...h, measures: h.measures.map(({ failing, how, ...m }) => m) }));
+
+  // Features in progress, with what they have cost so far and are estimated to cost to finish.
+  const projects = boards.flatMap((board) => {
+    const b = boardData(board);
+    const cost = config.cost.fteDay || config.cost.contractorDay
+      ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(board), weekend: config.weekend }) : null;
+    return b.raw.epics.filter((e) => e.statusCategory === 'inprogress').map((e) => {
+      const c = cost?.features.find((f) => f.key === e.key);
+      return { board, key: e.key, summary: e.summary, childDone: e.childDone, childCount: e.childCount, due: e.due ?? null,
+        pctDone: e.childCount ? Math.round((100 * e.childDone) / e.childCount) : null,
+        spent: c?.spent ?? null, toComplete: c?.toComplete ?? null, total: c?.total ?? null, currency: cost?.currency ?? null };
+    });
+  }).sort((a, b) => (b.total ?? 0) - (a.total ?? 0));
+
   return {
     generatedAt: new Date(now).toISOString(),
+    activity: { days: 30, ...activitySummary(s30) },
+    headlines,
+    sprints: currentSprints(false, now).map(({ burndown, byStatus, inProgress, cycle, velocity, ...sp }) => sp),
+    projects,
     data: { lastCollected: last, ageHours: ageHours == null ? null : Math.round(ageHours * 10) / 10, stale: ageHours == null || ageHours > STALE_HOURS },
     counts: { teams: teams.length, ...Object.fromEntries(BANDS.map((b) => [b.label, teams.filter((t) => t.band === b.label).length])) },
     cost: costs.length ? {

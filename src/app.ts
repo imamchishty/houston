@@ -10,6 +10,8 @@ import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
 import { doraSeries, PERIODS } from './dora.js';
+import { slice, quality, predictability, efficiency, perTeam, flatMeasures, type Period } from './reports.js';
+import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
 import { costRates, claudeReport } from './claude.js';
@@ -341,6 +343,32 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!(PERIODS as readonly number[]).includes(days)) return reply.code(400).send({ error: `days must be one of ${PERIODS.join(', ')}` });
     if (team !== 'all' && !store.scorecards().some((c) => c.board === team)) return reply.code(404).send({ error: 'No such team' });
     return doraSeries(team, days as (typeof PERIODS)[number]);
+  });
+
+  // Filters shared by every report: team (or all) and period. Returns null after replying with the error.
+  const filters = (q: { team?: string; days?: string }, reply: any): { team: string; days: Period } | null => {
+    const team = q.team ?? 'all', days = Number(q.days ?? 30);
+    if (!(PERIODS as readonly number[]).includes(days)) { reply.code(400).send({ error: `days must be one of ${PERIODS.join(', ')}` }); return null; }
+    if (team !== 'all' && !store.scorecards().some((c) => c.board === team)) { reply.code(404).send({ error: 'No such team' }); return null; }
+    return { team, days: days as Period };
+  };
+  // Quality, Predictability and Efficiency reports: grouped measures with counts and targets, plus the same
+  // measures per team so the report can show a team scorecard. Team level only.
+  for (const [name, fn] of [['quality', quality], ['predictability', predictability], ['efficiency', efficiency]] as const) {
+    app.get<{ Querystring: { team?: string; days?: string } }>(`/api/reports/${name}`, async (req, reply) => {
+      const f = filters(req.query, reply); if (!f) return;
+      const s = slice(f.team, f.days);
+      return { report: name, team: f.team, days: f.days, from: new Date(s.from).toISOString().slice(0, 10), to: new Date(s.to - 1).toISOString().slice(0, 10),
+        ...fn(s), teams: perTeam(f.team, f.days, (x) => ({ measures: flatMeasures(fn(x)).map(({ failing, how, ...m }) => m) })) };
+    });
+  }
+
+  // The sprint in progress, per team: days and points left, outlook, burndown, work in flight. Assignees only for people viewers.
+  app.get<{ Querystring: { team?: string } }>('/api/sprints/current', async (req, reply) => {
+    const team = req.query.team ?? 'all';
+    if (team === 'all') return currentSprints(namedFor(req as any));
+    if (!store.scorecards().some((c) => c.board === team)) return reply.code(404).send({ error: 'No such team' });
+    return currentSprint(team, namedFor(req as any)) ?? reply.code(404).send({ error: 'No sprint in progress' });
   });
 
   // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.

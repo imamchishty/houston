@@ -14,7 +14,9 @@ const day = 86_400_000;
 
 function makeSprint(board: string, n: number, health: number, seed: number, baseId: number, epicCount: number): Sprint {
   const r = rng(seed);
-  const start = new Date(Date.UTC(2026, 5, 1) + (n - 1) * 14 * day);
+  // Six two-week sprints ending with the one in progress now: it started on this week's Monday.
+  const monday = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.getTime(); })();
+  const start = new Date(monday - (6 - n) * 14 * day);
   const end = new Date(start.getTime() + 14 * day);
   const issues: Issue[] = [];
   const people = teams[board];
@@ -30,7 +32,7 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
       key: `${board}-${baseId + n * 100 + i}`,
       summary: `${type} ${i + 1}`,
       type,
-      status: done ? 'Done' : inProg ? 'In Progress' : 'To Do',
+      status: done ? 'Done' : inProg ? (r() < 0.35 ? 'In Review' : 'In Progress') : 'To Do',
       statusCategory: done ? 'done' : inProg ? 'inprogress' : 'todo',
       points: r() < (1 - health) * 0.35 ? null : [1, 2, 3, 5, 8][Math.floor(r() * 5)],
       assignee: inProg && r() < (1 - health) * 0.25 ? null : people[Math.floor(r() * people.length)],
@@ -53,6 +55,13 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
     const slow = health < 0.5 && (i.assignee === 'Tom' || i.assignee === 'Omar') && r() < 0.6 ? 2.5 : 1;
     const days = (0.6 + size * 0.7 + r() * 1.5) * slow;
     i.resolved = new Date(new Date(i.inProgressSince).getTime() + days * day).toISOString();
+  }
+  // The sprint in progress cannot have work finished in the future: anything "done" later than now is still in progress.
+  const now = Date.now();
+  if (n === 6) for (const i of issues) {
+    if (i.resolved && Date.parse(i.resolved) > now) Object.assign(i, { resolved: null, statusCategory: 'inprogress', status: 'In Progress' });
+    if (i.inProgressSince && Date.parse(i.inProgressSince) > now) Object.assign(i, { inProgressSince: null, statusCategory: 'todo', status: 'To Do' });
+    if (i.addedToSprintAt && Date.parse(i.addedToSprintAt) > now) i.addedToSprintAt = new Date(now - day).toISOString();
   }
   return {
     id: baseId + n,

@@ -106,6 +106,10 @@ export interface PullRequest {
   areas: string[];                // lane mapping from paths: frontend, backend, infra, tests, docs, other
   isHotfix: boolean;              // branch or title marks it as hotfix or revert
   draft: boolean;
+  branch?: string;                // head branch name
+  baseBranch?: string;            // branch it merges into
+  reviewComments?: number;        // review comments and non-empty review bodies by someone other than the author
+  isRevert?: boolean;             // GitHub revert PR ('Revert "..."' title or revert-NNN branch)
 }
 
 export interface Deploy {
@@ -130,7 +134,13 @@ export interface GithubSnapshot {
   prs: PullRequest[];
   deploys: Deploy[];
   ci: CiRun[];
+  defaultBranches?: Record<string, string>;   // repo -> default branch
+  mainCommits?: MainCommit[];                  // commits on the default branch in the window
 }
+
+// A commit on a repo's default branch. viaPr: GitHub associates it with a merged pull request
+// (true for merge, squash and rebase merges alike); false means it was pushed or merged without a PR.
+export interface MainCommit { repo: string; sha: string; at: string; merge: boolean; viaPr: boolean }
 
 // Confluence: pages in the team's spaces, for docs health and for who writes what.
 export interface DocPage {
@@ -158,6 +168,7 @@ export interface Epic {
   resolved: string | null;
   childCount: number;
   childDone: number;
+  due?: string | null;       // Jira due date, set from the roadmap
 }
 
 // Action log: what was done about a recommendation, by whom, and whether the number moved.
@@ -207,3 +218,13 @@ export interface ClaudeUser {
   apiEquivalentUsd: number;   // tokens priced at API rates. On a seat plan this is NOT billed
 }
 export interface ClaudeSnapshot { board: string; capturedAt: string; days: number; users: ClaudeUser[] }
+
+// Every work item in a team's Jira project created or resolved in the window, whether or not it was in a sprint.
+// The source for bug metrics and ticket hygiene. Epics are in Epic[], not here.
+export interface WorkItem {
+  key: string; type: string; status: string; statusCategory: 'todo' | 'inprogress' | 'done';
+  priority: string | null; reporter: string | null; assignee: string | null;
+  created: string; resolved: string | null;
+  points: number | null; epic: string | null; inSprint: boolean;
+}
+export interface ProjectSnapshot { board: string; project: string; since: string; until: string; items: WorkItem[] }

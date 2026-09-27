@@ -72,6 +72,12 @@ export const config = {
     acField: process.env.JIRA_AC_FIELD || null,
     pointsField: process.env.JIRA_POINTS_FIELD ?? 'customfield_10016',
     epicField: process.env.JIRA_EPIC_FIELD ?? 'customfield_10014', // Epic Link on Jira Cloud company-managed projects
+    sprintField: process.env.JIRA_SPRINT_FIELD ?? 'customfield_10020', // Sprint field on Jira Cloud
+    // Jira project key per board, when it differs from the board name: "OSSI:OSS,PLAT:PLATFORM"
+    projects: Object.fromEntries(pairs(process.env.JIRA_PROJECTS).map((p) => [p.name, p.id])) as Record<string, string>,
+    // Which priorities count as significant (serious bugs, and the bug based change failure rate)
+    significant: (process.env.JIRA_SIGNIFICANT_PRIORITIES ?? 'Highest,Blocker,Critical,P1').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    days: Number(process.env.JIRA_DAYS ?? 90),
     history: Number(process.env.SPRINT_HISTORY ?? 6),
   },
 };
@@ -82,6 +88,8 @@ export function configProblems(c = config): string[] {
   const out: string[] = [];
   const check = (what: string, v: string, re: RegExp) => { if (v && !re.test(v)) out.push(`${what}: "${v}" is not valid`); };
   const BOARD = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/, GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const [b, k] of Object.entries(c.jira.projects)) { check('JIRA_PROJECTS board', b, BOARD); check('JIRA_PROJECTS key', k, /^[A-Z][A-Z0-9_]{0,31}$/); }
+  if (!Number.isInteger(c.jira.days) || c.jira.days < 7 || c.jira.days > 365) out.push('JIRA_DAYS must be 7 to 365');
   for (const b of c.jira.boards) { check('JIRA_BOARDS name', b.name, BOARD); if (!Number.isInteger(b.id) || b.id <= 0) out.push(`JIRA_BOARDS id for ${b.name} must be a number`); }
   for (const r of c.github.repos) { check('GITHUB_REPOS board', r.name, BOARD); for (const x of r.repos) check('GITHUB_REPOS repo', x, /^[\w.-]+\/[\w.-]+$/); }
   for (const p of c.sonar.projects) check('SONAR_PROJECTS key', p.id, /^[\w.:-]+$/);
