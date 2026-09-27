@@ -1,4 +1,4 @@
-import { slice, quality, predictability, efficiency, flatMeasures } from './reports.js';
+import { slice, flatMeasures, REPORTS } from './reports.js';
 import { currentSprint } from './sprintNow.js';
 import { doraSeries } from './dora.js';
 
@@ -7,7 +7,7 @@ export interface Diag { prReviewRate: number | null; bugWorkload: number | null;
 
 export function diagFor(board: string, now = Date.now()): Diag {
   const s = slice(board, 30, now);
-  const all = [quality(s), predictability(s), efficiency(s)].flatMap(flatMeasures);
+  const all = Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(s)));
   const v = (id: string) => { const m = all.find((x) => x.id === id); return m && m.value != null && !m.smallSample ? m.value : null; };
   const pickup = v('pickup_time');
   return {

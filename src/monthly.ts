@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
 import { leadTimes } from './leadtime.js';
-import { sliceRange, quality, predictability, efficiency, activitySummary, changeFailure, flatMeasures, TARGETS, type Target } from './reports.js';
+import { sliceRange, activitySummary, changeFailure, flatMeasures, TARGETS, REPORTS, type Target } from './reports.js';
 import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
@@ -54,7 +54,7 @@ type Val = { value: number | null; num: number | null; den: number | null; small
 // The key numbers for one month, computed from the collected data for [from, min(to, now)).
 function compute(team: string, from: number, to: number): Map<string, Val> {
   const s = sliceRange(team, from, to);
-  const all = [quality(s), predictability(s), efficiency(s)].flatMap(flatMeasures);
+  const all = Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(s)));
   const m = (id: string): Val => { const x = all.find((y) => y.id === id); return x ? { value: x.value, num: x.num, den: x.den, smallSample: x.smallSample } : { value: null, num: null, den: null }; };
   const weeks = Math.max(1, (to - from) / (7 * DAY));
   const deploys = s.deploys.filter((d) => d.success && Date.parse(d.at) >= from && Date.parse(d.at) < to).length;
@@ -68,6 +68,9 @@ function compute(team: string, from: number, to: number): Map<string, Val> {
     ['tickets_done', { value: activitySummary(s).ticketsCompleted, num: null, den: null }],
   ]);
   for (const id of ['time_to_restore', 'sprint_completion', 'bugs_per_change', 'defect_leakage', 'bug_workload', 'pr_cycle_hours', 'flow_efficiency']) out.set(id, m(id));
+  // Flow distribution: items completed this month by kind (features, defects, risks, debt), saved with the month.
+  const dist = (REPORTS.flow(s).groups.find((g) => 'distribution' in g) as { distribution?: { kind: string; items: number }[] } | undefined)?.distribution ?? [];
+  for (const d of dist) out.set(`dist_${d.kind.toLowerCase()}`, { value: d.items, num: null, den: null });
   return out;
 }
 
@@ -105,6 +108,9 @@ export function monthlyReport(team: string, month: string, now = Date.now()) {
   const months: string[] = []; for (let m = month, k = 0; k < 6; k++, m = prevMonth(m)) months.unshift(m);
   const trendVals = months.map((m) => ({ month: m, ...monthValues(team, m, now) }));
   const trends = KEYS.map((k) => ({ id: k.id, title: k.title, unit: k.unit, target: k.target, points: trendVals.map((t) => ({ month: t.month, status: t.status, value: t.values.get(k.id)?.value ?? null })) }));
+  // Items delivered per month by kind: the Flow Framework's monthly view.
+  const KINDS = ['features', 'defects', 'risks', 'debt'];
+  const distribution = trendVals.map((t) => ({ month: t.month, status: t.status, ...Object.fromEntries(KINDS.map((k) => [k, t.values.get(`dist_${k}`)?.value ?? null])) }));
 
   // The month's detail, from the collected data (empty for a month only held as saved numbers).
   const { from, to } = monthRange(month), end = Math.min(to, now), inMonth = (iso: string | null | undefined) => !!iso && Date.parse(iso) >= from && Date.parse(iso) < end;
@@ -130,7 +136,7 @@ export function monthlyReport(team: string, month: string, now = Date.now()) {
   const summary = cur.status === 'no data' || cur.status === 'partial' ? `${monthName(month)}.${statusNote[cur.status]}`
     : `${monthName(month)}: ${good} of ${measured} targets met.${improved.length ? ` Improved most: ${improved[0].split(':')[0].toLowerCase()}.` : ''}${worse.length ? ` Worse: ${worse[0].split(':')[0].toLowerCase()}.` : ''}${statusNote[cur.status]}`;
 
-  return { team, month, name: monthName(month), status: cur.status, previousStatus: prev.status, summary, headline, improved, worse, trends,
+  return { team, month, name: monthName(month), status: cur.status, previousStatus: prev.status, summary, headline, improved, worse, trends, distribution,
     detail: { sprints, features, incidents: { count: incidents.length, medianRestoreHours: (() => { const xs = incidents.filter((i) => i.resolvedAt).map((i) => (Date.parse(i.resolvedAt!) - Date.parse(i.firedAt)) / 3_600_000); return xs.length ? Math.round(median(xs) * 10) / 10 : null; })() } } };
 }
 
@@ -141,6 +147,7 @@ export function monthlyMarkdown(r: ReturnType<typeof monthlyReport>) {
     '## Key numbers', '', '| Measure | This month | Last month | Change | Target |', '|---|---|---|---|---|',
     ...r.headline.map((h) => `| ${h.title} | ${fmt(h.value, h.unit)}${h.smallSample ? ' (small sample)' : ''} | ${fmt(h.previous, h.unit)} | ${arrow(h.trend)} | ${h.target ? `${h.target.op === '<' ? 'under' : 'over'} ${fmt(h.target.value, h.unit)}` : ''}${h.met == null ? '' : h.met ? ' (met)' : ' (missed)'} |`),
     '', '## What changed', '', ...(r.improved.length ? r.improved.map((x) => `- Better: ${x}`) : ['- Nothing improved clearly.']), ...(r.worse.length ? r.worse.map((x) => `- Worse: ${x}`) : ['- Nothing got clearly worse.']),
+    '', '## Delivered by kind', '', (() => { const d = r.distribution[r.distribution.length - 1] as Record<string, unknown>; return d.features == null ? 'No data.' : `Features ${d.features}, defects ${d.defects}, risks ${d.risks}, debt ${d.debt}.`; })(),
     '', '## Sprints closed', '', ...(r.detail.sprints.length ? ['| Team | Sprint | Committed | Done | Completion |', '|---|---|---|---|---|', ...r.detail.sprints.map((s) => `| ${s.board} | ${s.sprint} | ${s.committed} | ${s.done} | ${s.pct ?? 'n/a'}% |`)] : ['None.']),
     '', '## Features shipped', '', ...(r.detail.features.length ? r.detail.features.map((f) => `- ${f.key} ${f.summary} (${f.board}, ${f.resolved})${f.cost != null ? `: ${f.currency} ${f.cost.toLocaleString()}` : ''}`) : ['None.']),
     '', `## Incidents`, '', `${r.detail.incidents.count} incidents${r.detail.incidents.medianRestoreHours != null ? `, median ${r.detail.incidents.medianRestoreHours} hours to restore` : ''}.`,

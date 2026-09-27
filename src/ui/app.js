@@ -40,7 +40,7 @@ async function route() {
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
-  const rep = location.hash.match(/^#_(quality|predictability|efficiency)$/);
+  const rep = location.hash.match(/^#_(dora|flow|quality|planning)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
@@ -177,7 +177,7 @@ async function overview() {
   if (!d.teams?.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
   const c = d.counts, cur = d.cost?.currency;
   const tile = (label, value, sub, kind) => `<div class="tile ${kind ?? ''}"><div class="k">${esc(label)}</div><div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
-  const AREA_COLS = [['flow', 'Flow & DORA', 'Flow'], ['quality', 'Quality', 'Quality'], ['features', 'Features', 'Features'], ['ops', 'Production & cost', 'Prod'], ['docs', 'Docs', 'Docs']];
+  const AREA_COLS = [['flow', 'Flow & DORA', 'Flow'], ['quality', 'Quality', 'Quality'], ['features', 'Features', 'Features'], ['ops', 'Production', 'Prod'], ['docs', 'Docs', 'Docs']];
   $('#main').innerHTML = viewSwitch() + `
     <div class="tiles">
       ${tile('Healthy', `<i class="ic green" aria-hidden="true">✓</i>${esc(c.Healthy ?? 0)}`, `of ${esc(c.teams)} teams`)}
@@ -189,7 +189,6 @@ async function overview() {
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
     ${alertsPanel(d.alerts)}
-    ${speedStabilityRow(d.speedStability)}
     ${dashActivity(d)}
     ${dashHeadlines(d)}
     ${dashSprints(d)}
@@ -208,7 +207,7 @@ async function overview() {
       <tr>${AREA_COLS.map(([, n, short]) => `<th title="${esc(n)}">${esc(short)}</th>`).join('')}<th title="Deployment frequency">Deploys</th><th title="Lead time for changes">Lead</th><th title="Change failure rate">Fail</th></tr>
       ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}" title="Open ${esc(t.board)}">
         <td><b>${esc(t.board)}</b><div class="note">${esc(t.sprint)}</div></td>
-        <td>${status({ score: t.score, band: t.band }, 'Sprint process')} <span class="bandtxt">${esc(t.band)}</span>
+        <td>${status({ score: t.score, band: t.band }, 'Planning')} <span class="bandtxt">${esc(t.band)}</span>
           <div class="chg ${t.change > 0 ? 'up' : t.change < 0 ? 'down' : ''}">${t.change > 0 ? '▲ +' : t.change < 0 ? '▼ ' : ''}${esc(t.change)} vs last sprint</div></td>
         <td>${trendline(t.trend)}</td>
         ${AREA_COLS.map(([k, n]) => `<td>${status(t.areas[k], n)}</td>`).join('')}
@@ -242,11 +241,14 @@ async function team(board, tab) {
   const [d, p, r, cost, hist, ai, cs] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null)]);
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
-  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], ['sprint', 'Sprint checks'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
+  // Tabs in the same areas as the site: DORA, Flow, Quality, Planning, then cost, production, docs and people.
+  const DORA_IDS = ['deploy_frequency', 'lead_time', 'change_failure'];
+  const doraFindings = (flow?.findings ?? []).filter((f) => DORA_IDS.includes(f.ruleId)), flowFindings = (flow?.findings ?? []).filter((f) => !DORA_IDS.includes(f.ruleId));
+  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], doraFindings.length && ['dora', 'DORA'], flowFindings.length && ['flow', 'Flow'], quality && ['quality', 'Quality'], ['sprint', 'Planning'], features && ['features', 'Features & cost'], ops && ['prod', 'Production'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
   const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
   // What moves the scores: points each check would add to its area score if it went green, biggest first.
-  const areas = [['Sprint process', latest], ['Flow & DORA', flow], ['Quality', quality], ['Features', features], ['Production & cost', ops], ['Docs', docs]].filter(([, a]) => a);
+  const areas = [['Planning', latest], ['Flow & DORA', flow], ['Quality', quality], ['Features', features], ['Production', ops], ['Docs', docs]].filter(([, a]) => a);
   const gains = areas.flatMap(([name, a]) => {
     const possible = a.findings.reduce((t, f) => t + (f.weight ?? 0), 0);
     return possible ? a.findings.filter((f) => f.rag !== 'green' && f.weight).map((f) => ({ name, f, gain: Math.round((f.weight * (f.rag === 'amber' ? 0.5 : 1) / possible) * 100) })) : [];
@@ -259,7 +261,7 @@ async function team(board, tab) {
     const rows = (hist?.areas ?? []).filter((x) => x.area === area && x.day <= target);
     return rows.length ? rows[rows.length - 1].score : null;
   };
-  const AREA_NAMES = { sprint: 'Sprint process', flow: 'Flow & DORA', quality: 'Quality', features: 'Features', ops: 'Production & cost', docs: 'Docs' };
+  const AREA_NAMES = { sprint: 'Planning', flow: 'Flow & DORA', quality: 'Quality', features: 'Features', ops: 'Production', docs: 'Docs' };
   const rec = (x, i) => { const a = (actions || []).filter((y) => y.recId === x.id).sort((y, z) => z.at.localeCompare(y.at))[0]; return `
     <div class="rec"><div class="row"><span class="title">${i + 1}. ${esc(x.title)}</span><span class="meta">${esc(x.owner)} · ${esc(x.horizon.toLowerCase())}</span></div>
       <p class="msg">${esc(x.why)}</p><ol>${x.what.map((w) => `<li>${esc(w)}</li>`).join('')}</ol>
@@ -272,8 +274,8 @@ async function team(board, tab) {
       <div class="hero">
         <div class="card">
           <div class="bigscores">
-            ${big(latest.score, 'Sprint process', latest.sprintName)}${big(flow?.score, 'Flow & DORA', 'GitHub, 90 days')}${big(quality?.score, 'Quality', 'Sonar, Testmo, Jira')}
-            ${big(features?.score, 'Features', 'Jira epics')}${big(ops?.score, 'Production & cost', 'Azure')}${big(docs?.score, 'Docs', 'Confluence')}
+            ${big(latest.score, 'Planning', latest.sprintName)}${big(flow?.score, 'Flow & DORA', 'GitHub, 90 days')}${big(quality?.score, 'Quality', 'Sonar, Testmo, Jira')}
+            ${big(features?.score, 'Features', 'Jira epics')}${big(ops?.score, 'Production', 'Azure')}${big(docs?.score, 'Docs', 'Confluence')}
           </div>
           ${spark(longTrend, 600, 60)}
           <p class="note">Sprint score, ${esc(longTrend[0]?.sprint)} to ${esc(longTrend[longTrend.length - 1]?.sprint)}.</p>
@@ -305,11 +307,12 @@ async function team(board, tab) {
       <div class="card scrollx"><table class="heat"><tr><th></th>${heatmap.sprints.map((s) => `<th class="s">${esc(s)}</th>`).join('')}</tr>
         ${heatmap.rows.map((row) => `<tr><th>${esc(row.title)}</th>${row.cells.map((c) => c ? `<td class="${cls(c.rag)}" title="${esc(row.title)}: ${esc(c.value)}">${esc(c.value)}</td>` : '<td class="none">·</td>').join('')}</tr>`).join('')}</table>
         <p class="note">A row that is red across the board is structural. A row that just turned red is new.</p></div>`,
-    sprint: () => `<h2>${esc(latest.sprintName)}</h2>${latest.findings.map((f) => finding(board, f)).join('')}`,
-    flow: () => `<h2>Flow & DORA, GitHub, ${esc(flow.since.slice(0, 10))} to ${esc(flow.until.slice(0, 10))}</h2>${flow.findings.map((f) => finding(board, f)).join('')}`,
+    sprint: () => `<h2>Planning: ${esc(latest.sprintName)}</h2>${latest.findings.map((f) => finding(board, f)).join('')}`,
+    dora: () => `<h2>DORA, GitHub, ${esc(flow.since.slice(0, 10))} to ${esc(flow.until.slice(0, 10))}</h2>${doraFindings.map((f) => finding(board, f)).join('')}<p class="note"><a href="#_dora">DORA for all teams, day by day →</a></p>`,
+    flow: () => `<h2>Flow, GitHub, ${esc(flow.since.slice(0, 10))} to ${esc(flow.until.slice(0, 10))}</h2>${flowFindings.map((f) => finding(board, f)).join('')}<p class="note"><a href="#_flow">Flow Framework, bottlenecks and cycle time →</a></p>`,
     quality: () => `<h2>Quality</h2>${quality.findings.map((f) => finding(board, f)).join('')}`,
     features: () => `<h2>Features, from Jira epics</h2>${features.findings.map((f) => finding(board, f)).join('')}${costSection(cost)}`,
-    prod: () => `<h2>Production & cost, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
+    prod: () => `<h2>Production, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
     now: () => sprintBoard(cs),
     claude: () => claudeSection(ai),

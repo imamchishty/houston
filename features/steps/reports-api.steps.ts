@@ -31,8 +31,12 @@ Then("every team's row equals the report filtered to that team", async function 
 });
 Then('every measured rate has a count over a count that gives its value', function (this: HoustonWorld) {
   const ms: M[] = JSON.parse(this.res!.body).groups.flatMap((g: { measures: M[] }) => g.measures);
-  for (const m of ms.filter((x) => x.unit === '%' && x.value != null))
+  // A rate is a count over a count. Percentages read from a scan (SonarQube coverage) have no count to show,
+  // so they must say how many teams they come from instead.
+  for (const m of ms.filter((x) => x.unit === '%' && x.value != null)) {
+    if (m.num == null) { assert.match((m as any).denLabel ?? '', /^teams?$/, `${m.id}: a percentage with no count`); continue; }
     assert.equal(m.value, Math.round((1000 * m.num!) / m.den!) / 10, `${m.id}: ${m.num}/${m.den} vs ${m.value}`);
+  }
 });
 Then('every measure has a target and a definition', function (this: HoustonWorld) {
   const ms: M[] = JSON.parse(this.res!.body).groups.flatMap((g: { measures: M[] }) => g.measures);

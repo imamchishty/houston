@@ -14,7 +14,7 @@ before its start date, from the issue changelog. "Cycle time" is first move to I
 Scores: green earns the rule's full weight, amber half, red none. Score = earned / possible × 100.
 RAG thresholds are inclusive at the boundary.
 
-## Sprint process (Jira)
+## Planning: sprint checks (Jira)
 
 | Rule | Formula | Amber | Red |
 |---|---|---|---|
@@ -28,7 +28,7 @@ RAG thresholds are inclusive at the boundary.
 | cycle_time_vs_size | done items with cycle time > max(2 × team median for that point size, median + 2 days) ÷ done items with a cycle time. Team medians learned from all sprints on the board | 15% | 30% |
 | sprint_goal | 1 if the sprint goal has more than 10 characters, else 0. Information only, not scored | missing | missing |
 
-## Flow and DORA (GitHub)
+## DORA and Flow checks (GitHub)
 
 Window: last GITHUB_DAYS (default 90). "Merged PR" excludes drafts. Reviews and comments by the author are ignored.
 
@@ -79,7 +79,7 @@ Time to restore (DORA 4) is not computed until incident data is connected.
 
 Classification: a page is an ADR or runbook if its title or a label contains one of the markers in `.env`.
 
-## Production and cost (Azure)
+## Production (Azure)
 
 | Rule | Formula | Amber | Red |
 |---|---|---|---|
@@ -125,29 +125,58 @@ Team monthly cost (TEAM_MONTHLY_COST), the configured offshore equivalent (OFFSH
 resolved in the last 90 days. Output per engineer is not compared across teams: story points are sized differently by
 every team and pull request counts reward splitting work.
 
-## Quality, Predictability and Efficiency reports
+## Area reports: DORA, Flow, Quality, Planning
 
-Served by `/api/reports/{quality,predictability,efficiency}?team=&days=` and shown on the pages of the same names.
+Served by `/api/reports/{dora,flow,quality,planning}?team=&days=` and shown on the pages of the same names. Each measure lives in exactly one area.
 Every rate is shown with its counts. "Not measured" means there was nothing to count (0 of 0), never 0%.
 The period is the last 7, 30 or 90 days; an item counts when its date (merged, created, resolved, fired) falls inside it.
+
+### DORA
+
+| Measure | Definition | Target |
+|---|---|---|
+| `deploy_frequency` Deployment frequency | Successful runs of the production deploy workflow (GITHUB_DEPLOY_WORKFLOW) per week in the period. | over 1 |
+| `lead_time` Lead time for changes (median) | Median days from a PR's first commit (author date) to the first successful production deploy of its repo after merge, PRs merged in the period. | under 7 days |
+| `change_failure_rate` Change failure rate | (Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch. | under 10% |
+| `time_to_restore` Time to restore (median) | Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor). | under 24 hours |
+| `stage_coding` Coding time (median) | Median hours from a PR's first commit (author date) to the PR being opened. 0 of 0 PRs have commit dates. |  |
+| `stage_review` Review time (median) | Median hours from PR opened to merged. |  |
+| `stage_deploy` Waiting to deploy (median) | Median hours from merge to the first successful production deploy of its repo. |  |
+
+### Flow
+
+| Measure | Definition | Target |
+|---|---|---|
+| `pr_cycle_hours` PR cycle time (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
+| `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
+| `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
+| `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
+| `flow_efficiency` Flow efficiency | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | over 40% |
+| `flow_efficiency_request` Flow efficiency from request | Active working hours ÷ all working hours from the ticket being created to done, so time waiting in the backlog counts too (the Flow Framework's definition). Usually far lower than flow efficiency from start, which is the part the team controls. |  |
+| `flow_velocity` Flow velocity | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
+| `flow_time` Flow time (median) | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | under 14 days |
+| `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
+| `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
 
 ### Quality
 
 | Measure | Definition | Target |
 |---|---|---|
-| `change_failure_rate` Change failure rate | (Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch. | under 10% |
 | `bugs_per_change` Bugs per change | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
 | `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
 | `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
 | `qa_rejection` QA rejection rate | Tickets sent back from QA (qa, in qa, testing, in testing) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection. | under 15% |
 | `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
-| `time_to_restore` Time to restore (median) | Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor). | under 24 hours |
+| `quality_gate_pass` Quality gate passing | Teams whose SonarQube quality gate passes, latest scan. | over 99% |
+| `new_code_coverage` Coverage on new code | SonarQube coverage on new code, latest scan (the median team when several). | over 70% |
+| `vulnerabilities` Open vulnerabilities | SonarQube open vulnerabilities, latest scan, all teams together. | under 1 |
+| `test_pass_rate` Automated test pass rate | Tests passed ÷ tests run over the last 30 days of Testmo automation runs (the median team when several). | over 97% |
 | `bug_lead_time` Bug lead time (median) | Median days from bug created to resolved, bugs resolved in the period. | under 14 days |
 | `bug_fix_find` Bug fix vs find rate | Bugs resolved in the period ÷ bugs created in the period. Above 100% means the backlog of bugs is shrinking. | over 80% |
 | `bug_workload` Bug workload | Bugs resolved ÷ all work items resolved (sub-tasks excluded), in the period. By count, not points. | under 20% |
 | `revert_ratio` Code revert ratio | Merged revert PRs (GitHub's revert button: title "Revert …" or branch revert-N-…) ÷ merged PRs. | under 5% |
 
-### Predictability
+### Planning
 
 | Measure | Definition | Target |
 |---|---|---|
@@ -162,24 +191,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `tickets_in_epic` Tickets in epics | Work items closed in the period that belong to an epic ÷ work items closed (sub-tasks and bugs excluded: bugs are often not feature work). | over 80% |
 | `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. |  |
 
-### Efficiency
-
-| Measure | Definition | Target |
-|---|---|---|
-| `pr_cycle_hours` PR cycle time (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
-| `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
-| `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
-| `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
-| `flow_efficiency` Flow efficiency | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | over 40% |
-| `stage_coding` Coding time (median) | Median hours from a PR's first commit (author date) to the PR being opened. 0 of 0 PRs have commit dates. |  |
-| `stage_review` Review time (median) | Median hours from PR opened to merged. |  |
-| `stage_deploy` Waiting to deploy (median) | Median hours from merge to the first successful production deploy of its repo. |  |
-| `flow_velocity` Flow velocity | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
-| `flow_time` Flow time (median) | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | under 14 days |
-| `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
-| `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
-
-Change failure rate: `CFR_SOURCE=hotfix` (default), `bugs`, or `linked` (a deploy followed within 24 hours by a significant bug, incident or hotfix; each failure linked to one deploy). The same calculation is used on the team page and in the DORA section. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
 14-day churn is not measured: it needs line-level history the GitHub API does not provide.
 
 ## Current sprint
@@ -189,7 +201,6 @@ Change failure rate: `CFR_SOURCE=hotfix` (default), `bugs`, or `linked` (a deplo
 - Outlook: projected = done ÷ working days elapsed × working days in the sprint. On track if projected ≥ scope, at risk if ≥ 80% of scope, otherwise off track.
 - Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
 - Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
-
 
 ## Flow
 

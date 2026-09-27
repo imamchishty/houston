@@ -4,6 +4,7 @@ import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, PullRequest, Sprint, WorkItem } from './types.js';
 import { hoursExcludingWeekends, weekOf } from './time.js';
 import { flow } from './flow.js';
+import { leadTimes } from './leadtime.js';
 
 // Quality, Predictability and Efficiency: every measure with the counts behind it, its target and whether it is met.
 // One set of functions feeds the dashboard headline, the summary pages and the detailed reports, so they always agree.
@@ -34,10 +35,11 @@ export const TARGETS: Record<string, Target> = {
   pr_review_rate: { op: '>', value: 95 }, pr_review_comment_rate: { op: '>', value: 50 },
   time_to_restore: { op: '<', value: 24 }, bug_lead_time: { op: '<', value: 14 },
   bug_fix_find: { op: '>', value: 80 }, bug_workload: { op: '<', value: 20 }, revert_ratio: { op: '<', value: 5 },
+  deploy_frequency: { op: '>', value: 1 }, lead_time: { op: '<', value: 7 },
   sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 }, qa_rejection: { op: '<', value: 15 }, flow_efficiency: { op: '>', value: 40 },
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
-  pr_cycle_hours: { op: '<', value: 60 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -59,6 +61,7 @@ export interface Slice {
   incidents: { firedAt: string; resolvedAt: string | null }[];
   projectKeys: string[];
   defaultBranches: Record<string, string>;
+  quality: import('./types.js').QualitySnapshot[];
 }
 
 export const slice = (team: string, days: Period, now = Date.now()): Slice => sliceRange(team, now - days * DAY, now);
@@ -76,6 +79,7 @@ export function sliceRange(team: string, from: number, to: number): Slice {
     incidents: store.azure().filter((a) => boards.includes(a.board)).flatMap((a) => a.ops?.incidents ?? []),
     projectKeys: store.projects().filter((p) => boards.includes(p.board)).map((p) => p.project),
     defaultBranches: Object.assign({}, ...gh.map((g) => g.defaultBranches ?? {})),
+    quality: store.quality().filter((q) => boards.includes(q.board)),
   };
 }
 
@@ -96,10 +100,8 @@ export function quality(s: Slice) {
   const bugsResolved = s.items.filter((i) => isBug(i) && inWin(s, i.resolved));
   const resolved = s.items.filter((i) => !isSub(i) && inWin(s, i.resolved));
 
-  const cfr = changeFailure(s);
   const reviewed = merged.filter((p) => p.reviewCount > 0);
   const commented = merged.filter((p) => (p.reviewComments ?? 0) > 0);
-  const restore = s.incidents.filter((i) => inWin(s, i.firedAt) && i.resolvedAt).map((i) => (Date.parse(i.resolvedAt!) - Date.parse(i.firedAt)) / 3_600_000);
   const reverts = merged.filter((p) => p.isRevert);
   // Defect leakage: production bugs ÷ (bugs caught before release + production bugs). A bug is production if a
   // production label (or the environment field) says so; caught before release if a QA/staging label does.
@@ -121,8 +123,7 @@ export function quality(s: Slice) {
   for (const i of s.incidents.filter((x) => inWin(s, x.firedAt))) { const w = weeks.get(weekOf(i.firedAt, config.tzOffset)); if (w) w.incidents++; }
   return {
     groups: [
-      { id: 'bug_creation', title: 'Bug creation', question: 'How many bugs are being created, and by how much change?', measures: [
-        cfr,
+      { id: 'bug_creation', title: 'Bugs created', question: 'How many bugs does each change bring?', measures: [
         rate('bugs_per_change', 'Bugs per change', bugsCreated.length, merged.length, 'Bugs created ÷ PRs merged to the default branch, in the period. All priorities.', ['bugs created', 'merged PRs'], bugsCreated.map((i) => i.key)),
       ] },
       { id: 'bug_escape', title: 'Bugs reaching customers', question: 'How many bugs get past us into production?', measures: [leakage],
@@ -134,8 +135,8 @@ export function quality(s: Slice) {
           ['sent back', 'entered QA'], f.qa.rejected); })(),
         rate('pr_review_comment_rate', 'PR review comment rate', commented.length, merged.length, 'Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs.', ['with review comments', 'merged PRs'], merged.filter((p) => !(p.reviewComments ?? 0)).map(ref)),
       ] },
-      { id: 'bug_resolution', title: 'Bug resolution', question: 'How quickly do we fix what matters?', measures: [
-        med('time_to_restore', 'Time to restore (median)', restore, 'hours', 'Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor).', 'resolved incidents'),
+      codeQuality(s),
+      { id: 'bug_resolution', title: 'Bug fixing', question: 'How quickly are bugs fixed?', measures: [
         med('bug_lead_time', 'Bug lead time (median)', bugsResolved.map((i) => (Date.parse(i.resolved!) - Date.parse(i.created)) / DAY), 'days', 'Median days from bug created to resolved, bugs resolved in the period.', 'bugs resolved'),
       ] },
       { id: 'bug_workload', title: 'Bug workload', question: 'How much of our capacity goes on bugs?', measures: [
@@ -224,12 +225,11 @@ export function efficiency(s: Slice) {
           `Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: ${config.jira.waitStatuses.join(', ')}, or back in to do. Weekends left out.`,
           ['active hours', 'hours from start to done']);
         eff.note = `${f.tickets} tickets with a full status history.`;
-        const stage = (id: string, title: string, v: number | null, how: string): Measure => ({ id, title, value: v == null ? null : round1(v), unit: 'hours', num: null, den: f.stages.prs, denLabel: 'deployed PRs', target: null, met: null, how, smallSample: f.stages.prs > 0 && f.stages.prs < MIN_MEDIAN_SAMPLE });
-        return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff,
-          stage('stage_coding', 'Coding time (median)', f.stages.median.coding, `Median hours from a PR's first commit (author date) to the PR being opened. ${f.stages.withFirstCommit} of ${f.stages.prs} PRs have commit dates.`),
-          stage('stage_review', 'Review time (median)', f.stages.median.review, 'Median hours from PR opened to merged.'),
-          stage('stage_deploy', 'Waiting to deploy (median)', f.stages.median.deploy, 'Median hours from merge to the first successful production deploy of its repo.'),
-        ], heatmap: f.heatmap, stages: f.stages };
+        const req = rate('flow_efficiency_request', 'Flow efficiency from request', Math.round(f.activeHours), Math.round(f.requestHours),
+          'Active working hours ÷ all working hours from the ticket being created to done, so time waiting in the backlog counts too (the Flow Framework\'s definition). Usually far lower than flow efficiency from start, which is the part the team controls.',
+          ['active hours', 'hours from created to done']);
+        req.target = null; req.met = null;
+        return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff, req], heatmap: f.heatmap };
       })(),
       // The Flow Framework's five: velocity, time, load and distribution here; efficiency in "Where work waits".
       (() => {
@@ -342,3 +342,48 @@ export function changeFailure(s: Slice): Measure & { times: number[] } {
   }
   return Object.assign(cfr, { times });
 }
+
+// Code quality from each team's latest SonarQube and Testmo data (a snapshot, not the period). For several teams:
+// quality gate as teams passing, coverage and pass rate as the median team, vulnerabilities summed.
+function codeQuality(s: Slice) {
+  const sonar = s.quality.map((q) => q.sonar).filter((x): x is NonNullable<typeof x> => !!x);
+  const testmo = s.quality.map((q) => q.testmo).filter((x): x is NonNullable<typeof x> => !!x && x.runsLast30d > 0);
+  const med2 = (xs: number[]) => (xs.length ? round1(median(xs)) : null);
+  const one = (id: string, title: string, value: number | null, unit: Measure['unit'], target: Target | null, how: string, den: number): Measure =>
+    ({ id, title, value, unit, num: null, den, denLabel: den === 1 ? 'team' : 'teams', target, met: metTarget(value, target), how });
+  const passing = sonar.filter((x) => x.qualityGate === 'OK').length;
+  return { id: 'code_quality', title: 'Code quality', question: 'Is the code the team writes now tested, safe and passing its own gate?', measures: [
+    rate('quality_gate_pass', 'Quality gate passing', passing, sonar.length, 'Teams whose SonarQube quality gate passes, latest scan.', ['passing', 'teams']),
+    one('new_code_coverage', 'Coverage on new code', med2(sonar.map((x) => x.newCoverage).filter((v): v is number => v != null)), '%', TARGETS.new_code_coverage, 'SonarQube coverage on new code, latest scan (the median team when several).', sonar.length),
+    one('vulnerabilities', 'Open vulnerabilities', sonar.length ? sonar.reduce((t, x) => t + x.vulnerabilities, 0) : null, 'count', TARGETS.vulnerabilities, 'SonarQube open vulnerabilities, latest scan, all teams together.', sonar.length),
+    one('test_pass_rate', 'Automated test pass rate', med2(testmo.map((x) => x.lastRunPassRate)), '%', TARGETS.test_pass_rate, 'Tests passed ÷ tests run over the last 30 days of Testmo automation runs (the median team when several).', testmo.length),
+  ], note: 'From the latest SonarQube scan and Testmo runs, not the selected period.' };
+}
+
+// DORA: the four measures and where lead time goes. The same calculations as everywhere else in Houston.
+export function dora(s: Slice) {
+  const weeks = Math.max(1, (s.to - s.from) / (7 * DAY));
+  const ok = s.deploys.filter((d) => d.success && inWin(s, d.at));
+  const merged = mergedPrs(s);
+  const leads = leadTimes(merged, s.deploys).map((l) => l.days);
+  const restore = s.incidents.filter((i) => inWin(s, i.firedAt) && i.resolvedAt).map((i) => (Date.parse(i.resolvedAt!) - Date.parse(i.firedAt)) / 3_600_000);
+  const df: Measure = { id: 'deploy_frequency', title: 'Deployment frequency', value: round1(ok.length / weeks), unit: 'count', num: ok.length, den: null, numLabel: 'deploys',
+    target: TARGETS.deploy_frequency, met: metTarget(round1(ok.length / weeks), TARGETS.deploy_frequency), how: 'Successful runs of the production deploy workflow (GITHUB_DEPLOY_WORKFLOW) per week in the period.' };
+  const f = flow(s);
+  const stage = (id: string, title: string, v: number | null, how: string): Measure => ({ id, title, value: v == null ? null : round1(v), unit: 'hours', num: null, den: f.stages.prs, denLabel: 'deployed PRs', target: null, met: null, how, smallSample: f.stages.prs > 0 && f.stages.prs < MIN_MEDIAN_SAMPLE });
+  return { groups: [
+    { id: 'dora4', title: 'The four DORA measures', question: 'How fast and how safely does change reach users?', measures: [
+      df,
+      med('lead_time', 'Lead time for changes (median)', leads, 'days', 'Median days from a PR\'s first commit (author date) to the first successful production deploy of its repo after merge, PRs merged in the period.', 'deployed PRs'),
+      changeFailure(s),
+      med('time_to_restore', 'Time to restore (median)', restore, 'hours', 'Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor).', 'resolved incidents'),
+    ] },
+    { id: 'lead_stages', title: 'Where lead time goes', question: 'Is the time in writing, reviewing, or waiting to release?', measures: [
+      stage('stage_coding', 'Coding time (median)', f.stages.median.coding, `Median hours from a PR's first commit (author date) to the PR being opened. ${f.stages.withFirstCommit} of ${f.stages.prs} PRs have commit dates.`),
+      stage('stage_review', 'Review time (median)', f.stages.median.review, 'Median hours from PR opened to merged.'),
+      stage('stage_deploy', 'Waiting to deploy (median)', f.stages.median.deploy, 'Median hours from merge to the first successful production deploy of its repo.'),
+    ], stages: f.stages },
+  ] };
+}
+// Report names as the pages show them.
+export const REPORTS = { dora, flow: efficiency, quality, planning: predictability } as const;

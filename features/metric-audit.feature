@@ -47,12 +47,12 @@ Feature: Metric audit fixes
     Given a Testmo project with no runs in 30 days
     Then there is no test pass rate check
 
-  Scenario Outline: The DORA section and the Quality report give the same change failure rate
+  Scenario Outline: The DORA section and the DORA report give the same change failure rate
     Given Houston is running with user "sam" and password "pw"
     And change failure rate uses "<source>"
     When the user requests "/api/dora?team=<team>&days=30"
-    And the user also requests "/api/reports/quality?team=<team>&days=30"
-    Then the DORA change failure rate equals the Quality report's
+    And the user also requests "/api/reports/dora?team=<team>&days=30"
+    Then the DORA change failure rate equals the DORA report's
 
     Examples:
       | team | source  |

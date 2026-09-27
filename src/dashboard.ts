@@ -2,9 +2,8 @@ import { store } from './store/index.js';
 import { teamSummary } from './summary.js';
 import { claudeReport } from './claude.js';
 import { BANDS } from './metrics.js';
-import { slice, quality, predictability, efficiency, activitySummary, flatMeasures, withPrevious } from './reports.js';
+import { slice, activitySummary, flatMeasures, withPrevious, REPORTS } from './reports.js';
 import { currentSprints } from './sprintNow.js';
-import { doraSeries } from './dora.js';
 import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
@@ -40,34 +39,24 @@ export function dashboard(now = Date.now()) {
   const claude = boards.map((b) => claudeReport(b, false)).filter((c) => c.usageConnected);
   const roster = claude.reduce((t, c) => t + c.rosterSize, 0);
 
-  // Headlines: one measure per summary page, last 30 days, all teams. The same functions as the reports.
+  // Headlines: one card per area, two measures each, last 30 days, all teams. The same functions as the area pages.
   const s30 = slice('all', 30, now);
-  const pick = (r: ReturnType<typeof quality>, id: string) => flatMeasures(r).find((m) => m.id === id)!;
-  const headlines = [
-    { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers and the team?', measures: ['change_failure_rate', 'bugs_per_change'].map((id) => pick(quality(s30), id)) },
-    { page: 'predictability', title: 'Predictability', question: 'Does the team deliver what it plans?', measures: ['sprint_completion', 'prs_traceable'].map((id) => pick(predictability(s30), id)) },
-    { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_cycle_hours', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
-  ].map((h) => ({ ...h, measures: h.measures.map(({ failing, how, ...m }) => m) }));
-
-  // Speed next to stability, all teams, last 30 days: the tension leadership should see at a glance.
-  const dora = doraSeries('all', 30, now).metrics, dm = (id: string) => dora.find((x) => x.id === id)!;
-  const wp = flatMeasures(withPrevious('all', 30, (x) => ({ groups: [...efficiency(x).groups, ...quality(x).groups] }), now));
-  const mm = (id: string) => { const { failing, how, ...m } = wp.find((x) => x.id === id)!; return m; };
-  const speedStability = {
-    speed: [{ id: 'lead_time', title: 'Lead time for changes', value: dm('lead_time').value, unit: 'days', tier: dm('lead_time').tier, better: dm('lead_time').better },
-      { id: 'deploy_frequency', title: 'Deployment frequency', value: dm('deploy_frequency').value, unit: 'per week', tier: dm('deploy_frequency').tier, better: dm('deploy_frequency').better }, mm('flow_efficiency')],
-    stability: [mm('change_failure_rate'), mm('qa_rejection'), { id: 'time_to_restore', title: 'Time to restore', value: dm('time_to_restore').value, unit: 'hours', tier: dm('time_to_restore').tier, better: dm('time_to_restore').better }],
-  };
+  const AREAS = [
+    { page: 'dora', title: 'DORA', question: 'How fast and how safely does change reach users?', ids: ['lead_time', 'change_failure_rate'] },
+    { page: 'flow', title: 'Flow', question: 'How much work flows, and where does it wait?', ids: ['flow_efficiency', 'flow_time'] },
+    { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers, and is the code sound?', ids: ['bugs_per_change', 'defect_leakage'] },
+    { page: 'planning', title: 'Planning', question: 'Does the team deliver what it plans?', ids: ['sprint_completion', 'unplanned_work'] },
+  ] as const;
+  const headlines = AREAS.map((h) => { const all = flatMeasures(REPORTS[h.page](s30));
+    return { page: h.page, title: h.title, question: h.question, measures: h.ids.map((id) => { const { failing, how, ...m } = all.find((x) => x.id === id)!; return m; }) }; });
 
   // Team health alerts: every target a team missed in the last 30 days, per team. Red when it was missed the
   // 30 days before as well (a pattern, not a blip); amber when it is new. Small samples never raise an alert.
-  const alerts = boards.flatMap((board) => (['quality', 'predictability', 'efficiency'] as const).flatMap((page) => {
-    const fn = page === 'quality' ? quality : page === 'predictability' ? predictability : efficiency;
-    return flatMeasures(withPrevious(board, 30, fn, now)).filter((m) => m.met === false && !m.smallSample).map((m) => ({
+  const alerts = boards.flatMap((board) => AREAS.flatMap(({ page }) =>
+    flatMeasures(withPrevious(board, 30, REPORTS[page], now)).filter((m) => m.met === false && !m.smallSample).map((m) => ({
       board, page, id: m.id, title: m.title, value: m.value, unit: m.unit, target: m.target, num: m.num, den: m.den, denLabel: m.denLabel,
       severity: m.previousMet === false ? 'red' as const : 'amber' as const, previous: m.previous ?? null, trend: m.trend ?? null,
-    }));
-  })).sort((a, b) => (a.severity === b.severity ? a.board.localeCompare(b.board) || a.title.localeCompare(b.title) : a.severity === 'red' ? -1 : 1));
+    })))).sort((a, b) => (a.severity === b.severity ? a.board.localeCompare(b.board) || a.title.localeCompare(b.title) : a.severity === 'red' ? -1 : 1));
 
   // Features in progress, with what they have cost so far and are estimated to cost to finish.
   const projects = boards.flatMap((board) => {
@@ -86,7 +75,6 @@ export function dashboard(now = Date.now()) {
     generatedAt: new Date(now).toISOString(),
     activity: { days: 30, ...activitySummary(s30) },
     alerts,
-    speedStability,
     headlines,
     sprints: currentSprints(false, now).map(({ burndown, byStatus, statusType, bugTrend, cycleByDay, inProgress, cycle, velocity, ...sp }) => sp),
     projects,

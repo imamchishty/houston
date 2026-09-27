@@ -11,23 +11,26 @@ Feature: Reports agree with each other
     Then the dashboard's <measure> equals the report's
 
     Examples:
-      | report         | measure             |
-      | quality        | change_failure_rate |
-      | quality        | bugs_per_change         |
-      | predictability | sprint_completion   |
-      | predictability | prs_traceable       |
-      | efficiency     | pr_cycle_hours      |
-      | efficiency     | pickup_time         |
+      | report   | measure             |
+      | dora     | lead_time           |
+      | dora     | change_failure_rate |
+      | flow     | flow_efficiency     |
+      | flow     | flow_time           |
+      | quality  | bugs_per_change     |
+      | quality  | defect_leakage      |
+      | planning | sprint_completion   |
+      | planning | unplanned_work      |
 
   Scenario Outline: Each team's row equals that team's own report
     When the user requests "/api/reports/<report>?team=all&days=30"
     Then every team's row equals the report filtered to that team
 
     Examples:
-      | report         |
-      | quality        |
-      | predictability |
-      | efficiency     |
+      | report   |
+      | dora     |
+      | flow     |
+      | quality  |
+      | planning |
 
   Scenario: Every measure shows its counts, target and definition
     When the user requests "/api/reports/quality?team=all&days=90"

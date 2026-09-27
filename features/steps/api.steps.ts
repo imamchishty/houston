@@ -46,7 +46,7 @@ Then('the gains are in descending order', function (this: HoustonWorld) {
 });
 Then('the sprint gains add up to no more than {int} minus the sprint score', function (this: HoustonWorld, full: number) {
   const s = JSON.parse(this.res!.body);
-  const sprintGains = s.gains.filter((x: { area: string }) => x.area === 'Sprint process').reduce((t: number, x: { gain: number }) => t + x.gain, 0);
+  const sprintGains = s.gains.filter((x: { area: string }) => x.area === 'Planning').reduce((t: number, x: { gain: number }) => t + x.gain, 0);
   assert.ok(sprintGains <= full - s.score + 2, `${sprintGains} vs ${full - s.score}`); // rounding
 });
 void houston;

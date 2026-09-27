@@ -81,7 +81,7 @@ Then('there is no test pass rate check', async function () {
 });
 
 Given('change failure rate uses {string}', function (source: string) { process.env.CFR_SOURCE = source; });
-Then("the DORA change failure rate equals the Quality report's", function (this: HoustonWorld) {
+Then("the DORA change failure rate equals the DORA report's", function (this: HoustonWorld) {
   const dora = JSON.parse(this.res!.body).metrics.find((m: { id: string }) => m.id === 'change_failure');
   const rep = require_second().groups.flatMap((x: { measures: { id: string; value: number }[] }) => x.measures).find((m: { id: string }) => m.id === 'change_failure_rate');
   assert.equal(dora.value, rep.value, `${process.env.CFR_SOURCE}: DORA ${dora.value} vs report ${rep.value}`);

@@ -1,5 +1,5 @@
 import { store } from './store/index.js';
-import { quality, predictability, efficiency, flatMeasures, withPrevious, type Measure } from './reports.js';
+import { flatMeasures, withPrevious, REPORTS, type Measure } from './reports.js';
 import { doraSeries } from './dora.js';
 import { currentSprint } from './sprintNow.js';
 import { teamSummary } from './summary.js';
@@ -41,6 +41,8 @@ const PLAIN: Record<string, string> = {
   review_time: 'Reviews take too long to finish',
   pr_size: 'Changes are too big to review properly',
   cycle_time: 'Tickets take too long once started',
+  quality_gate_pass: 'The code quality check is failing', flow_efficiency_request: 'Requests wait a long time before work starts',
+  bug_escape: 'Customers are finding bugs before the team does',
   qa_rejection: 'Work sent to testing keeps coming back', flow_efficiency: 'Work spends most of its time waiting',
   flow_time: 'Work takes too long from request to done', flow_velocity: 'Little work is being finished', flow_load: 'Too much work is started at once',
   stage_coding: 'Changes take long to write', stage_review: 'Changes take long to review', stage_deploy: 'Finished changes wait to be released',
@@ -68,7 +70,7 @@ export const plainName = (id: string, fallback: string) => PLAIN[id] ?? fallback
 export function simpleTeam(board: string, now = Date.now()) {
   const s = teamSummary(board);
   if (!s) return null;
-  const all = [quality, predictability, efficiency].flatMap((fn) => flatMeasures(withPrevious(board, 30, fn, now)));
+  const all = Object.values(REPORTS).flatMap((fn) => flatMeasures(withPrevious(board, 30, fn, now)));
   const m = (id: string) => all.find((x) => x.id === id);
   const q: Question[] = [];
 

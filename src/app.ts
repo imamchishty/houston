@@ -14,7 +14,7 @@ import { monthlyReport, monthlyMarkdown, monthOf } from './monthly.js';
 import { diagFor } from './diag.js';
 import { simpleDashboard } from './simple.js';
 import { doraSeries, PERIODS } from './dora.js';
-import { slice, quality, predictability, efficiency, perTeam, flatMeasures, withPrevious, type Period } from './reports.js';
+import { slice, perTeam, flatMeasures, withPrevious, REPORTS, type Period } from './reports.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
@@ -187,7 +187,7 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
       actions: store.actions().filter((a) => a.board === req.params.board),
       insights: sprintInsights([...cards].reverse()), heatmap: heatmap([...cards].reverse()),
       window: windowStatus([...cards].reverse(), boardData(req.params.board).flow?.findings, boardData(req.params.board).quality?.findings,
-        Object.fromEntries([quality, predictability, efficiency].flatMap((fn) => flatMeasures(fn(slice(req.params.board, 30)))).map((m) => [m.id, m.value])),
+        Object.fromEntries(Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(slice(req.params.board, 30)))).map((m) => [m.id, m.value])),
         (rule, source, day) => valueOn(req.params.board, source === 'report' ? `r:${rule}` : rule, day)),
       output: outputBench(req.params.board, store.epics()[req.params.board] ?? []),
       incidents: incidentLog(store.azure().find((x) => x.board === req.params.board), store.docs().find((x) => x.board === req.params.board)) };
@@ -380,7 +380,8 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   };
   // Quality, Predictability and Efficiency reports: grouped measures with counts and targets, plus the same
   // measures per team so the report can show a team scorecard. Team level only.
-  for (const [name, fn] of [['quality', quality], ['predictability', predictability], ['efficiency', efficiency]] as const) {
+  // One report per area: DORA, Flow, Quality, Planning.
+  for (const [name, fn] of Object.entries(REPORTS)) {
     app.get<{ Querystring: { team?: string; days?: string } }>(`/api/reports/${name}`, async (req, reply) => {
       const f = filters(req.query, reply); if (!f) return;
       const s = slice(f.team, f.days);

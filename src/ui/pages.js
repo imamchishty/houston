@@ -7,6 +7,9 @@ const OUTLOOK = { 'On track': ['green', '✓'], 'At risk': ['amber', '●'], 'Of
 const outlookChip = (o) => { const [c, i] = OUTLOOK[o] ?? ['none', '·']; return `<span class="st ${c}"><i aria-hidden="true">${i}</i>${esc(o)}</span>`; };
 
 // ---------- Measure tiles (reports and dashboard headlines) ----------
+// DORA tier for the four DORA measures, from the research bands in the metric catalogue.
+const tierChip = (m) => { const c = METRICS[m.id === 'change_failure_rate' ? 'change_failure' : m.id]; const t = c?.dora && m.value != null ? doraTier(c, m.value) : null;
+  return t ? ` <span class="tierchip ${TIER_CLS[t]}">DORA ${esc(t)}</span>` : ''; };
 const unitOf = (m) => (m.unit === '%' ? '%' : m.unit === 'count' ? '' : ` ${m.unit}`);
 const unitWord = (u, v) => (u === '%' ? '%' : u === 'count' ? '' : ` ${v === 1 ? u.replace(/s$/, '') : u}`);
 const targetText = (t, m) => (t ? `Target: ${t.op === '<' ? 'under' : 'over'} ${t.value}${unitWord(m.unit, t.value)}` : '');
@@ -20,7 +23,7 @@ function measureTile(m, opts = {}) {
   const failing = !opts.compact && m.failing?.length ? `<details class="tbl"><summary>${esc(m.failing.length)} not passing</summary><p class="fails">${m.failing.slice(0, 100).map((k) => `<code>${esc(k)}</code>`).join(' ')}${m.failing.length > 100 ? ` and ${esc(m.failing.length - 100)} more` : ''}</p></details>` : '';
   const about = !opts.compact ? `<details class="about"><summary>What is this?</summary><p><b>How it is calculated.</b> ${esc(m.how)}</p>${METRICS[m.id] ? `<p><b>Why it matters.</b> ${esc(METRICS[m.id].why)}</p>` : ''}</details>` : '';
   return `<div class="mtile">
-    <div class="mt">${esc(m.title)}</div>
+    <div class="mt">${esc(m.title)}${tierChip(m)}</div>
     <div class="mv">${m.value == null ? '<span class="muted">·</span>' : `${esc(chartFmt(m.value))}<small>${esc(unitOf(m))}</small>`}</div>
     <div class="ms">${countsText(m)}${m.trend ? ` · ${trendArrow(m.trend)}${m.trend === 'same' ? '' : ` than ${esc(chartFmt(m.previous))}${esc(unitOf(m))}`}` : ''}</div>
     ${m.note ? `<div class="ms">${esc(m.note)}</div>` : ''}
@@ -30,10 +33,12 @@ function measureTile(m, opts = {}) {
 }
 
 // ---------- Report pages: Quality, Predictability, Efficiency ----------
+// The four areas. Every number lives in exactly one of them.
 const REPORTS = {
-  quality: { title: 'Quality', intro: 'How bugs affect customers and the team: how many are created, what stops them, how fast they are fixed, and how much change is undone.' },
-  predictability: { title: 'Predictability', intro: 'Whether the team delivers what it plans, and whether work is set up so plans can be trusted: every change traceable, every ticket estimated, in a sprint and in an epic.' },
-  efficiency: { title: 'Efficiency', intro: 'Where work waits: from a pull request being opened to merged, and from a ticket being started to done.' },
+  dora: { title: 'DORA', intro: 'How fast and how safely change reaches users: deployment frequency, lead time, change failure rate and time to restore, and where lead time goes.' },
+  flow: { title: 'Flow', intro: 'How much work flows and where it waits: the Flow Framework (velocity, time, efficiency, load, distribution), bottlenecks, cycle time and pull request flow.' },
+  quality: { title: 'Quality', intro: 'Bugs and the code itself: how many bugs each change brings, how many reach customers, what stops them, code quality from SonarQube and tests, and how fast bugs are fixed.' },
+  planning: { title: 'Planning', intro: 'Whether the team delivers what it plans, how much unplanned work arrives, and whether work is set up so plans can be trusted.' },
 };
 const FILT = { team: 'all', days: 30 };
 const pctOf = (x, t) => { const sum = t.coding + t.review + t.deploy; return sum ? `${Math.round((100 * x) / sum)}%` : '·'; };
@@ -70,10 +75,12 @@ async function reportPage(name, teams) {
       ${g.detail?.length ? `<details class="tbl"><summary>Sprints in this period</summary><table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
         ${g.detail.map((x) => `<tr><td>${esc(x.board)}</td><td>${esc(x.sprint)}</td><td class="num">${esc(x.planned)}</td><td class="num">${esc(x.done)}</td><td class="num">${esc(x.pct)}%</td></tr>`).join('')}</table></details>` : ''}
     </section>`).join('')}
+    ${name === 'dora' ? '<h2>Day by day</h2><div id="dora"></div>' : ''}
     <h2>By team</h2>
     <div class="card scrollx"><table class="t dash"><tr><th>Team</th>${all.map((m) => `<th title="${esc(m.title)}">${esc(m.title)}</th>`).join('')}</tr>
       ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}"><td><b>${esc(t.board)}</b></td>${t.measures.map((m) => `<td title="${esc(m.title)}: ${esc(countsText(m).replace(/<[^>]+>/g, ''))}">${m.value == null ? '<span class="st none">·</span>' : `<span class="st ${m.met == null ? 'none' : m.met ? 'green' : 'red'}"><i aria-hidden="true">${m.met == null ? '' : m.met ? '✓' : '▲'}</i>${esc(chartFmt(m.value))}${esc(unitOf(m))}</span>`}</td>`).join('')}</tr>`).join('')}
     </table><p class="note">✓ target met · ▲ target missed · hover a cell for the counts. Click a team for its detail.</p></div>`;
+  if (name === 'dora') { DORA.team = FILT.team; DORA.days = FILT.days; renderDora(); }
   window.scrollTo(0, 0);
 }
 
@@ -212,19 +219,6 @@ document.addEventListener('change', async (e) => {
   box.outerHTML = sprintBoard(cs); sizeBars();
 });
 
-// Speed next to stability: going faster only counts if it holds.
-function speedStabilityRow(ss) {
-  const cell = (m) => {
-    const v = m.value == null ? '·' : `${chartFmt(m.value)}${m.unit === '%' ? '%' : ''}`;
-    const sub = m.tier ? `DORA ${m.tier}` : m.target ? targetText(m.target, m) : '';
-    const tr = m.trend ? trendArrow(m.trend) : m.better === true ? '<span class="up">▲ better</span>' : m.better === false ? '<span class="down">▼ worse</span>' : '';
-    return `<div class="ssm"><div class="mt">${esc(m.title)}</div><div class="mv">${esc(v)}<small>${m.unit === '%' || m.unit === 'count' ? '' : ' ' + esc(m.unit)}</small></div><div class="ms">${esc(sub)} ${tr}</div></div>`;
-  };
-  return `<div class="ss"><div class="card"><h3>Speed</h3><div class="ssr">${ss.speed.map(cell).join('')}</div></div>
-    <div class="card"><h3>Stability</h3><div class="ssr">${ss.stability.map(cell).join('')}</div></div></div>
-    <p class="note">All teams, last 30 days. Speed only counts if stability holds: read the two sides together.</p>`;
-}
-
 // ---------- Monthly report ----------
 const MFILT = { team: 'all', month: null };
 const monthLabel = (m) => new Date(m + '-01T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -256,6 +250,11 @@ async function monthlyPage(teams) {
     </table>${r.previousStatus !== 'complete' && r.previousStatus !== 'saved' ? `<p class="note">No comparison: ${esc(STATUS_NOTE[r.previousStatus] || r.previousStatus)} for ${esc(monthLong(prevMonthOf(r.month)))}.</p>` : ''}</div>
     <div class="twocol mt"><div class="card"><h3>Improved</h3>${r.improved.length ? `<ul class="plain">${r.improved.map((x) => `<li><span class="up">▲</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing improved clearly.</p>'}</div>
       <div class="card"><h3>Got worse</h3>${r.worse.length ? `<ul class="plain">${r.worse.map((x) => `<li><span class="down">▼</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing got clearly worse.</p>'}</div></div>
+    <h2>Delivered by kind</h2>
+    <div class="card">${barChart('m-dist', { labels: r.distribution.map((d) => d.month), xLabel: monthLabel, stacked: true, unit: 'items', W: 900, H: 200, series: [
+      { name: 'Features', key: 's1', values: r.distribution.map((d) => d.features) }, { name: 'Defects', key: 's2', values: r.distribution.map((d) => d.defects) },
+      { name: 'Risks', key: 'muted', values: r.distribution.map((d) => d.risks) }, { name: 'Debt', key: 'ink', values: r.distribution.map((d) => d.debt) }] })}
+      <p class="note">Work items completed each month by kind (the Flow Framework's flow distribution). Bugs are defects; risk and debt come from labels.</p></div>
     <h2>Trends, last 6 months</h2>
     <div class="trends">${r.trends.map((t) => `<div class="card"><h3>${esc(t.title)}</h3>${lineChart('tr-' + t.id, { labels: t.points.map((p) => p.month), xLabel: monthLabel, unit: t.unit === '%' ? '%' : t.unit === 'count' ? '' : t.unit, W: 360, H: 170,
         series: [{ name: 'Value', key: 's1', values: t.points.map((p) => p.value), dots: true }, ...(t.target ? [{ name: `Target (${t.target.op === '<' ? 'under' : 'over'} ${t.target.value})`, key: 'muted', values: t.points.map(() => t.target.value), dashed: true }] : [])] })}

@@ -8,7 +8,7 @@ import { config } from './config.js';
 import type { Finding } from './types.js';
 
 // One team on one card: what an IDP (Backstage entity page, portal tile) needs, and nothing per person.
-const AREAS = [['sprint', 'Sprint process'], ['flow', 'Flow & DORA'], ['quality', 'Quality'], ['features', 'Features'], ['ops', 'Production & cost'], ['docs', 'Docs']] as const;
+const AREAS = [['sprint', 'Planning'], ['flow', 'Flow & DORA'], ['quality', 'Quality'], ['features', 'Features'], ['ops', 'Production'], ['docs', 'Docs']] as const;
 
 // Points each non-green check would add to its area score if it went green, biggest first.
 export function scoreGains(areas: { name: string; findings: Finding[] }[], top = 5) {

@@ -47,6 +47,8 @@ export function flow(s: Slice) {
   const tickets = flowTickets(s);
   const segs = tickets.flatMap((i) => segments(i).map((x) => ({ ...x, key: i.key })));
   const active = segs.filter((x) => !x.waiting).reduce((t, x) => t + x.hours, 0), waiting = segs.filter((x) => x.waiting).reduce((t, x) => t + x.hours, 0);
+  // From request: all working hours from the ticket being created to done (backlog waiting included).
+  const requestHours = tickets.reduce((t, i) => t + hrs(i.created, i.resolved!), 0);
 
   // Bottleneck heatmap: hours in each status, summed over tickets, with the median per ticket that visited it.
   const statuses = new Map<string, { waiting: boolean; hours: number; perTicket: Map<string, number> }>();
@@ -87,7 +89,7 @@ export function flow(s: Slice) {
   for (const x of stages) { const w = weeks.get(x.week); if (w) { w.coding += x.coding; w.review += x.review; w.deploy += x.deploy; w.prs++; } }
 
   return {
-    tickets: tickets.length, activeHours: active, waitingHours: waiting, heatmap,
+    tickets: tickets.length, activeHours: active, waitingHours: waiting, requestHours, heatmap,
     qa: { entered, rejected },
     stages: {
       prs: stages.length, withFirstCommit: stages.filter((x) => x.hasCommit).length,
