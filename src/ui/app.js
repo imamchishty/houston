@@ -5,6 +5,17 @@ const cls = (s) => String(s ?? '').replace(/[^a-z0-9_-]/gi, ''); // class names:
 // POSTs carry this header; the server rejects POSTs without it, which blocks cross-site form posts.
 const post = (p, body) => fetch('/api' + p, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'houston' }, body: JSON.stringify(body ?? {}) });
 const api = (p) => fetch('/api' + p).then((r) => r.json());
+// What each metric means and how it is calculated, from /api/metrics. Loaded once, used by every page.
+let METRICS = {};
+const metricsReady = api('/metrics').then((list) => { METRICS = Object.fromEntries(list.map((m) => [m.id, m])); }).catch(() => {});
+const doraTier = (m, v) => m?.dora?.find((b) => (b.min != null ? v >= b.min : b.max != null ? v <= b.max : true))?.tier;
+const money = (n, cur) => `${esc(cur)} ${Math.round(n).toLocaleString()}`;
+// "What is this?" under a finding, and the same text on the Metrics page.
+const about = (m) => !m ? '' : `
+  <p><b>Why it matters.</b> ${esc(m.why)}</p>
+  <p><b>How it is calculated.</b> ${esc(m.how)}</p>
+  ${m.thresholds ? `<p><b>Thresholds.</b> ${esc(m.thresholds)}</p>` : ''}
+  ${m.dora ? `<table class="t mt"><tr><th>DORA tier</th><th>Range</th></tr>${m.dora.map((b) => `<tr><td>${esc(b.tier)}</td><td>${esc(b.test)}</td></tr>`).join('')}</table><p class="note">DORA State of DevOps research bands, approximate.</p>` : ''}`;
 const rag = (v, thr = [75, 50]) => v >= thr[0] ? 'green' : v >= thr[1] ? 'amber' : 'red';
 
 function spark(points, w = 300, h = 44) {
@@ -23,6 +34,8 @@ function go(board, tab) { location.hash = board ? `#${encodeURIComponent(board)}
 window.addEventListener('hashchange', route); route();
 
 async function route() {
+  await metricsReady;
+  if (location.hash === '#_metrics') return metricsPage();
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
   return team(board, tab || 'overview');
@@ -57,14 +70,15 @@ async function overview() {
 
 const finding = (board, f) => `
   <div class="finding ${cls(f.rag)}">
-    <div class="row"><span class="title">${esc(f.title)}</span><span class="val">${esc(f.unit === '%' ? Math.round(f.value) + '%' : f.value)}${f.unit === 'days' ? 'd' : ''}</span></div>
+    <div class="row"><span class="title">${esc(f.title)}${doraTier(METRICS[f.ruleId], f.value) ? ` <span class="tier">DORA ${esc(doraTier(METRICS[f.ruleId], f.value))}</span>` : ''}</span><span class="val">${esc(f.unit === '%' ? Math.round(f.value) + '%' : f.value)}${f.unit === 'days' ? 'd' : ''}</span></div>
     <p class="msg">${esc(f.message)}</p>
     ${f.rag !== 'green' ? `<p class="act">${esc(f.action)}</p>` : ''}
     ${f.evidence.length ? `<details><summary>${f.evidence.length} records</summary>${f.evidence.map((k) => `<code>${esc(k)}</code>`).join('')} <a href="/api/teams/${encodeURIComponent(board)}/evidence/${encodeURIComponent(f.ruleId)}" target="_blank" rel="noopener">raw evidence</a></details>` : ''}
+  ${METRICS[f.ruleId] ? `<details class="about"><summary>What is this?</summary>${about(METRICS[f.ruleId])}</details>` : ''}
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations')]);
+  const [d, p, r, cost] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null)]);
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
   const tabs = [['overview', 'Overview'], ['sprint', 'Sprint'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], p.people?.length && ['people', 'People']].filter(Boolean);
@@ -115,7 +129,7 @@ async function team(board, tab) {
     sprint: () => `<h2>${esc(latest.sprintName)}</h2>${latest.findings.map((f) => finding(board, f)).join('')}`,
     flow: () => `<h2>Flow & DORA, GitHub, ${esc(flow.since.slice(0, 10))} to ${esc(flow.until.slice(0, 10))}</h2>${flow.findings.map((f) => finding(board, f)).join('')}`,
     quality: () => `<h2>Quality</h2>${quality.findings.map((f) => finding(board, f)).join('')}`,
-    features: () => `<h2>Features, from Jira epics</h2>${features.findings.map((f) => finding(board, f)).join('')}`,
+    features: () => `<h2>Features, from Jira epics</h2>${features.findings.map((f) => finding(board, f)).join('')}${costSection(cost)}`,
     prod: () => `<h2>Production & cost, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
     people: () => `
@@ -138,6 +152,45 @@ async function team(board, tab) {
   $('#main').innerHTML = `
     <div class="tabs">${tabs.map(([k, l]) => `<a href="#" class="${k === tab ? 'on' : ''}" data-go="${esc(board)}" data-tab="${esc(k)}">${esc(l)}</a>`).join('')}</div>
     ${(content[tab] || content.overview)()}`;
+  window.scrollTo(0, 0);
+}
+
+// Cost to build each feature: spent so far, split FTE and contractor, and an estimate to complete.
+function costSection(c) {
+  if (!c) return '';
+  if (!c.configured) return `<h2>Cost to build</h2><p class="note">${esc(c.reason)}</p>`;
+  const cur = c.currency, pct = (x) => c.teamCost ? Math.round((x / c.teamCost) * 100) : 0;
+  return `<h2>Cost to build</h2>
+    <div class="card">
+      <div class="scores">
+        <span class="pill"><b>${money(c.teamCost, cur)}</b> team cost, last ${esc(c.sprints)} sprints</span>
+        <span class="pill"><b>${pct(c.onFeatures)}%</b> on features</span>
+        <span class="pill ${pct(c.noFeature + c.notOnTickets) > 40 ? 'amber' : ''}"><b>${pct(c.noFeature + c.notOnTickets)}%</b> not on features</span>
+        ${c.costPerPoint != null ? `<span class="pill"><b>${money(c.costPerPoint, cur)}</b> per point</span>` : ''}
+        <span class="pill"><b>${esc(c.fteShare)}%</b> FTE, ${esc(Math.round((100 - c.fteShare) * 10) / 10)}% contractor</span>
+      </div>
+      <p class="note">Not on features: ${money(c.noFeature, cur)} on tickets with no epic (bugs, support, unplanned), ${money(c.notOnTickets, cur)} for people with no ticket in a sprint.</p>
+    </div>
+    <div class="card scrollx mt"><table class="t">
+      <tr><th>Feature</th><th>Status</th><th class="num">Spent</th><th class="num">FTE</th><th class="num">Contractor</th><th class="num">Points left</th><th class="num">To complete</th><th class="num">Estimated total</th></tr>
+      ${c.features.map((x) => `<tr><td>${esc(x.key)} ${esc(x.summary)}</td><td>${esc(x.status === 'done' ? 'Done' : x.status === 'inprogress' ? 'In progress' : 'Not started')}</td>
+        <td class="num">${money(x.spent, cur)}</td><td class="num">${money(x.fte, cur)}</td><td class="num">${money(x.contractor, cur)}</td>
+        <td class="num">${esc(x.pointsRemaining)}${x.remainingEstimated ? '*' : ''}</td><td class="num">${x.toComplete ? money(x.toComplete, cur) : '·'}</td><td class="num"><b>${money(x.total, cur)}</b></td></tr>`).join('')}
+    </table>
+    <p class="note">* includes items with no estimate or not yet in a sprint, sized at the team's median ticket.
+    ${c.rates ? `Rates: FTE ${money(c.rates.fteDay, cur)} a day, contractor ${money(c.rates.contractorDay, cur)} a day, ${esc(c.rates.contractors)} contractors${c.rates.overrides ? `, ${esc(c.rates.overrides)} individual rates` : ''}.` : 'Rates are visible to people viewers.'}</p></div>
+    <details class="about card mt"><summary>How this is estimated</summary>${about(METRICS.feature_cost)}${about(METRICS.cost_off_features)}</details>`;
+}
+
+// Every metric, grouped by area: what it is, why it matters, how it is calculated.
+function metricsPage() {
+  $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">Metrics</a>`;
+  const list = Object.values(METRICS);
+  const areas = [...new Set(list.map((m) => m.area))];
+  $('#main').innerHTML = `<h2>What Houston measures</h2>
+    <p class="note">Every number is computed from these definitions and nothing else. Each finding also has a "What is this?" link. Full formulas in METRICS.md.</p>
+    ${areas.map((a) => `<h2>${esc(a)}</h2>${list.filter((m) => m.area === a).map((m) => `
+      <details class="card metric mt" id="m-${esc(m.id)}"><summary><b>${esc(m.name)}</b> <span class="note">${esc(m.why.split('. ')[0])}.</span></summary>${about(m)}</details>`).join('')}`).join('')}`;
   window.scrollTo(0, 0);
 }
 

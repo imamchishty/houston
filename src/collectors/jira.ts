@@ -52,7 +52,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
   const out: Issue[] = [];
   let startAt = 0;
   const fields = ['summary', 'issuetype', 'status', 'assignee', 'created', 'resolutiondate', 'description',
-    config.jira.pointsField, ...(config.jira.acField ? [config.jira.acField] : [])].join(',');
+    config.jira.pointsField, 'parent', config.jira.epicField, ...(config.jira.acField ? [config.jira.acField] : [])].join(',');
   for (;;) {
     const page = await jira<any>(`/rest/agile/1.0/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&expand=changelog&fields=${fields}`);
     for (const r of page.issues) {
@@ -72,6 +72,8 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
         addedToSprintAt: cl.addedToSprintAt,
         sprintIds: (f.closedSprints ?? []).map((s: any) => s.id).concat(f.sprint ? [f.sprint.id] : []),
         inProgressSince: cl.inProgressSince,
+        // Company-managed projects use the Epic Link field; team-managed ones make the epic the parent.
+        epic: f[config.jira.epicField] ?? (f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic' ? f.parent.key : null),
       });
     }
     startAt += page.issues.length;

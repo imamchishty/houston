@@ -98,6 +98,17 @@ The footer and `GET /api/version` show which build is running: `Houston 0.1.0 ·
 the commit and build time into the image. Run from a checkout it says "local build" with the last commit, and
 "+ uncommitted changes" when there are any.
 
+## Metric explanations
+
+Every finding has "What is this?": why the metric matters, how it is calculated and its thresholds. The Metrics page
+(header link) lists them all by area. The text is in `src/metrics.ts`; a BDD scenario fails if any scored metric has none.
+
+## Cost to build a feature
+
+The Features tab shows what each feature has cost so far, split FTE and contractor, and an estimate to complete at the
+team's current cost per point. It also shows how much of the team's cost goes on work with no feature, and on people with
+no tickets. Set `RATE_FTE_DAY`, `RATE_CONTRACTOR_DAY` and `CONTRACTORS` (see `.env.example`). Method in `METRICS.md`.
+
 ## Metric definitions
 
 Every formula and threshold is in `METRICS.md`. Every finding links to its raw evidence in the UI.

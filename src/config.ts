@@ -6,6 +6,8 @@ const pairs = (v: string | undefined) =>
 const lanes = (v: string | undefined) =>
   (v ?? '').split(';').filter(Boolean).map((l) => { const [area, pats] = l.split('='); return { area: area.trim(), patterns: pats.split(',').map((x) => x.trim()) }; });
 
+const demo = (process.env.HOUSTON_MODE ?? 'demo') === 'demo';
+
 export const config = {
   window: { start: process.env.WINDOW_START ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? '2026-09-01' : ''), days: Number(process.env.WINDOW_DAYS ?? 90) },
   offshoreCost: pairs(process.env.OFFSHORE_MONTHLY_COST ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:280000' : '')).map((p) => ({ name: p.name, aed: Number(p.id) })),
@@ -16,6 +18,16 @@ export const config = {
     teamCost: pairs(process.env.TEAM_MONTHLY_COST ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:850000,PLAT:520000' : '')).map((p) => ({ name: p.name, aed: Number(p.id) })),
   },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
+  // Feature cost. Loaded day rates: FTE = salary, benefits and overhead per working day; contractor = the day rate paid.
+  cost: {
+    currency: process.env.COST_CURRENCY ?? 'AED',
+    fteDay: Number(process.env.RATE_FTE_DAY ?? (demo ? 2400 : 0)),
+    contractorDay: Number(process.env.RATE_CONTRACTOR_DAY ?? (demo ? 1400 : 0)),
+    contractors: (process.env.CONTRACTORS ?? (demo ? 'Rahul|Priya|Sam' : '')).split('|').map((x) => x.trim()).filter(Boolean),
+    overrides: Object.fromEntries((process.env.RATE_OVERRIDES ?? '').split(';').filter((x) => x.includes('=')).map((x) => { const [n, r] = x.split('='); return [n.trim(), Number(r)]; })) as Record<string, number>,
+  },
+  // Working week. UAE: Saturday and Sunday off since 2022.
+  weekend: (process.env.WEEKEND ?? 'sat,sun').split(',').map((d) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(d.trim().toLowerCase())),
   publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
   confluence: {
     spaces: (process.env.CONFLUENCE_SPACES ?? '').split(',').filter(Boolean).map((s) => { const [name, list] = s.split(':'); return { name: name.trim(), spaces: list.split('|').map((x) => x.trim()) }; }),
@@ -50,6 +62,7 @@ export const config = {
       }),
     acField: process.env.JIRA_AC_FIELD || null,
     pointsField: process.env.JIRA_POINTS_FIELD ?? 'customfield_10016',
+    epicField: process.env.JIRA_EPIC_FIELD ?? 'customfield_10014', // Epic Link on Jira Cloud company-managed projects
     history: Number(process.env.SPRINT_HISTORY ?? 6),
   },
 };
@@ -72,6 +85,9 @@ export function configProblems(c = config): string[] {
   for (const r of c.azure.resourceGroups) check('AZURE_RESOURCE_GROUPS', r.id, /^[\w().-]{1,90}$/);
   for (const [k, v] of [['JIRA_BASE_URL', c.jira.baseUrl], ['GITHUB_API', c.github.api], ['SONAR_URL', c.sonar.url], ['TESTMO_URL', c.testmo.url], ['HOUSTON_URL', c.publicUrl]] as const)
     check(k, v, /^https?:\/\/[^\s"'<>]+$/);
+  for (const [k, v] of [['RATE_FTE_DAY', c.cost.fteDay], ['RATE_CONTRACTOR_DAY', c.cost.contractorDay], ...Object.entries(c.cost.overrides).map(([n, r]) => [`RATE_OVERRIDES ${n}`, r] as const)] as const)
+    if (!Number.isFinite(v) || v < 0) out.push(`${k} must be a number, 0 or more`);
+  if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   // Outside demo mode Houston holds per person data and API tokens: it does not start without a password.
   if (c.mode !== 'demo' && !process.env.HOUSTON_PASSWORD) out.push('HOUSTON_PASSWORD must be set outside demo mode');
   return out;

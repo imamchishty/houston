@@ -14,6 +14,7 @@ export interface Issue {
   addedToSprintAt: string | null; // ISO, when the issue entered this sprint
   sprintIds: number[];     // every sprint this issue has been in (carry-over detection)
   inProgressSince: string | null;
+  epic?: string | null;     // parent epic (feature) key, for cost per feature
 }
 
 export interface Sprint {

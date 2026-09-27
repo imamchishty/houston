@@ -8,14 +8,16 @@ function rng(seed: number) {
   return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296);
 }
 
-const people = ['Aisha', 'Rahul', 'Omar', 'Priya', 'Tom', 'Fatima'];
+// Matches the demo TEAM_ROSTER: Karim and Dinesh (OSSI) are on the roster but take no tickets.
+const teams: Record<string, string[]> = { OSSI: ['Aisha', 'Rahul', 'Omar', 'Priya', 'Tom', 'Fatima'], PLAT: ['Lena', 'Yusuf', 'Mei', 'Sam'] };
 const day = 86_400_000;
 
-function makeSprint(board: string, n: number, health: number, seed: number, baseId: number): Sprint {
+function makeSprint(board: string, n: number, health: number, seed: number, baseId: number, epicCount: number): Sprint {
   const r = rng(seed);
   const start = new Date(Date.UTC(2026, 5, 1) + (n - 1) * 14 * day);
   const end = new Date(start.getTime() + 14 * day);
   const issues: Issue[] = [];
+  const people = teams[board];
   const count = 18 + Math.floor(r() * 6);
   for (let i = 0; i < count; i++) {
     const type = r() < 0.15 + (1 - health) * 0.25 ? 'Bug' : r() < 0.8 ? 'Story' : 'Task';
@@ -42,6 +44,8 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
         : done ? new Date(start.getTime() + (0.5 + r() * 2) * day).toISOString() : null,
     });
   }
+  // features: bugs are mostly unplanned work with no epic; stories and tasks spread over the board's epics (see demoEpics)
+  for (const i of issues) i.epic = i.type === 'Bug' && r() < 0.7 ? null : `${board}-E${1 + Math.floor(r() * epicCount)}`;
   // cycle time: size drives it, and two people on the weak team run slow
   for (const i of issues) {
     if (i.statusCategory !== 'done' || !i.inProgressSince) continue;
@@ -65,8 +69,8 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
 export function demoSprints(): Sprint[] {
   const out: Sprint[] = [];
   for (let n = 1; n <= 6; n++) {
-    out.push(makeSprint('OSSI', n, 0.25 + n * 0.02, 100 + n, 1000));
-    out.push(makeSprint('PLAT', n, 0.8, 200 + n, 2000));
+    out.push(makeSprint('OSSI', n, 0.25 + n * 0.02, 100 + n, 1000, 8));
+    out.push(makeSprint('PLAT', n, 0.8, 200 + n, 2000, 7));
   }
   return out;
 }

@@ -126,6 +126,28 @@ points per engineer per sprint = done points in the last 6 closed sprints ÷ spr
 merged PRs per engineer per week = merged PRs in the GitHub window ÷ weeks ÷ people.
 cost ratio = TEAM_MONTHLY_COST ÷ OFFSHORE_MONTHLY_COST. output vs best = this team's points per engineer ÷ the highest team's.
 
+## Cost to build a feature
+
+An estimate, not accounting. Rates: RATE_FTE_DAY, RATE_CONTRACTOR_DAY for names in CONTRACTORS, RATE_OVERRIDES per person.
+
+1. Person sprint cost = day rate × working days in the sprint (WEEKEND excluded). Everyone on TEAM_ROSTER plus every assignee.
+2. Split across the tickets that person touched in the sprint (In Progress or Done, sub-tasks excluded), weighted by story points.
+   Unestimated tickets weigh the team's median ticket size.
+3. Feature cost = sum over tickets whose epic (JIRA_EPIC_FIELD, or a parent epic) is that feature, every sprint they were in. Split FTE and contractor.
+4. No feature = tickets with no epic. Not on tickets = sprint cost of people who touched no ticket that sprint.
+   Team cost = on features + no feature + not on tickets.
+5. Cost per point = team cost ÷ points done in the sprints seen (each ticket once, latest status).
+6. To complete = remaining points × cost per point. Remaining = open tickets seen in sprints + (epic children not done − those), the latter at median size.
+   Done features: zero. Estimated total = spent + to complete.
+
+Only aggregates are served. Day rates are shown to HOUSTON_PEOPLE_VIEWERS only; individual rates never.
+
+## DORA tiers
+
+The four DORA metrics also show a DORA tier (Elite, High, Medium, Low), from the DORA State of DevOps research bands:
+deploy frequency (7+ a week, 1+ a week, monthly or more, less), lead time (under 1 day, 1 week, 1 month, more),
+change failure (5%, 10%, 15%, more), time to restore (under 1 hour, 1 day, 1 week, more). The bands are approximate.
+
 ## Incident log
 
 incidents = Sev0 to Sev2 alerts in 30 days (Azure). write-ups = Confluence pages created in 30 days whose title or labels
@@ -134,5 +156,5 @@ contain incident, postmortem, post-incident or RCA. missing = incidents − writ
 ## Active days
 
 A weekday counts as active for a person if any of these carries their name and that date: ticket moved to In Progress,
-ticket resolved, ticket added to a sprint, PR opened, PR merged, review given. Friday and Saturday excluded.
+ticket resolved, ticket added to a sprint, PR opened, PR merged, review given. Weekend days (WEEKEND, Saturday and Sunday by default) excluded.
 Window 42 days. This is a trace count, not attendance, not hours, and it must not be used as either.

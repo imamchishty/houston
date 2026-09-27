@@ -6,6 +6,8 @@ import { config } from './config.js';
 import { store } from './store/index.js';
 import { run } from './pipeline.js';
 import { buildInfo } from './version.js';
+import { featureCosts } from './cost.js';
+import { metricCatalogue } from './metrics.js';
 import { rules } from './rules/sprintRules.js';
 import { peopleStats } from './people.js';
 import { learnBaseline } from './cycle.js';
@@ -311,6 +313,20 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     try { const cards = (await refreshing) as Awaited<ReturnType<typeof run>>; lastRefresh = Date.now(); return { scored: cards.length, mode: config.mode }; }
     finally { refreshing = null; }
   });
+
+  // Cost to build each feature. Aggregates only: no per person cost. Rates are shown to people viewers only.
+  app.get<{ Params: { board: string } }>('/api/teams/:board/costs', async (req, reply) => {
+    const b = boardData(req.params.board);
+    if (!b.sprints.length) return reply.code(404).send({ error: 'No sprints' });
+    const { fteDay, contractorDay } = config.cost;
+    if (!fteDay && !contractorDay) return { configured: false, reason: 'Set RATE_FTE_DAY and RATE_CONTRACTOR_DAY in .env' };
+    const report = featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: config.cost, roster: rosterFor(req.params.board), weekend: config.weekend });
+    return { configured: true, ...report,
+      rates: namedFor(req as any) ? { fteDay, contractorDay, contractors: config.cost.contractors.length, overrides: Object.keys(config.cost.overrides).length } : null };
+  });
+
+  // What every metric means, why it matters and how it is calculated. Powers the "What is this?" links and the Metrics page.
+  app.get('/api/metrics', async () => metricCatalogue());
 
   app.get('/api/health', async () => ({ ok: true }));
 

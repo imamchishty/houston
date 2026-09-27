@@ -1,3 +1,4 @@
+import { config } from './config.js';
 import type { GithubSnapshot, Sprint } from './types.js';
 
 // Active days per person: days with any trace in Jira (ticket created, moved, resolved) or GitHub (PR opened, merged, reviewed).
@@ -9,12 +10,12 @@ export function activity(sprints: Sprint[], gh: GithubSnapshot | undefined, days
   const byPerson = new Map<string, Set<string>>();
   const mark = (who: string | null | undefined, when: string | null | undefined) => {
     if (!who || !when || new Date(when).getTime() < since) return;
-    const d = new Date(when); if (d.getUTCDay() === 5 || d.getUTCDay() === 6) return; // UAE weekend Fri/Sat
+    const d = new Date(when); if (config.weekend.includes(d.getUTCDay())) return; // WEEKEND in .env, Sat/Sun by default
     (byPerson.get(who) ?? byPerson.set(who, new Set()).get(who)!).add(when.slice(0, 10));
   };
   for (const s of sprints) for (const i of s.issues) { mark(i.assignee, i.inProgressSince); mark(i.assignee, i.resolved); mark(i.assignee, i.addedToSprintAt); }
   for (const p of gh?.prs ?? []) { mark(p.author, p.createdAt); mark(p.author, p.mergedAt); for (const r of p.reviewers) mark(r, p.firstReviewAt); }
-  let weekdays = 0; for (let t = since; t < Date.now(); t += 86_400_000) { const d = new Date(t).getUTCDay(); if (d !== 5 && d !== 6) weekdays++; }
+  let weekdays = 0; for (let t = since; t < Date.now(); t += 86_400_000) { if (!config.weekend.includes(new Date(t).getUTCDay())) weekdays++; }
   return [...byPerson.entries()].map(([name, set]) => {
     const covered = set.size, perWeek = Math.round((covered / weekdays) * 5 * 10) / 10;
     const last = [...set].sort().pop() ?? null;

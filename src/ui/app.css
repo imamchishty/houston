@@ -81,3 +81,9 @@
 header h1 { cursor:pointer; }
 footer#version { max-width:1180px; margin:0 auto; padding:8px 24px 28px; font-size:12px; color:var(--muted, #6B7385); font-variant-numeric:tabular-nums; }
 @media (max-width:760px) { footer#version { padding:8px 16px 24px; } }
+.tier { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600; background:var(--soft); border:1px solid var(--line); color:var(--ink); vertical-align:middle; }
+details.about { margin-top:8px; font-size:13px; }
+details.about summary, details.metric summary { cursor:pointer; color:var(--muted); }
+details.about p, details.metric p { margin:6px 0; line-height:1.45; }
+details.metric summary .note { margin-left:6px; }
+.navlink { margin-left:14px; font-size:14px; text-decoration:none; color:var(--muted); }
