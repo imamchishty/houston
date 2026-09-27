@@ -61,11 +61,14 @@ export interface Slice {
   defaultBranches: Record<string, string>;
 }
 
-export function slice(team: string, days: Period, now = Date.now()): Slice {
+export const slice = (team: string, days: Period, now = Date.now()): Slice => sliceRange(team, now - days * DAY, now);
+
+// Any exact range [from, to), for calendar months in the monthly report.
+export function sliceRange(team: string, from: number, to: number): Slice {
   const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team];
   const gh = store.github().filter((g) => boards.includes(g.board));
   return {
-    from: now - days * DAY, to: now, boards,
+    from, to, boards,
     prs: gh.flatMap((g) => g.prs), deploys: gh.flatMap((g) => g.deploys), mainCommits: gh.flatMap((g) => g.mainCommits ?? []),
     items: store.projects().filter((p) => boards.includes(p.board)).flatMap((p) => p.items),
     epics: boards.flatMap((b) => store.epics()[b] ?? []),

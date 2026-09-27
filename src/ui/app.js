@@ -39,6 +39,7 @@ async function route() {
   await metricsReady;
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
+  if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
   const rep = location.hash.match(/^#_(quality|predictability|efficiency)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');

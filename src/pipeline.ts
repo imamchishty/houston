@@ -17,6 +17,7 @@ import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
 import { recordDay, backup } from './store/history.js';
+import { recordLastMonth } from './monthly.js';
 import { slice, quality, predictability, efficiency, flatMeasures } from './reports.js';
 
 export async function collect() {
@@ -73,5 +74,5 @@ export function snapshot(day = new Date().toISOString().slice(0, 10)) {
       : null;
     recordDay({ day, board, areas, findings, sprints: b.history, cost });
   }
-  if (boards.length) backup(day);
+  if (boards.length) { recordLastMonth(); backup(day); }
 }

@@ -10,6 +10,7 @@ import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
 import { dataQuality } from './dataQuality.js';
+import { monthlyReport, monthlyMarkdown, monthOf } from './monthly.js';
 import { diagFor } from './diag.js';
 import { simpleDashboard } from './simple.js';
 import { doraSeries, PERIODS } from './dora.js';
@@ -342,6 +343,22 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
 
   // The simple dashboard: each team in plain English, four questions answered Yes / Partly / No. Team level only.
   app.get('/api/dashboard/simple', async () => simpleDashboard());
+
+  // The monthly report: one calendar month for a team or all, against the month before, with six months of trend.
+  const monthFilter = (q: { team?: string; month?: string }, reply: any) => {
+    const team = q.team ?? 'all', month = q.month ?? monthOf(Date.now());
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) { reply.code(400).send({ error: 'month must be YYYY-MM' }); return null; }
+    if (team !== 'all' && !store.scorecards().some((c) => c.board === team)) { reply.code(404).send({ error: 'No such team' }); return null; }
+    return { team, month };
+  };
+  app.get<{ Querystring: { team?: string; month?: string } }>('/api/monthly', async (req, reply) => {
+    const f = monthFilter(req.query, reply); if (!f) return;
+    return monthlyReport(f.team, f.month);
+  });
+  app.get<{ Querystring: { team?: string; month?: string } }>('/api/monthly.md', async (req, reply) => {
+    const f = monthFilter(req.query, reply); if (!f) return;
+    reply.type('text/markdown').send(monthlyMarkdown(monthlyReport(f.team, f.month)));
+  });
 
   // Checks on the collected data for setups that would make a correct formula give a wrong number.
   app.get('/api/data-quality', async () => dataQuality());

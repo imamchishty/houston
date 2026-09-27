@@ -33,6 +33,9 @@ export const MIGRATIONS: string[] = [
      no_feature REAL NOT NULL, not_on_tickets REAL NOT NULL, cost_per_point REAL, PRIMARY KEY (day, board));
    CREATE TABLE IF NOT EXISTS feature_costs (day TEXT NOT NULL, board TEXT NOT NULL, feature TEXT NOT NULL, status TEXT NOT NULL, spent REAL NOT NULL,
      fte REAL NOT NULL, contractor REAL NOT NULL, to_complete REAL NOT NULL, total REAL NOT NULL, PRIMARY KEY (day, board, feature));`,
+  // 2: each completed calendar month's key measures, kept for good (raw data only reaches back JIRA_DAYS / GITHUB_DAYS)
+  `CREATE TABLE IF NOT EXISTS month_values (month TEXT NOT NULL, board TEXT NOT NULL, metric TEXT NOT NULL, value REAL,
+     num REAL, den REAL, recorded TEXT NOT NULL, PRIMARY KEY (month, board, metric));`,
 ];
 
 export const schemaVersion = () => (open().prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -136,4 +139,19 @@ export function valueOn(board: string, metric: string, day: string): number | nu
   const floor = new Date(Date.parse(day) - 7 * 86_400_000).toISOString().slice(0, 10);
   const row = open().prepare('SELECT value FROM metric_values WHERE board = ? AND metric = ? AND day <= ? AND day >= ? ORDER BY day DESC LIMIT 1').get(board, metric, day, floor) as { value: number } | undefined;
   return row?.value ?? null;
+}
+
+// A completed month's measures. Written once the month is over and fully covered by collected data; a re-run replaces it.
+export function recordMonth(month: string, board: string, values: { metric: string; value: number | null; num: number | null; den: number | null }[]) {
+  const d = open(), now = new Date().toISOString();
+  d.exec('BEGIN IMMEDIATE');
+  try {
+    const st = d.prepare('INSERT OR REPLACE INTO month_values (month, board, metric, value, num, den, recorded) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const v of values) st.run(month, board, v.metric, v.value, v.num, v.den, now);
+    d.exec('COMMIT');
+  } catch (e) { d.exec('ROLLBACK'); throw e; }
+}
+export function storedMonth(month: string, board: string): Map<string, { value: number | null; num: number | null; den: number | null }> {
+  const rows = open().prepare('SELECT metric, value, num, den FROM month_values WHERE month = ? AND board = ?').all(month, board) as { metric: string; value: number | null; num: number | null; den: number | null }[];
+  return new Map(rows.map((r) => [r.metric, { value: r.value, num: r.num, den: r.den }]));
 }

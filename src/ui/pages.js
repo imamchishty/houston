@@ -224,3 +224,56 @@ function speedStabilityRow(ss) {
     <div class="card"><h3>Stability</h3><div class="ssr">${ss.stability.map(cell).join('')}</div></div></div>
     <p class="note">All teams, last 30 days. Speed only counts if stability holds: read the two sides together.</p>`;
 }
+
+// ---------- Monthly report ----------
+const MFILT = { team: 'all', month: null };
+const monthLabel = (m) => new Date(m + '-01T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+const monthLong = (m) => new Date(m + '-01T00:00:00Z').toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const fmtU = (v, u) => (v == null ? '·' : `${chartFmt(v)}${u === '%' ? '%' : u === 'count' ? '' : ' ' + u}`);
+const STATUS_NOTE = { 'partial': 'Data starts part way through this month', 'no data': 'No data', 'saved': 'Saved when the month closed', 'in progress': 'So far this month', 'complete': '' };
+
+async function monthlyPage(teams) {
+  $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">Monthly</a>`;
+  const now = new Date(); const months = [];
+  for (let k = 0; k < 12; k++) { const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1)); months.push(d.toISOString().slice(0, 7)); }
+  MFILT.month ??= months[1]; // last complete month by default
+  const q = `team=${encodeURIComponent(MFILT.team)}&month=${encodeURIComponent(MFILT.month)}`;
+  const r = await api(`/monthly?${q}`);
+  if (!r.headline) { $('#main').innerHTML = `<p class="empty">${esc(r.error ?? 'No data')}</p>`; return; }
+  const chip = (h) => h.met == null ? '' : h.met ? '<span class="st green"><i aria-hidden="true">✓</i>met</span>' : '<span class="st red"><i aria-hidden="true">▲</i>missed</span>';
+  $('#main').innerHTML = `
+    <div class="rephead"><div><h2 class="big">Monthly report: ${esc(r.team === 'all' ? 'all teams' : r.team)}, ${esc(r.name)}</h2><p class="lead">${esc(r.summary)}</p></div>
+      <div><button type="button" class="copybtn" data-copy="/monthly.md?${esc(q)}">Copy as Markdown</button><p class="note">For Confluence or email.</p></div></div>
+    <div class="filters" role="group" aria-label="Monthly filters">
+      <label>Team <select data-mfilter="team"><option value="all">All teams</option>${teams.map((t) => `<option value="${esc(t)}"${MFILT.team === t ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <label>Month <select data-mfilter="month">${months.map((m) => `<option value="${esc(m)}"${MFILT.month === m ? ' selected' : ''}>${esc(monthLong(m))}${m === months[0] ? ' (so far)' : ''}</option>`).join('')}</select></label>
+    </div>
+    <h2>Key numbers</h2>
+    <div class="card scrollx"><table class="t"><tr><th>Measure</th><th class="num">${esc(monthLabel(r.month))}</th><th class="num">${esc(monthLabel(prevMonthOf(r.month)))}</th><th>Change</th><th>Target</th></tr>
+      ${r.headline.map((h) => `<tr><td>${esc(h.title)}${h.smallSample ? ' <span class="st amber" title="Too few items to trust this value"><i aria-hidden="true">●</i>small sample</span>' : ''}</td>
+        <td class="num"><b>${esc(fmtU(h.value, h.unit))}</b></td><td class="num muted">${esc(fmtU(h.previous, h.unit))}</td><td>${h.trend ? trendArrow(h.trend) : '<span class="muted">·</span>'}</td>
+        <td>${h.target ? `<span class="muted">${h.target.op === '<' ? 'under' : 'over'} ${esc(fmtU(h.target.value, h.unit))}</span> ${chip(h)}` : ''}</td></tr>`).join('')}
+    </table>${r.previousStatus !== 'complete' && r.previousStatus !== 'saved' ? `<p class="note">No comparison: ${esc(STATUS_NOTE[r.previousStatus] || r.previousStatus)} for ${esc(monthLong(prevMonthOf(r.month)))}.</p>` : ''}</div>
+    <div class="twocol mt"><div class="card"><h3>Improved</h3>${r.improved.length ? `<ul class="plain">${r.improved.map((x) => `<li><span class="up">▲</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing improved clearly.</p>'}</div>
+      <div class="card"><h3>Got worse</h3>${r.worse.length ? `<ul class="plain">${r.worse.map((x) => `<li><span class="down">▼</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing got clearly worse.</p>'}</div></div>
+    <h2>Trends, last 6 months</h2>
+    <div class="trends">${r.trends.map((t) => `<div class="card"><h3>${esc(t.title)}</h3>${lineChart('tr-' + t.id, { labels: t.points.map((p) => p.month), xLabel: monthLabel, unit: t.unit === '%' ? '%' : t.unit === 'count' ? '' : t.unit, W: 360, H: 170,
+        series: [{ name: 'Value', key: 's1', values: t.points.map((p) => p.value), dots: true }, ...(t.target ? [{ name: `Target (${t.target.op === '<' ? 'under' : 'over'} ${t.target.value})`, key: 'muted', values: t.points.map(() => t.target.value), dashed: true }] : [])] })}
+        ${t.points.some((p) => p.status !== 'complete' && p.status !== 'saved' && p.status !== 'in progress') ? `<p class="note">${esc(t.points.filter((p) => p.value == null).map((p) => monthLabel(p.month)).join(', '))}: no data yet.</p>` : ''}</div>`).join('')}</div>
+    <p class="note">Each point is one calendar month, computed over the whole month. Months finish being saved the night after they end, so trends keep growing beyond the window of collected data.</p>
+    <h2>In ${esc(r.name)}</h2>
+    <div class="twocol"><div class="card"><h3>Sprints closed</h3>${r.detail.sprints.length ? `<table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
+        ${r.detail.sprints.map((s) => `<tr><td>${esc(s.board)}</td><td>${esc(s.sprint)}</td><td class="num">${esc(s.committed)}</td><td class="num">${esc(s.done)}</td><td class="num">${esc(s.pct ?? '·')}%</td></tr>`).join('')}</table>` : '<p class="note">None.</p>'}</div>
+      <div class="card"><h3>Features shipped</h3>${r.detail.features.length ? `<table class="t"><tr><th>Feature</th><th>Team</th><th class="num">Cost</th></tr>
+        ${r.detail.features.map((f) => `<tr><td><code>${esc(f.key)}</code> ${esc(f.summary)}</td><td>${esc(f.board)}</td><td class="num">${f.cost == null ? '·' : money(f.cost, f.currency)}</td></tr>`).join('')}</table>` : '<p class="note">None.</p>'}
+        <h3 class="mt">Incidents</h3><p>${esc(r.detail.incidents.count)} ${r.detail.incidents.count === 1 ? 'incident' : 'incidents'}${r.detail.incidents.medianRestoreHours != null ? `, median ${esc(r.detail.incidents.medianRestoreHours)} hours to restore` : ''}.</p></div></div>`;
+  window.scrollTo(0, 0);
+}
+const prevMonthOf = (m) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo - 2, 1)).toISOString().slice(0, 7); };
+document.addEventListener('change', (e) => { const f = e.target.dataset?.mfilter; if (!f) return; MFILT[f] = e.target.value; route(); });
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest?.('[data-copy]'); if (!b) return;
+  const text = await fetch('/api' + b.dataset.copy).then((x) => x.text());
+  try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; } catch { b.textContent = 'Copy failed: use /api' + b.dataset.copy; }
+  setTimeout(() => { b.textContent = 'Copy as Markdown'; }, 2500);
+});
