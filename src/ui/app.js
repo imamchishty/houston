@@ -31,11 +31,11 @@ async function route() {
 async function overview() {
   $('#crumbs').innerHTML = '';
   const teams = await api('/teams');
-  teams.sort((a, b) => a.score - b.score);
+  // Alphabetical, not ranked: the page is for each team to see its own health, not a league table.
+  teams.sort((a, b) => a.board.localeCompare(b.board));
   if (!teams.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
-  const worst = teams[0];
   $('#main').innerHTML = `
-    <h2>Teams, worst first</h2>
+    <h2>Teams</h2>
     <div class="grid">${teams.map((t) => `
       <div class="card team-card" data-go="${esc(t.board)}">
         <div class="top"><span class="name">${esc(t.board)}</span>
@@ -52,7 +52,7 @@ async function overview() {
         ${spark(t.trend)}
       </div>`).join('')}
     </div>
-    <p class="note">Sprint score over the last ${worst.trend.length} sprints, dotted line is 75 (green). Tap a team.</p>`;
+    <p class="note">Sprint score over the last ${teams[0].trend.length} sprints, dotted line is 75 (green). Tap a team.</p>`;
 }
 
 const finding = (board, f) => `
