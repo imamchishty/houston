@@ -192,3 +192,17 @@ export interface AzureSnapshot {
     costPerFeatureAed: number | null; // (cloud + team) × 3 ÷ features in 90 days
   } | null;
 }
+
+// Claude Code usage per person over the window, from Claude Code's OpenTelemetry metrics in Application Insights.
+export interface ClaudeUser {
+  name: string;               // canonical person (PEOPLE maps emails), or the email if unmapped
+  email: string;
+  activeDays: number;         // days with any Claude Code activity
+  sessions: number;
+  activeHours: number;
+  linesAdded: number; linesRemoved: number;
+  commits: number; pullRequests: number;
+  editsAccepted: number; editsRejected: number;
+  apiEquivalentUsd: number;   // tokens priced at API rates. On a seat plan this is NOT billed
+}
+export interface ClaudeSnapshot { board: string; capturedAt: string; days: number; users: ClaudeUser[] }

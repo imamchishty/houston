@@ -121,6 +121,13 @@ The Features tab shows what each feature has cost so far, split FTE and contract
 team's current cost per point. It also shows how much of the team's cost goes on work with no feature, and on people with
 no tickets. Set `RATE_FTE_DAY`, `RATE_CONTRACTOR_DAY` and `CONTRACTORS` (see `.env.example`). Method in `METRICS.md`.
 
+## Claude usage and cost
+
+On a Team plan Claude is billed per seat. `CLAUDE_SEAT_MONTHLY` × seats is added to each seat holder's day rate, so it
+shows in team cost, cost per point and cost per feature. Usage (adoption, active days, sessions, lines, commits, PRs,
+edit acceptance, API-equivalent value) comes from Claude Code's own OpenTelemetry metrics via Application Insights: setup in
+`CLAUDE_USAGE.md`. Team figures for everyone on the Claude tab; per person and who is not using it for people viewers only.
+
 ## Metric definitions
 
 Every formula and threshold is in `METRICS.md`. Every finding links to its raw evidence in the UI.

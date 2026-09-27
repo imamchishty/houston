@@ -10,8 +10,10 @@ import { demoGithub } from './collectors/githubDemo.js';
 import { collectConfluence, demoConfluence } from './collectors/confluence.js';
 import { collectEpics, demoEpics } from './collectors/epics.js';
 import { collectAzure, demoAzure } from './collectors/azure.js';
+import { collectClaude, demoClaude } from './collectors/claude.js';
 import { boardData } from './board.js';
 import { featureCosts } from './cost.js';
+import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
 import { recordDay, backup } from './store/history.js';
 
@@ -26,6 +28,7 @@ export async function collect() {
     epics[b.name] = config.mode === 'demo' ? demoEpics(b.name, b.name === 'OSSI') : await collectEpics(b.name);
   }
   store.saveEpics(epics);
+  store.saveClaude(config.mode === 'demo' ? demoClaude() : await collectClaude());
   store.saveAzure(config.mode === 'demo' ? demoAzure(epics) : config.azure.client ? await collectAzure(epics) : []);
   return sprints;
 }
@@ -59,7 +62,7 @@ export function snapshot(day = new Date().toISOString().slice(0, 10)) {
     ];
     const findings = [b.latest, b.flow, b.quality, b.features, b.ops, b.docs].flatMap((x) => x?.findings ?? []);
     const cost = config.cost.fteDay || config.cost.contractorDay
-      ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: config.cost, roster: rosterFor(board), weekend: config.weekend })
+      ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(board), weekend: config.weekend })
       : null;
     recordDay({ day, board, areas, findings, sprints: b.history, cost });
   }

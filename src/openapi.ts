@@ -25,7 +25,8 @@ const Summary = {
     dora: { type: 'array', items: { type: 'object', properties: { metric: { type: 'string' }, title: { type: 'string' }, value: { type: 'number' }, unit: { type: 'string' }, tier: { type: 'string', enum: ['Elite', 'High', 'Medium', 'Low'] } } } },
     gains: { type: 'array', items: { type: 'object', properties: { metric: { type: 'string' }, title: { type: 'string' }, area: { type: 'string' }, gain: { type: 'number' } } } },
     headcountGateOpen: { type: 'boolean' },
-    cost: { type: ['object', 'null'], properties: { currency: { type: 'string' }, sprints: { type: 'number' }, teamCost: { type: 'number' }, onFeaturesPct: { type: 'number' }, costPerPoint: { type: ['number', 'null'] } } },
+    claude: { type: ['object', 'null'], properties: { seats: { type: 'number' }, seatCostMonthly: { type: 'number' }, adoptionPct: { type: ['number', 'null'] }, acceptanceRate: { type: ['number', 'null'] } } },
+    cost: { type: ['object', 'null'], properties: { currency: { type: 'string' }, sprints: { type: 'number' }, teamCost: { type: 'number' }, aiCost: { type: 'number' }, onFeaturesPct: { type: 'number' }, costPerPoint: { type: ['number', 'null'] } } },
     links: { type: 'object', properties: { ui: { type: 'string' }, digest: { type: 'string' }, api: { type: 'string' } } },
   },
 };
@@ -64,6 +65,7 @@ export const openapi = (version: string) => ({
         responses: { 200: json('Recorded'), 400: json('Invalid'), 403: json('Missing X-Requested-With header, or an API token'), ...notFound } },
     },
     '/api/teams/{board}/costs': { get: { summary: 'Cost to build each feature, FTE and contractor, and estimate to complete. Aggregates only; day rates for people viewers', parameters: [board], responses: { 200: json('Costs'), ...notFound } } },
+    '/api/teams/{board}/claude': { get: { summary: 'Claude seats, seat cost, adoption and Claude Code usage. Per person and who is not using it only for people viewers', parameters: [board], responses: { 200: json('Claude usage'), ...notFound } } },
     '/api/teams/{board}/history': { get: { summary: 'Daily area scores, every sprint scored, and cost over time', parameters: [board, { name: 'days', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 3650, default: 365 } }], responses: { 200: json('History') } } },
     '/api/teams/{board}/notify': { post: { summary: 'Post the digest headline to Teams now', parameters: [board], responses: { 200: json('Result'), 429: json('Posted less than a minute ago'), ...notFound } } },
     '/api/rules': { get: { summary: 'Sprint rules, thresholds and weights', responses: { 200: json('Rules', { type: 'array', items: { type: 'object' } }) } } },

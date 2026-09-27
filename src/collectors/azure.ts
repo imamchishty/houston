@@ -25,6 +25,18 @@ async function appInsightsQuery(appId: string, kql: string) {
   return rows as any[];
 }
 
+// Every row of an Application Insights query, as objects keyed by column name.
+export async function appInsightsRows(appId: string, kql: string): Promise<Record<string, unknown>[]> {
+  const t = await token('https://api.applicationinsights.io/.default');
+  const res = await fetch(`https://api.applicationinsights.io/v1/apps/${encodeURIComponent(appId)}/query`, {
+    method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: kql }),
+  });
+  if (!res.ok) throw new Error(`App Insights ${res.status}: ${await res.text()}`);
+  const table = (await res.json() as any).tables?.[0];
+  const cols: string[] = (table?.columns ?? []).map((c: { name: string }) => c.name);
+  return (table?.rows ?? []).map((r: unknown[]) => Object.fromEntries(cols.map((c, i) => [c, r[i]])));
+}
+
 async function logQuery(kql: string) {
   const t = await token('https://api.loganalytics.io/.default');
   const res = await fetch(`https://api.loganalytics.io/v1/workspaces/${encodeURIComponent(config.azure.workspace)}/query`, {

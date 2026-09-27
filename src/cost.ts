@@ -12,7 +12,11 @@ import { median } from './cycle.js';
 //    Roster members who touched no ticket in a sprint are "not on tickets": real cost, but no feature to put it on.
 // 5. To complete = remaining points x the team's cost per point over the sprints seen. Done features: zero.
 
-export interface Rates { fteDay: number; contractorDay: number; contractors: string[]; overrides: Record<string, number>; currency: string }
+export interface Rates {
+  fteDay: number; contractorDay: number; contractors: string[]; overrides: Record<string, number>; currency: string;
+  seatDay?: number;             // AI tool seat (Claude) per working day, added to the seat holder's day rate
+  seatHolders?: string[];       // who has a seat; empty or missing = everyone
+}
 export type Kind = 'fte' | 'contractor';
 
 export interface FeatureCost {
@@ -28,6 +32,7 @@ export interface CostReport {
   onFeatures: number;
   noFeature: number;            // tickets without an epic: bugs, support, unplanned work
   notOnTickets: number;         // people with no ticket in a sprint
+  aiCost: number;               // Claude seats, already included in teamCost
   costPerPoint: number | null;  // team cost / points done
   fteShare: number;             // % of team cost that is FTE
   features: FeatureCost[];
@@ -60,14 +65,17 @@ export function featureCosts(input: { sprints: Sprint[]; epics: Epic[]; rates: R
     const e = byEpic.get(epic) ?? { fte: 0, contractor: 0 };
     e[kind] += amount; byEpic.set(epic, e);
   };
-  let fteCost = 0;
+  let fteCost = 0, aiCost = 0;
+  const seatFor = (p: string) => (rates.seatDay && (!rates.seatHolders?.length || rates.seatHolders.includes(p)) ? rates.seatDay : 0);
 
   for (const s of sprints) {
     const days = workingDays(s.start, s.end, weekend);
     const people = new Set<string>([...roster, ...s.issues.map((i) => i.assignee).filter((a): a is string => !!a)]);
     for (const person of people) {
       const { day, kind } = rateFor(person, rates);
-      const cost = day * days;
+      const seat = seatFor(person) * days;
+      const cost = day * days + seat;
+      aiCost += seat;
       teamCost += cost;
       if (kind === 'fte') fteCost += cost;
       const mine = s.issues.filter((i) => i.assignee === person && touched(i));
@@ -108,7 +116,7 @@ export function featureCosts(input: { sprints: Sprint[]; epics: Epic[]; rates: R
   const onFeatures = [...byEpic.values()].reduce((t, e) => t + e.fte + e.contractor, 0);
   return {
     currency: rates.currency, sprints: sprints.length, teamCost: round(teamCost), onFeatures: round(onFeatures),
-    noFeature: round(noFeature), notOnTickets: round(notOnTickets),
+    noFeature: round(noFeature), notOnTickets: round(notOnTickets), aiCost: round(aiCost),
     costPerPoint: costPerPoint == null ? null : round(costPerPoint),
     fteShare: teamCost ? Math.round((fteCost / teamCost) * 1000) / 10 : 0,
     features: features.sort((a, b) => b.total - a.total),

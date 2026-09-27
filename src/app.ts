@@ -10,6 +10,7 @@ import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
+import { costRates, claudeReport } from './claude.js';
 import { metricCatalogue, bandFor } from './metrics.js';
 import { history } from './store/history.js';
 import { rules } from './rules/sprintRules.js';
@@ -312,7 +313,7 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!b.sprints.length) return reply.code(404).send({ error: 'No sprints' });
     const { fteDay, contractorDay } = config.cost;
     if (!fteDay && !contractorDay) return { configured: false, reason: 'Set RATE_FTE_DAY and RATE_CONTRACTOR_DAY in .env' };
-    const report = featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: config.cost, roster: rosterFor(req.params.board), weekend: config.weekend });
+    const report = featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(req.params.board), weekend: config.weekend });
     return { configured: true, ...report,
       rates: namedFor(req as any) ? { fteDay, contractorDay, contractors: config.cost.contractors.length, overrides: Object.keys(config.cost.overrides).length } : null };
   });
@@ -321,6 +322,12 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   app.get<{ Params: { board: string }; Querystring: { days?: string } }>('/api/teams/:board/history', async (req) => {
     const days = Math.min(Math.max(Number(req.query.days) || 365, 1), 3650);
     return { board: req.params.board, ...history(req.params.board, days) };
+  });
+
+  // Claude seats, cost and usage. Team level for everyone; per person and "not using" only for people viewers.
+  app.get<{ Params: { board: string } }>('/api/teams/:board/claude', async (req, reply) => {
+    if (!store.scorecards().some((c) => c.board === req.params.board)) return reply.code(404).send({ error: 'No such board' });
+    return { board: req.params.board, ...claudeReport(req.params.board, namedFor(req as any)) };
   });
 
   // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.

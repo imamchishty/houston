@@ -26,6 +26,15 @@ export const config = {
     contractors: (process.env.CONTRACTORS ?? (demo ? 'Rahul|Priya|Sam' : '')).split('|').map((x) => x.trim()).filter(Boolean),
     overrides: Object.fromEntries((process.env.RATE_OVERRIDES ?? '').split(';').filter((x) => x.includes('=')).map((x) => { const [n, r] = x.split('='); return [n.trim(), Number(r)]; })) as Record<string, number>,
   },
+  // Claude on a seat plan (Team). Billed cost = seats x seat price. Usage comes from Claude Code's OpenTelemetry
+  // metrics, exported to Application Insights (CLAUDE_USAGE.md). CLAUDE_SEATS lists seat holders; empty = everyone on the roster.
+  claude: {
+    seatMonthly: Number(process.env.CLAUDE_SEAT_MONTHLY ?? (demo ? 550 : 0)),   // in COST_CURRENCY
+    seats: (process.env.CLAUDE_SEATS ?? '').split('|').map((x) => x.trim()).filter(Boolean),
+    appInsights: process.env.CLAUDE_OTEL_APPINSIGHTS ?? '',                      // App Insights app id receiving the metrics
+    days: Number(process.env.CLAUDE_DAYS ?? 30),
+    usdRate: Number(process.env.USD_TO_CURRENCY ?? 3.6725),                     // for the API-equivalent value
+  },
   // Working week. UAE: Saturday and Sunday off since 2022.
   weekend: (process.env.WEEKEND ?? 'sat,sun').split(',').map((d) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(d.trim().toLowerCase())),
   publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
@@ -87,6 +96,9 @@ export function configProblems(c = config): string[] {
     check(k, v, /^https?:\/\/[^\s"'<>]+$/);
   for (const [k, v] of [['RATE_FTE_DAY', c.cost.fteDay], ['RATE_CONTRACTOR_DAY', c.cost.contractorDay], ...Object.entries(c.cost.overrides).map(([n, r]) => [`RATE_OVERRIDES ${n}`, r] as const)] as const)
     if (!Number.isFinite(v) || v < 0) out.push(`${k} must be a number, 0 or more`);
+  check('CLAUDE_OTEL_APPINSIGHTS', c.claude.appInsights, GUID);
+  if (!Number.isFinite(c.claude.seatMonthly) || c.claude.seatMonthly < 0) out.push('CLAUDE_SEAT_MONTHLY must be a number, 0 or more');
+  if (!Number.isInteger(c.claude.days) || c.claude.days < 1 || c.claude.days > 90) out.push('CLAUDE_DAYS must be 1 to 90');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
     const i = t.indexOf(':'), name = t.slice(0, i), token = t.slice(i + 1);

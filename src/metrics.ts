@@ -7,7 +7,7 @@ import { docsRules } from './rules/docsRules.js';
 // finding and on the Metrics page. The formulas match METRICS.md; thresholds come from the rule definitions
 // where they are exported, so the explanation cannot drift from what is scored.
 
-export type Area = 'Sprint process' | 'Flow & DORA' | 'Quality' | 'Features' | 'Production & cost' | 'Docs' | 'Scores';
+export type Area = 'Sprint process' | 'Flow & DORA' | 'Quality' | 'Features' | 'Production & cost' | 'Docs' | 'Claude' | 'Scores';
 export interface DoraBand { tier: 'Elite' | 'High' | 'Medium' | 'Low'; test: string; min?: number; max?: number }
 export interface MetricInfo { id: string; area: Area; name: string; why: string; how: string; thresholds?: string; dora?: DoraBand[] }
 
@@ -209,6 +209,25 @@ const catalogue: MetricInfo[] = [
     'A quick whole-team view of cost against output. The Features tab has the per feature breakdown by who built it.',
     '(Last month\'s cloud cost + TEAM_MONTHLY_COST) × 3 ÷ epics resolved in the last 90 days.',
     'Placeholder thresholds: green under 300,000, amber under 800,000. Set them with finance.'),
+
+  // Claude
+  W('Claude', 'claude_seat_cost', 'Claude seat cost',
+    'What the team pays for Claude, so AI shows up in cost per feature like any other cost.',
+    'Seats × CLAUDE_SEAT_MONTHLY. Seat holders are CLAUDE_SEATS, or everyone on the roster. In cost per feature the seat is added to the holder\'s day rate: monthly price × 12 ÷ working days in a year.',
+    'Informational.'),
+  W('Claude', 'claude_adoption', 'Claude Code adoption',
+    'A seat nobody uses is pure cost. Adoption shows whether the team has made Claude part of how it works, and where help is needed.',
+    'People on the team roster with any Claude Code activity in the last CLAUDE_DAYS (30) ÷ people on the roster. Activity comes from Claude Code\'s own OpenTelemetry metrics.',
+    'Informational. Low adoption is a question for the team, not a verdict on anyone.'),
+  W('Claude', 'claude_acceptance', 'Edit acceptance rate',
+    'How often people keep what Claude proposes. Very low means it is not helping on this codebase; very high with no review is worth a look.',
+    'Accepted ÷ (accepted + rejected) Edit, Write and NotebookEdit proposals, from claude_code.code_edit_tool.decision.', 'Informational.'),
+  W('Claude', 'claude_output', 'Output through Claude Code',
+    'Lines, commits and PRs made through Claude Code, next to the GitHub numbers, so AI\'s share of the work is visible.',
+    'Sums of claude_code.lines_of_code.count, commit.count and pull_request.count for the team\'s people over the window.', 'Informational.'),
+  W('Claude', 'claude_api_equivalent', 'API-equivalent value',
+    'What the same usage would cost at API prices. On a seat plan this is not billed; it shows how much the seats are worth.',
+    'Sum of claude_code.cost.usage (tokens priced at API rates, USD) × USD_TO_CURRENCY.', 'Informational. Not billed on a Team plan.'),
 
   // Docs
   W('Docs', 'stale_docs', 'Pages untouched for 90+ days',

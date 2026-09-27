@@ -104,5 +104,18 @@ console.log(`Houston connection check, mode=${config.mode}\n`);
 console.log('Config'); { const p = configProblems(); p.length ? p.forEach(bad) : ok('values look valid'); }
 await jira(); await confluence(); await github(); await sonar(); await testmo(); await azure();
 console.log('Teams'); config.teamsWebhook ? ok('webhook set') : skip('TEAMS_WEBHOOK not set');
+console.log('Claude');
+config.claude.seatMonthly ? ok(`seat price ${config.cost.currency} ${config.claude.seatMonthly} a month, ${config.claude.seats.length ? `${config.claude.seats.length} named seats` : 'everyone on the roster has a seat'}`) : skip('CLAUDE_SEAT_MONTHLY not set, no seat cost');
+if (!config.claude.appInsights) skip('CLAUDE_OTEL_APPINSIGHTS not set, no usage (see CLAUDE_USAGE.md)');
+else if (!config.azure.client) bad('CLAUDE_OTEL_APPINSIGHTS set but no Azure service principal (AZURE_CLIENT_ID)');
+else {
+  try {
+    const { collectClaude } = await import('./collectors/claude.js');
+    const snaps = await collectClaude();
+    const users = snaps.flatMap((s) => s.users);
+    users.length ? ok(`${users.length} people on a roster with Claude Code activity in ${config.claude.days} days`)
+      : bad('no Claude Code metrics for anyone on a roster: check the managed settings, the collector, and that PEOPLE maps emails');
+  } catch (e) { bad(`Claude usage query failed: ${(e as Error).message.slice(0, 200)}`); }
+}
 console.log(`\nRoster: ${config.roster.map((r) => `${r.name} (${r.people.length})`).join(', ') || 'none'}`);
 console.log('If anything says FAIL, fix it before npm run collect.');

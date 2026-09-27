@@ -2,6 +2,7 @@ import { boardData } from './board.js';
 import { bandFor, doraTier } from './metrics.js';
 import { headcountGate } from './recommend.js';
 import { featureCosts } from './cost.js';
+import { costRates, claudeReport } from './claude.js';
 import { rosterFor } from './identity.js';
 import { config } from './config.js';
 import type { Finding } from './types.js';
@@ -26,7 +27,7 @@ export function teamSummary(board: string) {
   const all = areas.flatMap((a) => a.findings);
   const prev = b.history[b.history.length - 2];
   const cost = config.cost.fteDay || config.cost.contractorDay
-    ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: config.cost, roster: rosterFor(board), weekend: config.weekend })
+    ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(board), weekend: config.weekend })
     : null;
   const base = config.publicUrl;
   return {
@@ -39,7 +40,9 @@ export function teamSummary(board: string) {
     dora: all.flatMap((f) => { const tier = doraTier(f.ruleId, f.value); return tier ? [{ metric: f.ruleId, title: f.title, value: f.value, unit: f.unit, tier }] : []; }),
     gains: scoreGains(areas.map((a) => ({ name: a.name, findings: a.findings }))),
     headcountGateOpen: headcountGate({ card: b.latest, history: b.history, quality: b.quality, people: b.people }).ready,
-    cost: cost && { currency: cost.currency, sprints: cost.sprints, teamCost: cost.teamCost, onFeaturesPct: cost.teamCost ? Math.round((cost.onFeatures / cost.teamCost) * 100) : 0, costPerPoint: cost.costPerPoint },
+    cost: cost && { currency: cost.currency, sprints: cost.sprints, teamCost: cost.teamCost, aiCost: cost.aiCost, onFeaturesPct: cost.teamCost ? Math.round((cost.onFeatures / cost.teamCost) * 100) : 0, costPerPoint: cost.costPerPoint },
+    claude: (() => { const c = claudeReport(board, false); return c.configured
+      ? { seats: c.seats, seatCostMonthly: c.seatCostMonthly, adoptionPct: c.usageConnected ? c.adoptionPct : null, acceptanceRate: c.acceptanceRate } : null; })(),
     links: { ui: `${base}/#${encodeURIComponent(board)}`, digest: `${base}/api/teams/${encodeURIComponent(board)}/digest.md`, api: `${base}/api/teams/${encodeURIComponent(board)}` },
   };
 }

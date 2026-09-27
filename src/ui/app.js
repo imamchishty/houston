@@ -80,10 +80,10 @@ const finding = (board, f) => `
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r, cost, hist] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null)]);
+  const [d, p, r, cost, hist, ai] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null)]);
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
-  const tabs = [['overview', 'Overview'], ['sprint', 'Sprint'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], p.people?.length && ['people', 'People']].filter(Boolean);
+  const tabs = [['overview', 'Overview'], ['sprint', 'Sprint'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
   const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
   // What moves the scores: points each check would add to its area score if it went green, biggest first.
@@ -157,6 +157,7 @@ async function team(board, tab) {
     features: () => `<h2>Features, from Jira epics</h2>${features.findings.map((f) => finding(board, f)).join('')}${costSection(cost)}`,
     prod: () => `<h2>Production & cost, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
+    claude: () => claudeSection(ai),
     people: () => `
       <h2>Jira, last ${p.people[0]?.sprints ?? 0} sprints</h2>
       <table class="t"><tr><th>Name</th><th class="num">Done</th><th class="num">Points</th><th class="num">Median days</th><th class="num">Over norm</th><th class="num">Stuck now</th><th class="num">Carried</th></tr>
@@ -193,6 +194,7 @@ function costSection(c) {
         <span class="pill ${pct(c.noFeature + c.notOnTickets) > 40 ? 'amber' : ''}"><b>${pct(c.noFeature + c.notOnTickets)}%</b> not on features</span>
         ${c.costPerPoint != null ? `<span class="pill"><b>${money(c.costPerPoint, cur)}</b> per point</span>` : ''}
         <span class="pill"><b>${esc(c.fteShare)}%</b> FTE, ${esc(Math.round((100 - c.fteShare) * 10) / 10)}% contractor</span>
+        ${c.aiCost ? `<span class="pill"><b>${money(c.aiCost, cur)}</b> Claude seats, included</span>` : ''}
       </div>
       <p class="note">Not on features: ${money(c.noFeature, cur)} on tickets with no epic (bugs, support, unplanned), ${money(c.notOnTickets, cur)} for people with no ticket in a sprint.</p>
     </div>
@@ -205,6 +207,33 @@ function costSection(c) {
     <p class="note">* includes items with no estimate or not yet in a sprint, sized at the team's median ticket.
     ${c.rates ? `Rates: FTE ${money(c.rates.fteDay, cur)} a day, contractor ${money(c.rates.contractorDay, cur)} a day, ${esc(c.rates.contractors)} contractors${c.rates.overrides ? `, ${esc(c.rates.overrides)} individual rates` : ''}.` : 'Rates are visible to people viewers.'}</p></div>
     <details class="about card mt"><summary>How this is estimated</summary>${about(METRICS.feature_cost)}${about(METRICS.cost_off_features)}</details>`;
+}
+
+// Claude: seats and cost for everyone, usage when telemetry is connected, per person for people viewers.
+function claudeSection(c) {
+  const cur = c.currency, n = (x) => Number(x).toLocaleString();
+  const usage = c.usageConnected ? `
+    <div class="scores mt">
+      <span class="pill ${c.adoptionPct >= 70 ? 'green' : c.adoptionPct >= 40 ? 'amber' : 'red'}"><b>${esc(c.adoptionPct)}%</b> using Claude Code (${esc(c.activeUsers)} of ${esc(c.rosterSize)})</span>
+      <span class="pill"><b>${esc(c.medianActiveDays)}</b> median active days in ${esc(c.days)}</span>
+      ${c.acceptanceRate != null ? `<span class="pill"><b>${esc(c.acceptanceRate)}%</b> edits accepted</span>` : ''}
+    </div>
+    <table class="t mt"><tr><th class="num">Sessions</th><th class="num">Lines added</th><th class="num">Lines removed</th><th class="num">Commits</th><th class="num">PRs</th><th class="num">API-equivalent value</th></tr>
+      <tr><td class="num">${n(c.sessions)}</td><td class="num">${n(c.linesAdded)}</td><td class="num">${n(c.linesRemoved)}</td><td class="num">${n(c.commits)}</td><td class="num">${n(c.pullRequests)}</td><td class="num">${money(c.apiEquivalent, cur)}</td></tr></table>
+    <p class="note">Last ${esc(c.days)} days, through Claude Code only. API-equivalent value is what the tokens would cost at API prices; on a seat plan it is not billed.</p>`
+    : '<p class="note mt">Usage is not connected yet. See CLAUDE_USAGE.md to send Claude Code\'s metrics to Application Insights and set CLAUDE_OTEL_APPINSIGHTS.</p>';
+  const people = c.people ? `<h2>Per person, last ${esc(c.days)} days</h2>
+    <div class="card scrollx"><table class="t"><tr><th>Name</th><th class="num">Active days</th><th class="num">Sessions</th><th class="num">Hours</th><th class="num">Lines added</th><th class="num">Commits</th><th class="num">PRs</th><th class="num">Accepted</th><th class="num">API-equivalent</th></tr>
+      ${c.people.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${esc(x.activeDays)}</td><td class="num">${esc(x.sessions)}</td><td class="num">${esc(x.activeHours)}</td><td class="num">${n(x.linesAdded)}</td><td class="num">${esc(x.commits)}</td><td class="num">${esc(x.pullRequests)}</td>
+        <td class="num">${x.editsAccepted + x.editsRejected ? esc(Math.round((x.editsAccepted / (x.editsAccepted + x.editsRejected)) * 100)) + '%' : '·'}</td><td class="num">${money(x.apiEquivalent, cur)}</td></tr>`).join('')}</table>
+      ${c.notUsing?.length ? `<p class="note">No Claude Code activity in ${esc(c.days)} days: ${esc(c.notUsing.join(', '))}. A question to ask, not a verdict.</p>` : ''}</div>` : '';
+  return `<h2>Claude</h2>
+    <div class="card"><div class="scores">
+      <span class="pill"><b>${esc(c.seats)}</b> seats</span>
+      <span class="pill"><b>${money(c.seatCostMonthly, cur)}</b> a month</span>
+    </div>${usage}</div>
+    ${people}
+    <details class="about card mt"><summary>How this is measured</summary>${['claude_seat_cost', 'claude_adoption', 'claude_acceptance', 'claude_api_equivalent'].map((id) => `<p><b>${esc(METRICS[id]?.name)}.</b></p>${about(METRICS[id])}`).join('')}</details>`;
 }
 
 // Every metric, grouped by area: what it is, why it matters, how it is calculated.
