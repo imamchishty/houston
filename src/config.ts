@@ -53,3 +53,31 @@ export const config = {
     history: Number(process.env.SPRINT_HISTORY ?? 6),
   },
 };
+
+// Values from .env end up in API paths and in JQL/KQL. Reject anything that does not look like what it claims to be,
+// so a typo fails at startup with a clear message instead of turning into a broken or injected query.
+export function configProblems(c = config): string[] {
+  const out: string[] = [];
+  const check = (what: string, v: string, re: RegExp) => { if (v && !re.test(v)) out.push(`${what}: "${v}" is not valid`); };
+  const BOARD = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/, GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const b of c.jira.boards) { check('JIRA_BOARDS name', b.name, BOARD); if (!Number.isInteger(b.id) || b.id <= 0) out.push(`JIRA_BOARDS id for ${b.name} must be a number`); }
+  for (const r of c.github.repos) { check('GITHUB_REPOS board', r.name, BOARD); for (const x of r.repos) check('GITHUB_REPOS repo', x, /^[\w.-]+\/[\w.-]+$/); }
+  for (const p of c.sonar.projects) check('SONAR_PROJECTS key', p.id, /^[\w.:-]+$/);
+  for (const p of c.testmo.projects) check('TESTMO_PROJECTS id', p.id, /^\d+$/);
+  for (const s of c.confluence.spaces) for (const k of s.spaces) check('CONFLUENCE_SPACES key', k, /^~?[A-Za-z0-9_]+$/);
+  check('AZURE_TENANT_ID', c.azure.tenant, /^([0-9a-f-]{36}|[\w.-]+\.[a-z]{2,})$/i);
+  check('AZURE_SUBSCRIPTION_ID', c.azure.subscription, GUID);
+  check('AZURE_LOG_WORKSPACE', c.azure.workspace, GUID);
+  for (const a of c.azure.appInsights) check('AZURE_APPINSIGHTS app id', a.id, GUID);
+  for (const r of c.azure.resourceGroups) check('AZURE_RESOURCE_GROUPS', r.id, /^[\w().-]{1,90}$/);
+  for (const [k, v] of [['JIRA_BASE_URL', c.jira.baseUrl], ['GITHUB_API', c.github.api], ['SONAR_URL', c.sonar.url], ['TESTMO_URL', c.testmo.url], ['HOUSTON_URL', c.publicUrl]] as const)
+    check(k, v, /^https?:\/\/[^\s"'<>]+$/);
+  // Outside demo mode Houston holds per person data and API tokens: it does not start without a password.
+  if (c.mode !== 'demo' && !process.env.HOUSTON_PASSWORD) out.push('HOUSTON_PASSWORD must be set outside demo mode');
+  return out;
+}
+
+export function assertConfig() {
+  const p = configProblems();
+  if (p.length) { console.error('Houston config problems:\n' + p.map((x) => `  - ${x}`).join('\n')); process.exit(1); }
+}

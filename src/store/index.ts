@@ -27,7 +27,8 @@ export const store = {
   saveDocs: (d: DocsSnapshot[]) => write('docs', d),
   docs: () => read<DocsSnapshot[]>('docs', []),
   saveEpics: (e: Record<string, Epic[]>) => write('epics', e),
-  epics: () => read<Record<string, Epic[]>>('epics', {}),
+  // No prototype, so a board named 'constructor' or '__proto__' is just missing, not an inherited function.
+  epics: () => Object.assign(Object.create(null), read<Record<string, Epic[]>>('epics', {})) as Record<string, Epic[] | undefined>,
   saveAzure: (a: AzureSnapshot[]) => write('azure', a),
   azure: () => read<AzureSnapshot[]>('azure', []),
   actions: () => read<Action[]>('actions', []),

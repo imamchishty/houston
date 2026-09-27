@@ -10,13 +10,18 @@ async function jira<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// JQL string literal, and the only shape an issue key may have before it goes into a query.
+const jqlString = (s: string) => `"${s.replace(/[\\"]/g, (c) => '\\' + c)}"`;
+const ISSUE_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
+
 export async function collectEpics(project: string): Promise<Epic[]> {
-  const jql = encodeURIComponent(`project = ${project} AND issuetype = Epic AND (resolved >= -180d OR resolution is EMPTY) ORDER BY created DESC`);
+  const jql = encodeURIComponent(`project = ${jqlString(project)} AND issuetype = Epic AND (resolved >= -180d OR resolution is EMPTY) ORDER BY created DESC`);
   const out: Epic[] = [];
   let startAt = 0;
   for (;;) {
     const page = await jira<any>(`/rest/api/2/search?jql=${jql}&startAt=${startAt}&maxResults=50&expand=changelog&fields=summary,status,created,resolutiondate`);
     for (const e of page.issues) {
+      if (!ISSUE_KEY.test(e.key)) continue; // keys go back into JQL below
       let started: string | null = null;
       for (const h of e.changelog?.histories ?? []) for (const it of h.items ?? []) {
         if (it.field === 'status' && /in progress/i.test(it.toString ?? '') && !started) started = h.created;

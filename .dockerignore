@@ -1,0 +1,9 @@
+# Keep secrets, local data and build output out of the image and out of `az acr build` uploads
+.env
+.env.*
+!.env.example
+data/
+dist/
+node_modules/
+.git/
+*.log

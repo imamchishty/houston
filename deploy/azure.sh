@@ -5,8 +5,12 @@ set -euo pipefail
 RG=${RG:-rg-houston}; LOC=${LOC:-uaenorth}; ENV=${ENV:-houston-env}; ACR=${ACR:-houstonacr$RANDOM}; APP=houston
 
 az group create -n "$RG" -l "$LOC" -o none
-az acr create -n "$ACR" -g "$RG" --sku Basic --admin-enabled true -o none
-az acr build -r "$ACR" -t houston:latest . -o none
+# No admin user on the registry: the app and jobs pull with their own managed identity (AcrPull).
+az acr create -n "$ACR" -g "$RG" --sku Basic --admin-enabled false -o none
+# Tag with the commit so every deploy is traceable. .dockerignore keeps .env out of the upload.
+TAG=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M)
+IMAGE="$ACR.azurecr.io/houston:$TAG"
+az acr build -r "$ACR" -t "houston:$TAG" . -o none
 
 az containerapp env create -n "$ENV" -g "$RG" -l "$LOC" -o none
 az storage account create -n "${ACR}st" -g "$RG" -l "$LOC" --sku Standard_LRS -o none
@@ -33,30 +37,34 @@ SECRET_ARGS=(); [ ${#SECRETS[@]} -gt 0 ] && SECRET_ARGS=(--secrets "${SECRETS[@]
 ENV_ARGS=(--env-vars ${ENVVARS[@]+"${ENVVARS[@]}"} ${SECRET_REFS[@]+"${SECRET_REFS[@]}"} HOUSTON_DATA_DIR=/data)
 
 az containerapp create -n "$APP" -g "$RG" --environment "$ENV" \
-  --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" \
+  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system \
   --target-port 4000 --ingress internal --min-replicas 1 --max-replicas 1 \
   ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 # Mount the share so scorecards persist across restarts
-az containerapp show -n "$APP" -g "$RG" -o yaml > /tmp/app.yaml
-python3 - <<'PY'
-import yaml
-a=yaml.safe_load(open('/tmp/app.yaml'))
+# Private temp file (not a fixed /tmp path), removed on exit.
+APP_YAML=$(umask 077; mktemp "${TMPDIR:-/tmp}/houston-app.XXXXXX")
+trap 'rm -f "$APP_YAML"' EXIT
+az containerapp show -n "$APP" -g "$RG" -o yaml > "$APP_YAML"
+APP_YAML="$APP_YAML" python3 - <<'PY'
+import os, yaml
+p=os.environ['APP_YAML']
+a=yaml.safe_load(open(p))
 t=a['properties']['template']
 t['volumes']=[{'name':'data','storageType':'AzureFile','storageName':'data'}]
 t['containers'][0]['volumeMounts']=[{'volumeName':'data','mountPath':'/data'}]
-yaml.safe_dump(a,open('/tmp/app.yaml','w'))
+yaml.safe_dump(a,open(p,'w'))
 PY
-az containerapp update -n "$APP" -g "$RG" --yaml /tmp/app.yaml -o none
+az containerapp update -n "$APP" -g "$RG" --yaml "$APP_YAML" -o none
 
 # Nightly collect at 02:00 Gulf time (22:00 UTC)
 az containerapp job create -n houston-nightly -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 22 * * *" \
-  --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" --command "tsx" "src/cli.ts" \
+  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "dist/cli.js" \
   ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 # Friday digest to Teams at 09:00 Gulf time (05:00 UTC), before the retro. Needs TEAMS_WEBHOOK and HOUSTON_URL in .env.
 az containerapp job create -n houston-friday -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 5 * * 5" \
-  --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" --command "tsx" "src/cli.ts" "notify" \
+  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "dist/cli.js" "notify" \
   ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 echo "Houston: $(az containerapp show -n $APP -g $RG --query properties.configuration.ingress.fqdn -o tsv)"

@@ -23,6 +23,9 @@ async function all<T>(path: string, limit = 1000): Promise<T[]> {
   return out;
 }
 
+// owner/name with each part URL encoded, so a repo value cannot change the API path.
+const repoPath = (repo: string) => repo.split('/').map(encodeURIComponent).join('/');
+
 const JIRA_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
 
 export function laneFor(path: string): string {
@@ -35,15 +38,15 @@ export function laneFor(path: string): string {
 }
 
 async function pullRequests(repo: string, since: string): Promise<PullRequest[]> {
-  const list = await all<any>(`/repos/${repo}/pulls?state=all&sort=updated&direction=desc`, 600);
+  const list = await all<any>(`/repos/${repoPath(repo)}/pulls?state=all&sort=updated&direction=desc`, 600);
   const out: PullRequest[] = [];
   for (const p of list) {
     if (p.created_at < since) continue;
     const [detail, reviews, comments, files] = await Promise.all([
-      gh<any>(`/repos/${repo}/pulls/${p.number}`),
-      all<any>(`/repos/${repo}/pulls/${p.number}/reviews`, 200),
-      all<any>(`/repos/${repo}/pulls/${p.number}/comments`, 200),
-      all<any>(`/repos/${repo}/pulls/${p.number}/files`, 300),
+      gh<any>(`/repos/${repoPath(repo)}/pulls/${p.number}`),
+      all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/reviews`, 200),
+      all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/comments`, 200),
+      all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/files`, 300),
     ]);
     const author = canonical(p.user?.login) ?? 'unknown';
     const others = (x: any) => x.user?.login && x.user.login !== author;
@@ -67,7 +70,7 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
 }
 
 async function runs(repo: string, since: string): Promise<{ ci: CiRun[]; deploys: Deploy[] }> {
-  const list = await all<any>(`/repos/${repo}/actions/runs?created=>=${since.slice(0, 10)}`, 1000);
+  const list = await all<any>(`/repos/${repoPath(repo)}/actions/runs?created=>=${since.slice(0, 10)}`, 1000);
   const ci: CiRun[] = [];
   const deploys: Deploy[] = [];
   for (const r of list) {

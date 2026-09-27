@@ -1,5 +1,5 @@
 // npm run check: tests every configured connection and prints what Houston can see. Run this before the first collect.
-import { config } from './config.js';
+import { config, configProblems } from './config.js';
 
 const ok = (m: string) => console.log(`  ok   ${m}`);
 const bad = (m: string) => console.log(`  FAIL ${m}`);
@@ -88,7 +88,7 @@ async function confluence() {
 async function azure() {
   console.log('Azure');
   if (!config.azure.client) return skip('AZURE_CLIENT_ID not set');
-  const res = await fetch(`https://login.microsoftonline.com/${config.azure.tenant}/oauth2/v2.0/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(config.azure.tenant)}/oauth2/v2.0/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'client_credentials', client_id: config.azure.client, client_secret: config.azure.secret, scope: 'https://management.azure.com/.default' }) });
   if (!res.ok) return bad(`service principal auth ${res.status}. Check tenant, client id, secret`);
   const t = (await res.json() as any).access_token; ok('service principal signed in');
@@ -101,6 +101,7 @@ async function azure() {
 }
 
 console.log(`Houston connection check, mode=${config.mode}\n`);
+console.log('Config'); { const p = configProblems(); p.length ? p.forEach(bad) : ok('values look valid'); }
 await jira(); await confluence(); await github(); await sonar(); await testmo(); await azure();
 console.log('Teams'); config.teamsWebhook ? ok('webhook set') : skip('TEAMS_WEBHOOK not set');
 console.log(`\nRoster: ${config.roster.map((r) => `${r.name} (${r.people.length})`).join(', ') || 'none'}`);

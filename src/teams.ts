@@ -14,6 +14,9 @@ export async function postToTeams(title: string, lines: string[]) {
   return { posted: res.ok, status: res.status };
 }
 
+// Markdown escape for free text from Jira (sprint names), so it cannot inject links or formatting.
+export const md = (s: string) => s.replace(/[\\`*_{}\[\]()<>#+!|~-]/g, (c) => '\\' + c);
+
 // The digest headline for one board: scores and the top three red findings. No per person data, it goes to the whole team.
 export function digestHeadline(board: string): { title: string; lines: string[] } | null {
   const latest = store.scorecards().filter((c) => c.board === board).sort((a, b) => b.sprintId - a.sprintId)[0];
@@ -23,7 +26,7 @@ export function digestHeadline(board: string): { title: string; lines: string[] 
   const gaps = [...latest.findings, ...(flow?.findings ?? []), ...(quality?.findings ?? [])].filter((f) => f.rag === 'red').slice(0, 3);
   const link = `${config.publicUrl}/api/teams/${encodeURIComponent(board)}/digest.md`;
   return {
-    title: `Houston: ${latest.board}, ${latest.sprintName}`,
+    title: `Houston: ${latest.board}, ${md(latest.sprintName)}`,
     lines: [
       `Sprint ${latest.score} (${latest.rag})${flow ? `, flow ${flow.score}` : ''}${quality ? `, quality ${quality.score}` : ''}${features ? `, features ${features.score}` : ''}`,
       ...gaps.map((f) => `**${f.title}**: ${f.message}`),

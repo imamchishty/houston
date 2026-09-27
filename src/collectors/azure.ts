@@ -1,10 +1,13 @@
 import { config } from '../config.js';
 import type { AzureSnapshot, Epic } from '../types.js';
 
+// KQL string literal: escape backslash and quote so a value cannot end the string.
+const kqlString = (s: string) => s.replace(/[\\"]/g, (c) => '\\' + c);
+
 // Client credentials token for a given scope. Reader roles only; Houston never writes to Azure.
 async function token(scope: string): Promise<string> {
   const { tenant, client, secret } = config.azure;
-  const res = await fetch(`https://login.microsoftonline.com/${tenant}/oauth2/v2.0/token`, {
+  const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'client_credentials', client_id: client, client_secret: secret, scope }),
   });
@@ -14,7 +17,7 @@ async function token(scope: string): Promise<string> {
 
 async function appInsightsQuery(appId: string, kql: string) {
   const t = await token('https://api.applicationinsights.io/.default');
-  const res = await fetch(`https://api.applicationinsights.io/v1/apps/${appId}/query`, {
+  const res = await fetch(`https://api.applicationinsights.io/v1/apps/${encodeURIComponent(appId)}/query`, {
     method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: kql }),
   });
   if (!res.ok) throw new Error(`App Insights ${res.status}: ${await res.text()}`);
@@ -24,7 +27,7 @@ async function appInsightsQuery(appId: string, kql: string) {
 
 async function logQuery(kql: string) {
   const t = await token('https://api.loganalytics.io/.default');
-  const res = await fetch(`https://api.loganalytics.io/v1/workspaces/${config.azure.workspace}/query`, {
+  const res = await fetch(`https://api.loganalytics.io/v1/workspaces/${encodeURIComponent(config.azure.workspace)}/query`, {
     method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query: kql }),
   });
   if (!res.ok) throw new Error(`Log Analytics ${res.status}: ${await res.text()}`);
@@ -39,7 +42,7 @@ async function ops(appId: string, rg: string | undefined): Promise<AzureSnapshot
   let incidents30d = 0, medianRestoreMin: number | null = null;
   if (config.azure.workspace) {
     const rows = await logQuery(
-      `AlertsManagementResources | where TimeGenerated > ago(30d) | where Severity in ("Sev0","Sev1","Sev2")${rg ? ` | where tostring(Properties.essentials.targetResourceGroup) =~ "${rg}"` : ''}
+      `AlertsManagementResources | where TimeGenerated > ago(30d) | where Severity in ("Sev0","Sev1","Sev2")${rg ? ` | where tostring(Properties.essentials.targetResourceGroup) =~ "${kqlString(rg)}"` : ''}
        | extend fired=todatetime(Properties.essentials.startDateTime), resolved=todatetime(Properties.essentials.monitorConditionResolvedDateTime)
        | summarize n=count(), med=percentile(datetime_diff('minute', resolved, fired), 50)`).catch(() => [] as any[][]);
     if (rows[0]) { incidents30d = Number(rows[0][0] ?? 0); medianRestoreMin = rows[0][1] != null ? Number(rows[0][1]) : null; }
@@ -51,7 +54,7 @@ async function ops(appId: string, rg: string | undefined): Promise<AzureSnapshot
 async function cloudCost(rg: string): Promise<number> {
   const t = await token('https://management.azure.com/.default');
   const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth() - 1, 1), to = new Date(now.getFullYear(), now.getMonth(), 0);
-  const res = await fetch(`https://management.azure.com/subscriptions/${config.azure.subscription}/resourceGroups/${rg}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`, {
+  const res = await fetch(`https://management.azure.com/subscriptions/${encodeURIComponent(config.azure.subscription)}/resourceGroups/${encodeURIComponent(rg)}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`, {
     method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ type: 'ActualCost', timeframe: 'Custom', timePeriod: { from: from.toISOString(), to: to.toISOString() },
       dataset: { granularity: 'None', aggregation: { totalCost: { name: 'Cost', function: 'Sum' } } } }),

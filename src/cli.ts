@@ -1,5 +1,8 @@
 import { collect, score, run } from './pipeline.js';
 import { notifyAll } from './teams.js';
+import { assertConfig } from './config.js';
+
+assertConfig();
 
 const cmd = process.argv[2];
 if (cmd === 'collect') collect().then((s) => console.log(`Collected ${s.length} sprints`));

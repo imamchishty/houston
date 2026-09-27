@@ -89,9 +89,21 @@ Every formula and threshold is in `METRICS.md`. Every finding links to its raw e
 
 `PEOPLE=Aisha Khan=akhan|aisha.khan;Karim Haddad=karimh` maps Jira display names and GitHub logins to one person.
 `TEAM_ROSTER=OSSI:Aisha Khan|Karim Haddad|...` lists who is on the team so zero activity still shows.
-`HOUSTON_USER` and `HOUSTON_PASSWORD` turn on basic auth for everything. `HOUSTON_PEOPLE_VIEWERS` restricts
+`HOUSTON_USER` and `HOUSTON_PASSWORD` turn on basic auth for everything. Outside demo mode Houston will not start without a password.
+After 10 failed sign-ins from one address it answers 429 for 15 minutes. Serve it over HTTPS (your proxy or gateway), since basic auth sends the password with every request. `HOUSTON_PEOPLE_VIEWERS` restricts
 the per person endpoints to named users; everyone else gets team level only. Recommendations name people only
 for those viewers; everyone else, the digest and Teams posts get a count ("2 people, names in the people view").
+
+## Security
+
+- `npm audit` clean. CI fails on any high or critical advisory.
+- Strict Content Security Policy (no inline script or style), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `HOUSTON_URL` is https.
+- Every POST needs `X-Requested-With: houston` (the UI sends it), which blocks cross-site form posts:
+  `curl -X POST -u user:pass -H 'X-Requested-With: houston' https://houston.internal/api/refresh`
+- Refresh runs one at a time, at most every 5 minutes. Action log entries are validated and capped at 16 KB.
+- Per person data (people view, names in recommendations, assignees and authors in raw evidence) only for `HOUSTON_PEOPLE_VIEWERS`.
+- `.env` values are validated at startup and by `npm run check`, before they reach any API path or JQL/KQL query.
+- Container runs compiled JS as the unprivileged `node` user, with a health check. Errors return a generic message; details go to the log.
 
 ## Friday digest in Teams
 

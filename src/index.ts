@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { config } from './config.js';
+import { config, assertConfig } from './config.js';
 import { store } from './store/index.js';
 import { run } from './pipeline.js';
 import { rules } from './rules/sprintRules.js';
@@ -16,13 +16,14 @@ import { rosterFor } from './identity.js';
 import { scoreDocs, docsPeople } from './rules/docsRules.js';
 import { scoreFeatures } from './rules/featureRules.js';
 import { scoreOps } from './rules/opsRules.js';
-import { notifyBoard } from './teams.js';
+import { notifyBoard, md } from './teams.js';
 import { sprintInsights, heatmap, headline } from './insights.js';
 import { windowStatus } from './window.js';
 import { outputBench } from './outputBench.js';
 import { activity } from './activity.js';
 import { incidentLog } from './incidents.js';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
+import { z } from 'zod';
 import type { Action } from './types.js';
 
 // Everything Houston knows about one board, assembled once per request.
@@ -48,29 +49,75 @@ function boardData(board: string) {
   };
 }
 
-const app = Fastify({ logger: true });
+assertConfig();
+// Small bodies only: the one POST with a body is an action log entry.
+const app = Fastify({ logger: true, bodyLimit: 16 * 1024 });
 const here = dirname(fileURLToPath(import.meta.url));
+
+// Security headers on every response. The UI has no inline script or style, so the CSP can be strict.
+app.addHook('onSend', async (_req, reply) => {
+  reply.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  reply.header('X-Content-Type-Options', 'nosniff');
+  reply.header('X-Frame-Options', 'DENY');
+  reply.header('Referrer-Policy', 'no-referrer');
+  reply.header('Cross-Origin-Opener-Policy', 'same-origin');
+  reply.header('Cross-Origin-Resource-Policy', 'same-origin');
+  reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  reply.header('Cache-Control', 'no-store');
+  if (config.publicUrl.startsWith('https://')) reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+});
+
+// Errors: log the detail (upstream responses can be verbose), return a generic message.
+app.setErrorHandler((err: { statusCode?: number; message: string }, req, reply) => {
+  const status = err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
+  if (status >= 500) req.log.error(err);
+  reply.code(status).send({ error: status >= 500 ? 'Internal error, see the server log' : err.message });
+});
 
 app.register(fastifyStatic, { root: join(here, 'ui'), prefix: '/' });
 
-// Basic auth when HOUSTON_PASSWORD is set. Per person data only for HOUSTON_PEOPLE_VIEWERS.
+// Basic auth when HOUSTON_PASSWORD is set (required outside demo mode). Per person data only for HOUSTON_PEOPLE_VIEWERS.
 const auth = { user: process.env.HOUSTON_USER ?? '', pass: process.env.HOUSTON_PASSWORD ?? '', viewers: (process.env.HOUSTON_PEOPLE_VIEWERS ?? '').split(',').map((x) => x.trim()).filter(Boolean) };
+
+// Failed sign-ins per client address: 10 in 15 minutes, then locked for the rest of the window.
+const failures = new Map<string, { n: number; since: number }>();
+const WINDOW_MS = 15 * 60 * 1000, MAX_FAILURES = 10;
+function locked(ip: string) {
+  const f = failures.get(ip);
+  if (f && Date.now() - f.since > WINDOW_MS) { failures.delete(ip); return false; }
+  return !!f && f.n >= MAX_FAILURES;
+}
+function failed(ip: string) {
+  const f = failures.get(ip);
+  failures.set(ip, f ? { ...f, n: f.n + 1 } : { n: 1, since: Date.now() });
+  if (failures.size > 10000) failures.clear(); // bound memory under a spray from many addresses
+}
+
 app.addHook('onRequest', async (req, reply) => {
-  if (!auth.pass) return;
+  // State changing requests must come from Houston's own page or a script, not a cross-site form.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'houston')
+    return reply.code(403).send({ error: 'Missing X-Requested-With: houston header' });
+  if (!auth.pass || req.routeOptions.url === '/api/health') return; // probes run without credentials
+  if (locked(req.ip)) return reply.code(429).send({ error: 'Too many failed sign-ins, try again later' });
   const hdr = req.headers.authorization ?? '';
   const decoded = Buffer.from(hdr.replace(/^Basic /, ''), 'base64').toString();
   const i = decoded.indexOf(':');
   const u = decoded.slice(0, i), p = decoded.slice(i + 1); // passwords may contain ':'
-  if (i < 0 || !same(u, auth.user) || !same(p, auth.pass)) return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston"').send('Sign in');
-  if (req.url.includes('/people') && !canSeePeople(u)) return reply.code(403).send({ error: 'Per person data is restricted' });
+  if (i < 0 || !same(u, auth.user) || !same(p, auth.pass)) {
+    if (hdr) failed(req.ip);
+    return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston"').send('Sign in');
+  }
+  failures.delete(req.ip);
+  // Match on the route that will run, not the raw URL: /api/teams/X/%70eople decodes to the people route.
+  if (PEOPLE_ROUTES.has(req.routeOptions.url ?? '') && !canSeePeople(u)) return reply.code(403).send({ error: 'Per person data is restricted' });
   (req as any).houstonUser = u;
 });
 
-// Constant time compare, so the password cannot be guessed a character at a time.
-function same(a: string, b: string) {
-  const x = Buffer.from(a), y = Buffer.from(b);
-  return x.length === y.length && timingSafeEqual(x, y);
-}
+const PEOPLE_ROUTES = new Set(['/api/teams/:board/people']);
+
+// Constant time compare of fixed length digests: reveals neither content nor length.
+const digest = (s: string) => createHash('sha256').update(s).digest();
+const same = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
 function canSeePeople(user: string | undefined) {
   if (!auth.pass || !auth.viewers.length) return true; // no auth, or no viewer list: everyone signed in may see names
   return !!user && auth.viewers.includes(user);
@@ -141,7 +188,7 @@ app.get<{ Params: { board: string }; Querystring: { named?: string } }>('/api/te
   const bdd = boardData(req.params.board);
   const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features, named: req.query.named === '1' && namedFor(req as any) });
   const lines = [
-    `# ${c.board}: ${c.sprintName}`,
+    `# ${c.board}: ${md(c.sprintName)}`,
     '',
     `Health score: ${c.score} (${c.rag})${prev ? `, previous sprint ${prev.score}` : ''}`,
     '',
@@ -194,6 +241,10 @@ app.get<{ Params: { board: string; ruleId: string } }>('/api/teams/:board/eviden
   const prs = (b.raw.github?.prs ?? []).filter((p) => keys.has(`${p.repo.split('/')[1]}#${p.number}`));
   const pages = (b.raw.docs?.pages ?? []).filter((p) => keys.has(p.title.split(' ')[0]) || f.evidence.includes(p.title));
   const epics = b.raw.epics.filter((e) => keys.has(e.key));
+  // Raw records carry assignees, authors and reviewers: those are per person data too.
+  if (!namedFor(req as any)) return { finding: f, formula: `See METRICS.md, rule ${f.ruleId}`, records: {
+    issues: issues.map(({ assignee, ...i }) => i), prs: prs.map(({ author, reviewers, ...p }) => p),
+    pages: pages.map(({ createdBy, updatedBy, ...p }) => p), epics } };
   return { finding: f, formula: `See METRICS.md, rule ${f.ruleId}`, records: { issues, prs, pages, epics } };
 });
 
@@ -207,9 +258,18 @@ app.get<{ Params: { board: string } }>('/api/teams/:board/actions', async (req) 
     movement: Object.entries(a.baseline).map(([rule, was]) => ({ rule, was, now: now[rule] ?? null })).filter((m) => m.now != null && m.now !== m.was),
   }));
 });
-app.post<{ Params: { board: string }; Body: { recId: string; title: string; status: Action['status']; owner: string; note?: string } }>('/api/teams/:board/actions', async (req, reply) => {
-  const { recId, title, status, owner, note } = req.body ?? ({} as any);
-  if (!recId || !status || !owner) return reply.code(400).send({ error: 'recId, status and owner required' });
+const ActionBody = z.object({
+  recId: z.string().regex(/^[\w-]{1,64}$/),
+  title: z.string().max(200).optional(),
+  status: z.enum(['accepted', 'rejected', 'done']),
+  owner: z.string().trim().min(1).max(100),
+  note: z.string().max(2000).optional(),
+}).strict();
+app.post<{ Params: { board: string } }>('/api/teams/:board/actions', async (req, reply) => {
+  const parsed = ActionBody.safeParse(req.body);
+  if (!parsed.success) return reply.code(400).send({ error: 'Invalid action: ' + parsed.error.issues.map((i) => `${i.path.join('.') || 'body'} ${i.message}`).join('; ') });
+  if (!store.scorecards().some((c) => c.board === req.params.board)) return reply.code(404).send({ error: 'No such board' });
+  const { recId, title, status, owner, note } = parsed.data;
   const b = boardData(req.params.board);
   const baseline: Record<string, number> = {};
   for (const f of [...(b.latest?.findings ?? []), ...(b.flow?.findings ?? []), ...(b.quality?.findings ?? [])]) baseline[f.ruleId] = f.value;
@@ -219,7 +279,10 @@ app.post<{ Params: { board: string }; Body: { recId: string; title: string; stat
 });
 
 // Post the digest headline to Teams. The Friday job does this for every board: `tsx src/cli.ts notify`.
+const lastNotify = new Map<string, number>();
 app.post<{ Params: { board: string } }>('/api/teams/:board/notify', async (req, reply) => {
+  if (Date.now() - (lastNotify.get(req.params.board) ?? 0) < 60 * 1000) return reply.code(429).send({ error: 'Posted less than a minute ago' });
+  lastNotify.set(req.params.board, Date.now());
   const r = await notifyBoard(req.params.board);
   if (r.reason === 'No scorecards') return reply.code(404).send({ error: 'No data' });
   return r;
@@ -229,12 +292,17 @@ app.get('/api/rules', async () =>
   rules.map(({ evaluate, ...r }) => r),
 );
 
-app.post('/api/refresh', async () => {
-  const cards = await run();
-  return { scored: cards.length, mode: config.mode };
+// One refresh at a time, at most every 5 minutes: each one calls every upstream API and uses their rate limits.
+let refreshing: Promise<unknown> | null = null, lastRefresh = 0;
+app.post('/api/refresh', async (_req, reply) => {
+  if (refreshing) return reply.code(409).send({ error: 'A refresh is already running' });
+  if (Date.now() - lastRefresh < 5 * 60 * 1000) return reply.code(429).send({ error: 'Refreshed less than 5 minutes ago' });
+  refreshing = run();
+  try { const cards = (await refreshing) as Awaited<ReturnType<typeof run>>; lastRefresh = Date.now(); return { scored: cards.length, mode: config.mode }; }
+  finally { refreshing = null; }
 });
 
-app.get('/api/health', async () => ({ ok: true, mode: config.mode, scorecards: store.scorecards().length }));
+app.get('/api/health', async () => ({ ok: true }));
 
 async function main() {
   if (!store.scorecards().length) await run();
