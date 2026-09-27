@@ -53,8 +53,9 @@ GITHUB_DEPLOY_WORKFLOW=deploy                     # Actions workflow name that m
 TEAM_ROSTER=OSSI:aisha|rahul|karim|dinesh         # so people with zero activity still appear
 ```
 
-Flow checks (12): pickup time, review to merge, PR size, stale PRs, merges without review, PRs with no Jira key,
-review concentration, lane crossing, CI failure rate, and DORA deployment frequency, lead time and change failure rate.
+Flow checks: pickup time, review to merge, PR size, stale PRs (information only), PRs with no ticket of the team's project,
+review concentration, engineers working across frontend and backend, CI failure rate on main, and DORA deployment frequency,
+lead time (from first commit) and change failure rate (the Quality report's calculation).
 Time to restore (DORA 4) needs incident data, planned for the Azure collector.
 
 Per person from GitHub: PRs authored and merged, lines, median PR size, reviews given and share of all reviews,
@@ -215,11 +216,10 @@ Tokens are team level only (no people view, no names) unless the token name is i
 | Stories without acceptance criteria | 15% | 35% | 15 |
 | Scope added after sprint start | 15% | 30% | 10 |
 | Items without an estimate | 10% | 25% | 10 |
-| Items stuck in progress over 5 days | 2 | 4 | 10 |
+| Work in progress over 3x normal for its size | 2 | 4 | 10 |
 | Tickets over double the team norm for their size | 15% | 30% | 15 |
-| Share of sprint spent on bugs | 25% | 40% | 5 |
 | In-progress items with no owner | 1 | 3 | 5 |
-| Sprint has a goal | missing | missing | 5 |
+| Sprint has a goal (information only) | missing | missing | 0 |
 
 Score: a green check earns its full weight, amber half, red none. 75 and above is green, 50 to 74 amber, below 50 red.
 Thresholds live in `src/rules/sprintRules.ts`. Adding a rule is one object in that file.

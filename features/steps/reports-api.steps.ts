@@ -9,7 +9,7 @@ import type { Sprint, Issue } from '../../src/types.js';
 type M = { id: string; value: number | null; num: number | null; den: number | null; target: unknown; how?: string; unit: string };
 let second: any = null;
 When('the user also requests {string}', async function (this: HoustonWorld, url: string) {
-  const first = this.res; await this.request('GET', url, this.signedIn()); second = JSON.parse(this.res!.body); this.res = first;
+  const first = this.res; await this.request('GET', url, this.signedIn()); second = JSON.parse(this.res!.body); (globalThis as any).__houstonSecond = second; this.res = first;
 });
 Then("the dashboard's {word} equals the report's", function (this: HoustonWorld, id: string) {
   const dash = JSON.parse(this.res!.body);

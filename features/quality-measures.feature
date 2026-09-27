@@ -5,7 +5,7 @@ Feature: Quality measures are exact
     Given a reporting period from 2026-09-01 to 2026-10-01
     And the team's Jira project is "ABC" and repos merge into "main"
 
-  Scenario: Change failure rate from hotfixes and failed deploys, and rework rate
+  Scenario: Change failure rate from hotfixes and failed deploys, and bugs per change
     Given these pull requests:
       | pr | opened     | merged     | base    | reviews | comments | hotfix | revert | draft |
       | 1  | 2026-09-02 | 2026-09-03 | main    | 1       | 0        | no     | no     | no    |
@@ -32,7 +32,7 @@ Feature: Quality measures are exact
     When the reports are calculated
     Then change_failure_rate is 2 of 5, 40%
     And change_failure_rate misses its target of under 10
-    And rework_rate is 2 of 4, 50%
+    And bugs_per_change is 2 of 4, 50%
 
   Scenario: Change failure rate can count significant bugs per deploy instead
     Given change failure rate counts significant bugs
@@ -105,6 +105,6 @@ Feature: Quality measures are exact
 
   Scenario: Nothing to count is not zero
     When the reports are calculated
-    Then rework_rate is not measured
+    Then bugs_per_change is not measured
     And pr_review_rate is not measured
     And bug_lead_time is not measured

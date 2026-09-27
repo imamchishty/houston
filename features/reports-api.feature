@@ -13,10 +13,10 @@ Feature: Reports agree with each other
     Examples:
       | report         | measure             |
       | quality        | change_failure_rate |
-      | quality        | rework_rate         |
+      | quality        | bugs_per_change         |
       | predictability | sprint_completion   |
       | predictability | prs_traceable       |
-      | efficiency     | pr_lead_time        |
+      | efficiency     | pr_cycle_hours      |
       | efficiency     | pickup_time         |
 
   Scenario Outline: Each team's row equals that team's own report

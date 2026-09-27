@@ -34,6 +34,7 @@ Given('PR {int} in {string} opened {word} and merged {word}', function (n: numbe
   prs = [{ repo, number: n, title: 't', author: 'a', createdAt: `${opened}T00:00:00Z`, firstReviewAt: null, approvedAt: null, mergedAt: `${merged}T00:00:00Z`, closedAt: null,
     additions: 1, deletions: 1, changedFiles: 1, reviewers: [], reviewCount: 0, jiraKeys: [], areas: [], isHotfix: false, draft: false }];
 });
+Given('its first commit was on {word}', function (at: string) { prs[0].firstCommitAt = `${at}T00:00:00Z`; });
 Given('a successful deploy of {string} on {word}', function (repo: string, at: string) { deploys.push({ repo, at: `${at}T00:00:00Z`, ref: 'x', success: true }); });
 Then('its lead time is {int} days', async function (days: number) {
   const { leadTimes } = await import('../../src/rules/flowRules.js');

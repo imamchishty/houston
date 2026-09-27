@@ -17,7 +17,7 @@ const days = (d: number) => (d < 1 ? 'less than a day' : d < 1.5 ? 'about a day'
 // Plain names for the measures that can appear under "fix first" and "getting worse".
 const PLAIN: Record<string, string> = {
   change_failure_rate: 'Too many changes break something and need a fix',
-  rework_rate: 'Too many bugs for the amount of change',
+  bugs_per_change: 'Too many bugs for the amount of change',
   defect_leakage: 'Customers are finding bugs before the team does',
   pr_review_rate: 'Code is going live without a second person checking it',
   pr_review_comment_rate: 'Code reviews rarely say anything',
@@ -36,7 +36,6 @@ const PLAIN: Record<string, string> = {
   tickets_in_sprint: 'Work is done outside the sprint plan',
   tickets_in_epic: 'Work is not linked to a feature',
   epics_with_due_date: 'Features have no due date',
-  pr_lead_time: 'Changes take too long to be approved',
   pr_cycle_hours: 'Changes take too long to be approved',
   pickup_time: 'Changes wait too long for someone to look at them',
   review_time: 'Reviews take too long to finish',
@@ -49,20 +48,20 @@ const PLAIN: Record<string, string> = {
   commit_completion: 'The team finishes less than it promises', carry_over: 'Unfinished work keeps rolling into the next sprint',
   scope_added_mid_sprint: 'Work keeps being added after the sprint has started', no_estimate: 'Work is started without being sized',
   no_acceptance_criteria: 'Work starts without an agreed definition of done', unassigned: 'Some work in progress has nobody responsible',
-  stale_in_progress: 'Work gets stuck half done', bug_share: 'Too much of the sprint goes on bugs',
+  stale_in_progress: 'Work gets stuck half done',
   cycle_time_vs_size: 'Some tickets take far longer than their size suggests', sprint_goal: 'Sprints have no clear goal',
-  stale_prs: 'Changes sit waiting and go stale', no_review_merges: 'Code is going live without a second person checking it',
+  stale_prs: 'Changes sit waiting and go stale',
   no_jira_link: 'Work is done that is not linked to a ticket', reviewer_load: 'One person does most of the reviewing',
-  lane_crossing: 'Front end and back end work in separate lanes, with hand-offs', ci_red_rate: 'Automated checks fail too often',
+  lane_crossing: 'Few people work on both the front end and the back end', ci_red_rate: 'Automated checks fail too often',
   deploy_frequency: 'Changes are released too rarely', lead_time: 'Changes take too long to reach customers', change_failure: 'Too many changes break something and need a fix',
   quality_gate: 'The code quality check is failing', coverage: 'Too little of the code is tested', new_code_coverage: 'New code is not being tested',
   vulnerabilities: 'There are open security issues', sonar_bugs: 'Automated scans find bugs in the code', duplication: 'Too much copied code',
   test_pass_rate: 'Automated tests are failing', test_runs: 'Automated tests are not run often enough', automation_share: 'Too much testing is done by hand',
-  escaped_bugs: 'Bugs are being raised during the sprint', feature_lead_time: 'Features take too long from idea to done',
+   feature_lead_time: 'Features take too long from idea to done',
   feature_wip: 'Too many features are started at once', failed_requests: 'Users are seeing errors', availability: 'The service is not always available',
-  incidents: 'There are too many incidents', cost_per_feature: 'Each feature costs a lot to deliver', cloud_cost: 'Cloud spend',
+  incidents: 'There are too many incidents', cloud_cost: 'Cloud spend',
   stale_docs: 'Documentation is out of date', runbook_coverage: 'Services have no runbook for when things go wrong',
-  adr_activity: 'Architecture decisions are not written down', docs_activity: 'Documentation is not kept up',
+  adr_activity: 'Architecture decisions are not written down',
 };
 export const plainName = (id: string, fallback: string) => PLAIN[id] ?? fallback;
 
@@ -97,7 +96,7 @@ export function simpleTeam(board: string, now = Date.now()) {
   // Speed. Three different situations, said differently: nothing released at all (a clear No when work was finished),
   // released but not yet this period's changes, and a measured lead time.
   const dm = doraSeries(board, 30, now).metrics, lt = dm.find((x) => x.id === 'lead_time'), df = dm.find((x) => x.id === 'deploy_frequency');
-  const finished = m('pr_lead_time')?.den ?? 0, speedQ = 'How fast do changes reach customers?';
+  const finished = m('pr_cycle_hours')?.den ?? 0, speedQ = 'How fast do changes reach customers?';
   q.push(lt && lt.value != null
     ? { id: 'speed', question: speedQ, answer: lt.tier === 'Elite' || lt.tier === 'High' ? 'Yes' : lt.tier === 'Medium' ? 'Partly' : 'No',
         sentence: `${cap(days(lt.value))} from starting a change to it being live. The best teams take under a day; good teams under a week.` }

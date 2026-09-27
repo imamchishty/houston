@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { median } from './cycle.js';
 import { hoursExcludingWeekends, weekOf } from './time.js';
-import { leadTimes } from './rules/flowRules.js';
+import { leadTimes } from './leadtime.js';
 import type { Issue } from './types.js';
 import type { Slice } from './reports.js';
 
@@ -78,7 +78,7 @@ export function flow(s: Slice) {
   const merged = s.prs.filter((p) => p.mergedAt && !p.draft && inWin(p.mergedAt));
   const stages = merged.flatMap((p) => {
     const l = leadTimes([p], s.deploys)[0]; if (!l) return [];
-    const opened = Date.parse(p.createdAt), mergedT = Date.parse(p.mergedAt!), deployed = opened + l.days * 86_400_000;
+    const opened = Date.parse(p.createdAt), mergedT = Date.parse(p.mergedAt!), deployed = Date.parse(l.deployedAt);
     const first = p.firstCommitAt ? Math.min(Date.parse(p.firstCommitAt), opened) : opened;
     return [{ week: weekOf(p.mergedAt!, config.tzOffset), coding: (opened - first) / 3_600_000, review: (mergedT - opened) / 3_600_000, deploy: (deployed - mergedT) / 3_600_000, hasCommit: !!p.firstCommitAt }];
   });

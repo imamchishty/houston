@@ -30,14 +30,14 @@ export const MIN_RATE_SAMPLE = 10, MIN_MEDIAN_SAMPLE = 5;
 
 // Targets from the reference dashboards. One place, so every page shows the same target.
 export const TARGETS: Record<string, Target> = {
-  change_failure_rate: { op: '<', value: 10 }, rework_rate: { op: '<', value: 30 },
+  change_failure_rate: { op: '<', value: 10 }, bugs_per_change: { op: '<', value: 30 },
   pr_review_rate: { op: '>', value: 95 }, pr_review_comment_rate: { op: '>', value: 50 },
   time_to_restore: { op: '<', value: 24 }, bug_lead_time: { op: '<', value: 14 },
   bug_fix_find: { op: '>', value: 80 }, bug_workload: { op: '<', value: 20 }, revert_ratio: { op: '<', value: 5 },
   sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 }, qa_rejection: { op: '<', value: 15 }, flow_efficiency: { op: '>', value: 40 },
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
-  tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 }, epics_with_due_date: { op: '>', value: 80 },
-  pr_lead_time: { op: '<', value: 2.5 }, pr_cycle_hours: { op: '<', value: 60 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
+  pr_cycle_hours: { op: '<', value: 60 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -89,42 +89,11 @@ const mergedPrs = (s: Slice) => s.prs.filter((p) => p.mergedAt && !p.draft && in
 // ---------- Quality ----------
 export function quality(s: Slice) {
   const merged = mergedPrs(s);
-  const deploysOk = s.deploys.filter((d) => d.success && inWin(s, d.at));
   const bugsCreated = s.items.filter((i) => isBug(i) && inWin(s, i.created));
   const bugsResolved = s.items.filter((i) => isBug(i) && inWin(s, i.resolved));
   const resolved = s.items.filter((i) => !isSub(i) && inWin(s, i.resolved));
-  const source = (process.env.CFR_SOURCE ?? 'hotfix').toLowerCase();
 
-  // Change failure rate, by the configured definition.
-  let cfr: Measure;
-  if (source === 'linked') {
-    // Deployment linked: a successful production deploy failed if a significant bug, an incident or a hotfix PR
-    // appears within 24 hours after it. Each failure is linked to the one most recent deploy before it (same repo
-    // for a hotfix PR), so one incident never fails several deploys. A time link, not proof of cause.
-    const ok = deploysOk.map((d) => ({ ...d, t: Date.parse(d.at) })).sort((a, b) => a.t - b.t);
-    const failed = new Set<number>();
-    const link = (at: string, repo?: string) => {
-      const t = Date.parse(at);
-      let best = -1; ok.forEach((d, k) => { if (d.t <= t && t - d.t <= DAY && (!repo || d.repo === repo)) best = k; });
-      if (best >= 0) failed.add(best);
-    };
-    for (const b of bugsCreated.filter(significant)) link(b.created);
-    for (const i of s.incidents.filter((x) => inWin(s, x.firedAt))) link(i.firedAt);
-    for (const p of merged.filter((x) => x.isHotfix)) link(p.createdAt, p.repo);
-    cfr = rate('change_failure_rate', 'Change failure rate', failed.size, ok.length,
-      'Successful production deploys followed within 24 hours by a significant bug, an incident or a hotfix PR ÷ successful deploys. Each failure is linked to the one most recent deploy before it (same repo for hotfixes). A time link, not proof of cause.',
-      ['deploys followed by a failure', 'deploys'], [...failed].map((k) => `${ok[k].repo.split('/')[1]}@${ok[k].at.slice(0, 16)}`));
-  } else if (source === 'bugs') {
-    const failures = bugsCreated.filter(significant), per = deploysOk.length ? deploysOk.length : merged.length;
-    cfr = rate('change_failure_rate', 'Change failure rate', failures.length, per,
-      `Significant bugs created (priority ${config.jira.significant.join(', ')}) ÷ ${deploysOk.length ? 'successful production deploys' : 'PRs merged to the default branch'}, in the period.`,
-      ['significant bugs', deploysOk.length ? 'deploys' : 'merged PRs'], failures.map((i) => i.key));
-  } else {
-    const failedDeploys = s.deploys.filter((d) => !d.success && inWin(s, d.at)), hot = merged.filter((p) => p.isHotfix);
-    cfr = rate('change_failure_rate', 'Change failure rate', hot.length + failedDeploys.length, merged.length + failedDeploys.length,
-      '(Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch.',
-      ['hotfixes and failed deploys', 'merged PRs and failed deploys'], hot.map(ref));
-  }
+  const cfr = changeFailure(s);
   const reviewed = merged.filter((p) => p.reviewCount > 0);
   const commented = merged.filter((p) => (p.reviewComments ?? 0) > 0);
   const restore = s.incidents.filter((i) => inWin(s, i.firedAt) && i.resolvedAt).map((i) => (Date.parse(i.resolvedAt!) - Date.parse(i.firedAt)) / 3_600_000);
@@ -151,7 +120,7 @@ export function quality(s: Slice) {
     groups: [
       { id: 'bug_creation', title: 'Bug creation', question: 'How many bugs are being created, and by how much change?', measures: [
         cfr,
-        rate('rework_rate', 'Rework rate', bugsCreated.length, merged.length, 'Bugs created ÷ PRs merged to the default branch, in the period. All priorities.', ['bugs created', 'merged PRs'], bugsCreated.map((i) => i.key)),
+        rate('bugs_per_change', 'Bugs per change', bugsCreated.length, merged.length, 'Bugs created ÷ PRs merged to the default branch, in the period. All priorities.', ['bugs created', 'merged PRs'], bugsCreated.map((i) => i.key)),
       ] },
       { id: 'bug_escape', title: 'Bugs reaching customers', question: 'How many bugs get past us into production?', measures: [leakage],
         trend: [...weeks.entries()].map(([week, v]) => ({ week, ...v })) },
@@ -240,8 +209,7 @@ export function efficiency(s: Slice) {
   return {
     groups: [
       { id: 'pr_flow', title: 'Pull request flow', question: 'How fast does a change get from opened to merged?', measures: [
-        med('pr_lead_time', 'PR lead time (median)', merged.map((p) => hrs(p.createdAt, p.mergedAt!) / 24), 'days', 'Median days from PR opened to merged, PRs merged in the period.', 'merged PRs'),
-        med('pr_cycle_hours', 'PR cycle time, weekends excluded (median)', merged.map((p) => hoursExcludingWeekends(p.createdAt, p.mergedAt!, config.weekend, config.tzOffset)), 'hours',
+        med('pr_cycle_hours', 'PR cycle time (median)', merged.map((p) => hoursExcludingWeekends(p.createdAt, p.mergedAt!, config.weekend, config.tzOffset)), 'hours',
           `Median hours from PR opened to merged, leaving out weekend days (${config.weekend.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}, UTC${config.tzOffset >= 0 ? '+' : ''}${config.tzOffset}). PRs merged in the period.`, 'merged PRs'),
         med('pickup_time', 'Time to first review (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.createdAt, p.firstReviewAt!) / 24), 'days', 'Median days from PR opened to the first review or review comment by someone else, PRs merged in the period.', 'reviewed PRs'),
         med('review_time', 'Review to merge (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.firstReviewAt!, p.mergedAt!) / 24), 'days', 'Median days from first review to merge, PRs merged in the period.', 'reviewed PRs'),
@@ -328,4 +296,46 @@ export function withPrevious<T extends { groups: { measures: Measure[] }[] }>(te
     (m as Measure & { previousMet?: boolean | null }).previousMet = p?.met ?? null;
   }
   return cur;
+}
+
+// Change failure rate, by the configured definition (CFR_SOURCE: hotfix, bugs or linked). One function for the
+// Quality report, the DORA section and the team page, so the three never disagree. times: when each failure happened.
+export function changeFailure(s: Slice): Measure & { times: number[] } {
+  const merged = mergedPrs(s);
+  const deploysOk = s.deploys.filter((d) => d.success && inWin(s, d.at));
+  const bugsCreated = s.items.filter((i) => isBug(i) && inWin(s, i.created));
+  const source = (process.env.CFR_SOURCE ?? 'hotfix').toLowerCase();
+  let cfr: Measure; let times: number[] = [];
+  if (source === 'linked') {
+    // Deployment linked: a successful production deploy failed if a significant bug, an incident or a hotfix PR
+    // appears within 24 hours after it. Each failure is linked to the one most recent deploy before it (same repo
+    // for a hotfix PR), so one incident never fails several deploys. A time link, not proof of cause.
+    const ok = deploysOk.map((d) => ({ ...d, t: Date.parse(d.at) })).sort((a, b) => a.t - b.t);
+    const failed = new Set<number>();
+    const link = (at: string, repo?: string) => {
+      const t = Date.parse(at);
+      let best = -1; ok.forEach((d, k) => { if (d.t <= t && t - d.t <= DAY && (!repo || d.repo === repo)) best = k; });
+      if (best >= 0) failed.add(best);
+    };
+    for (const b of bugsCreated.filter(significant)) link(b.created);
+    for (const i of s.incidents.filter((x) => inWin(s, x.firedAt))) link(i.firedAt);
+    for (const p of merged.filter((x) => x.isHotfix)) link(p.createdAt, p.repo);
+    times = [...failed].map((k) => ok[k].t);
+    cfr = rate('change_failure_rate', 'Change failure rate', failed.size, ok.length,
+      'Successful production deploys followed within 24 hours by a significant bug, an incident or a hotfix PR ÷ successful deploys. Each failure is linked to the one most recent deploy before it (same repo for hotfixes). A time link, not proof of cause.',
+      ['deploys followed by a failure', 'deploys'], [...failed].map((k) => `${ok[k].repo.split('/')[1]}@${ok[k].at.slice(0, 16)}`));
+  } else if (source === 'bugs') {
+    const failures = bugsCreated.filter(significant), per = deploysOk.length ? deploysOk.length : merged.length;
+    times = failures.map((i) => Date.parse(i.created));
+    cfr = rate('change_failure_rate', 'Change failure rate', failures.length, per,
+      `Significant bugs created (priority ${config.jira.significant.join(', ')}) ÷ ${deploysOk.length ? 'successful production deploys' : 'PRs merged to the default branch'}, in the period.`,
+      ['significant bugs', deploysOk.length ? 'deploys' : 'merged PRs'], failures.map((i) => i.key));
+  } else {
+    const failedDeploys = s.deploys.filter((d) => !d.success && inWin(s, d.at)), hot = merged.filter((p) => p.isHotfix);
+    times = [...hot.map((p) => Date.parse(p.mergedAt!)), ...failedDeploys.map((d) => Date.parse(d.at))];
+    cfr = rate('change_failure_rate', 'Change failure rate', hot.length + failedDeploys.length, merged.length + failedDeploys.length,
+      '(Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch.',
+      ['hotfixes and failed deploys', 'merged PRs and failed deploys'], hot.map(ref));
+  }
+  return Object.assign(cfr, { times });
 }

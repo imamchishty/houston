@@ -130,3 +130,10 @@ export function metricHistory(board: string, metric: string, days = 365) {
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   return open().prepare('SELECT day, value, rag FROM metric_values WHERE board = ? AND metric = ? AND day >= ? ORDER BY day').all(board, metric, since);
 }
+
+// The value a metric had on a day: the last snapshot on or before it, within 7 days. Null if none was recorded.
+export function valueOn(board: string, metric: string, day: string): number | null {
+  const floor = new Date(Date.parse(day) - 7 * 86_400_000).toISOString().slice(0, 10);
+  const row = open().prepare('SELECT value FROM metric_values WHERE board = ? AND metric = ? AND day <= ? AND day >= ? ORDER BY day DESC LIMIT 1').get(board, metric, day, floor) as { value: number } | undefined;
+  return row?.value ?? null;
+}

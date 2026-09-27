@@ -19,7 +19,7 @@ import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
 import { costRates, claudeReport } from './claude.js';
 import { metricCatalogue, bandFor } from './metrics.js';
-import { history } from './store/history.js';
+import { history, valueOn } from './store/history.js';
 import { rules } from './rules/sprintRules.js';
 import { peopleStats } from './people.js';
 import { learnBaseline } from './cycle.js';
@@ -179,16 +179,16 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!cards.length) return reply.code(404).send({ error: `No scorecards for ${req.params.board}` });
     const q = store.quality().find((x) => x.board === req.params.board);
     const g = store.github().find((x) => x.board === req.params.board);
-    const sprintsB = store.sprints().filter((x) => x.board === req.params.board); const gB = g;
     return { board: req.params.board, latest: cards[0], history: cards,
       quality: q ? { ...scoreQuality(q), capturedAt: q.capturedAt } : null,
       flow: g ? { ...scoreFlow(g), since: g.since, until: g.until, repos: g.repos } : null,
       docs: boardData(req.params.board).docs, features: boardData(req.params.board).features, ops: boardData(req.params.board).ops,
       actions: store.actions().filter((a) => a.board === req.params.board),
       insights: sprintInsights([...cards].reverse()), heatmap: heatmap([...cards].reverse()),
-      window: windowStatus([...cards].reverse(), boardData(req.params.board).flow?.findings, boardData(req.params.board).quality?.findings),
-      output: (() => { const all = [...new Set(store.sprints().map((x) => x.board))].map((bd) => ({ board: bd, ppe: outputBench(bd, store.sprints().filter((x) => x.board === bd), store.github().find((x) => x.board === bd), store.epics()[bd] ?? [], []).pointsPerEngineerPerSprint }));
-        return outputBench(req.params.board, sprintsB, gB, store.epics()[req.params.board] ?? [], all); })(),
+      window: windowStatus([...cards].reverse(), boardData(req.params.board).flow?.findings, boardData(req.params.board).quality?.findings,
+        Object.fromEntries([quality, predictability, efficiency].flatMap((fn) => flatMeasures(fn(slice(req.params.board, 30)))).map((m) => [m.id, m.value])),
+        (rule, source, day) => valueOn(req.params.board, source === 'report' ? `r:${rule}` : rule, day)),
+      output: outputBench(req.params.board, store.epics()[req.params.board] ?? []),
       incidents: incidentLog(store.azure().find((x) => x.board === req.params.board), store.docs().find((x) => x.board === req.params.board)) };
   });
 

@@ -303,13 +303,8 @@ async function team(board, tab) {
         <table class="t mt"><tr><th>Target</th><th>Goal</th><th class="num">At start</th><th class="num">Now</th><th>Met</th></tr>
         ${win.targets.map((t) => `<tr><td>${esc(t.name)}</td><td>${esc(t.target)}</td><td class="num">${esc(t.start ?? '·')}</td><td class="num">${esc(t.now ?? '·')}</td><td class="${t.met ? '' : 'warn'}">${t.met ? 'Yes' : 'No'}</td></tr>`).join('')}</table>
         <p class="note">${esc(win.start)} to ${esc(win.end)}. Set WINDOW_START in .env. Same targets the team sees in the digest.</p></div>` : ''}
-      ${output ? `<h2>Output and cost</h2><div class="card"><p class="msg">${esc(output.verdict)}</p>
-        <div class="scores mt">
-          <span class="pill ${output.pointsPerEngineerPerSprint >= 8 ? 'green' : output.pointsPerEngineerPerSprint >= 5 ? 'amber' : 'red'}"><b>${output.pointsPerEngineerPerSprint}</b> points / engineer / sprint</span>
-          <span class="pill ${output.mergedPrsPerEngineerPerWeek >= 2 ? 'green' : output.mergedPrsPerEngineerPerWeek >= 1 ? 'amber' : 'red'}"><b>${output.mergedPrsPerEngineerPerWeek}</b> merged PRs / engineer / week</span>
-          ${output.costRatio ? `<span class="pill ${output.costRatio <= 1.5 ? 'green' : output.costRatio <= 2.5 ? 'amber' : 'red'}"><b>${output.costRatio}x</b> offshore cost</span>` : ''}
-          ${output.outputRatioVsBest != null ? `<span class="pill ${output.outputRatioVsBest >= 0.8 ? 'green' : output.outputRatioVsBest >= 0.5 ? 'amber' : 'red'}"><b>${Math.round(output.outputRatioVsBest * 100)}%</b> of best team per head</span>` : ''}
-        </div></div>` : ''}
+      ${output ? `<h2>Cost</h2><div class="card"><p class="msg">${esc(output.verdict)}</p>
+        ${output.costRatio ? `<div class="scores mt"><span class="pill"><b>${esc(output.costRatio)}x</b> an offshore equivalent</span></div>` : ''}</div>` : ''}
       ${incidents ? `<h2>Incident log</h2><div class="finding ${incidents.missing ? 'red' : 'green'}"><p class="msg">${esc(incidents.verdict)}</p>${incidents.missing ? '<p class="act">Every Sev0 to Sev2 incident gets a post-incident page within 3 days: what happened, impact, root cause, one action. Label it "incident".</p>' : ''}</div>` : ''}
       <h2>Recommendations</h2>${r.recommendations.map(rec).join('') || '<p class="note">No gaps found.</p>'}
       <h2>Headcount gate</h2>

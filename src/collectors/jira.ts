@@ -82,7 +82,9 @@ async function fullChangelog(key: string, embedded: any) {
 async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[]> {
   const out: Issue[] = [];
   let startAt = 0;
-  const fields = ['summary', 'issuetype', 'status', 'assignee', 'created', 'resolutiondate', 'description',
+  // 'sprint' and 'closedSprints' are Agile fields: with an explicit field list Jira only returns them when named,
+  // and without them carry-over could never be seen.
+  const fields = ['summary', 'issuetype', 'status', 'assignee', 'created', 'resolutiondate', 'description', 'sprint', 'closedSprints',
     config.jira.pointsField, 'parent', config.jira.epicField, ...(config.jira.acField ? [config.jira.acField] : [])].join(',');
   for (;;) {
     const page = await jira<any>(`/rest/agile/1.0/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&expand=changelog&fields=${fields}`);

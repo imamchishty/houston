@@ -28,6 +28,12 @@ Feature: Accuracy rules that real data depends on
     And a successful deploy of "org/web" on 2026-09-06
     Then its lead time is 5 days
 
+  Scenario: Lead time starts at the first commit, as DORA defines it
+    Given PR 1 in "org/web" opened 2026-09-03 and merged 2026-09-04
+    And its first commit was on 2026-09-01
+    And a successful deploy of "org/web" on 2026-09-06
+    Then its lead time is 5 days
+
   Scenario: A repo with no deploys of its own falls back to the team's deploys
     Given PR 1 in "org/lib" opened 2026-09-01 and merged 2026-09-02
     And a successful deploy of "org/api" on 2026-09-03

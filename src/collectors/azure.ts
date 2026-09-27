@@ -48,7 +48,7 @@ async function logQuery(kql: string) {
 
 async function ops(appId: string, rg: string | undefined): Promise<AzureSnapshot['ops']> {
   const [requests, failed, p95] = await appInsightsQuery(appId,
-    `requests | where timestamp > ago(30d) | summarize total=count(), failed=countif(success == false), p95=percentile(duration, 95) | project total, failed, p95`);
+    `requests | where timestamp > ago(30d) | summarize total=count(), failed=countif(toint(resultCode) >= 500), p95=percentile(duration, 95) | project total, failed, p95`);
   const [avail] = await appInsightsQuery(appId,
     `availabilityResults | where timestamp > ago(30d) | summarize pct=100.0 * countif(success == true) / count() | project pct`).catch(() => [null]);
   let incidents30d = 0, medianRestoreMin: number | null = null;
@@ -66,8 +66,9 @@ async function ops(appId: string, rg: string | undefined): Promise<AzureSnapshot
        | order by fired asc | take 1000`).catch(() => [] as any[][]);
     incidents = list.filter((r) => r[0]).map((r) => ({ firedAt: new Date(r[0]).toISOString(), resolvedAt: r[1] ? new Date(r[1]).toISOString() : null, severity: String(r[2] ?? '') }));
   }
+  // No availability tests means not measured (null), never a false 100%.
   return { requests30d: Number(requests ?? 0), failedRate: requests ? Math.round((Number(failed) / Number(requests)) * 1000) / 10 : 0,
-    p95LatencyMs: Math.round(Number(p95 ?? 0)), availability: avail != null ? Math.round(Number(avail) * 10) / 10 : 100, incidents30d, medianRestoreMin, incidents };
+    p95LatencyMs: Math.round(Number(p95 ?? 0)), availability: avail != null ? Math.round(Number(avail) * 10) / 10 : null, incidents30d, medianRestoreMin, incidents };
 }
 
 async function cloudCost(rg: string): Promise<number> {

@@ -44,9 +44,9 @@ export function dashboard(now = Date.now()) {
   const s30 = slice('all', 30, now);
   const pick = (r: ReturnType<typeof quality>, id: string) => flatMeasures(r).find((m) => m.id === id)!;
   const headlines = [
-    { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers and the team?', measures: ['change_failure_rate', 'rework_rate'].map((id) => pick(quality(s30), id)) },
+    { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers and the team?', measures: ['change_failure_rate', 'bugs_per_change'].map((id) => pick(quality(s30), id)) },
     { page: 'predictability', title: 'Predictability', question: 'Does the team deliver what it plans?', measures: ['sprint_completion', 'prs_traceable'].map((id) => pick(predictability(s30), id)) },
-    { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_lead_time', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
+    { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_cycle_hours', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
   ].map((h) => ({ ...h, measures: h.measures.map(({ failing, how, ...m }) => m) }));
 
   // Speed next to stability, all teams, last 30 days: the tension leadership should see at a glance.

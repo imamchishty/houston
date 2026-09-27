@@ -2,7 +2,8 @@ import { store } from './store/index.js';
 import { median } from './cycle.js';
 import { doraTier, metricById } from './metrics.js';
 import type { GithubSnapshot } from './types.js';
-import { leadTimes } from './rules/flowRules.js';
+import { leadTimes } from './leadtime.js';
+import { slice as reportSlice, changeFailure } from './reports.js';
 
 // The four DORA metrics as a headline number and a daily series, for one team or all of them, over 7, 30 or 90 days.
 // Same definitions as the flow and production rules (METRICS.md), so the dashboard and the findings always agree.
@@ -62,15 +63,10 @@ export function doraSeries(team: string, days: (typeof PERIODS)[number], now = D
   for (const d of span) { const xs = leads.filter((l) => dayOf(l.merged) === d).map((l) => l.days); if (xs.length) leadByDay.set(d, Math.round(median(xs) * 10) / 10); }
   const lt = r1(leadIn(from, to)), ltPrev = hasPrev ? r1(leadIn(prevFrom, from)) : null;
 
-  // 3. Change failure rate: (hotfix or revert PRs + failed deploys) / (merged PRs + failed deploys)
-  const merges = gh.flatMap((g) => g.prs.filter((p) => p.mergedAt && !p.draft).map((p) => ({ t: Date.parse(p.mergedAt!), hot: p.isHotfix })));
-  const failedDeploys = gh.flatMap((g) => g.deploys.filter((d) => !d.success).map((d) => Date.parse(d.at)));
-  const cfrIn = (a: number, b: number) => {
-    const m = merges.filter((x) => inWin(x.t, a, b)), f = failedDeploys.filter((t) => inWin(t, a, b)).length;
-    return m.length + f ? (100 * (m.filter((x) => x.hot).length + f)) / (m.length + f) : null;
-  };
-  const failuresByDay = count([...merges.filter((x) => x.hot).map((x) => x.t), ...failedDeploys]);
-  const cfr = r1(cfrIn(from, to)), cfrPrev = hasPrev ? r1(cfrIn(prevFrom, from)) : null;
+  // 3. Change failure rate: the Quality report's calculation (CFR_SOURCE), so the two never disagree.
+  const cfrNow = changeFailure(reportSlice(team, days, now)), cfrBefore = hasPrev ? changeFailure(reportSlice(team, days, now - days * DAY)) : null;
+  const failuresByDay = count(cfrNow.times.filter((t) => inWin(t, from, to)));
+  const cfr = cfrNow.value, cfrPrev = cfrBefore?.value ?? null;
 
   // 4. Time to restore: median hours from alert fired to resolved (Azure Monitor, Sev0 to Sev2)
   const incidents = az.flatMap((a) => a.ops?.incidents ?? []).map((i) => ({ t: Date.parse(i.firedAt), h: i.resolvedAt ? (Date.parse(i.resolvedAt) - Date.parse(i.firedAt)) / 3_600_000 : null }));
@@ -89,8 +85,8 @@ export function doraSeries(team: string, days: (typeof PERIODS)[number], now = D
       note: lt == null ? 'No merged and deployed PRs in this period' : `${Math.round((lt ?? 0) * 24)} hours, PR opened to production` },
     { id: 'change_failure', title: 'Change failure rate', ...text('change_failure'), value: cfr, unit: '%', previous: cfrPrev,
       better: verdict(cfr, cfrPrev, false), tier: cfr == null ? null : doraTier('change_failure', cfr),
-      series: withAverage(span, failuresByDay, true), seriesLabel: 'Failures (hotfix or revert PRs, failed deploys)', seriesUnit: 'failures', chart: 'bar',
-      note: cfr == null ? 'No merges in this period' : 'of changes needed a fix' },
+      series: withAverage(span, failuresByDay, true), seriesLabel: 'Failures', seriesUnit: 'failures', chart: 'bar', how: cfrNow.how,
+      note: cfr == null ? 'Nothing to measure in this period' : `${cfrNow.num} of ${cfrNow.den} ${cfrNow.denLabel}` },
     { id: 'time_to_restore', title: 'Time to restore', ...text('time_to_restore'), value: tr, unit: 'hours', previous: trPrev,
       better: verdict(tr, trPrev, false), tier: tr == null ? null : doraTier('time_to_restore', tr),
       series: withAverage(span, count(incidents.filter((i) => inWin(i.t, from, to)).map((i) => i.t)), true), seriesLabel: 'Incidents (Sev0 to Sev2)', seriesUnit: 'incidents', chart: 'bar',

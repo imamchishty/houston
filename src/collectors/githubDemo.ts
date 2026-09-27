@@ -58,7 +58,7 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
   }
   const ci: CiRun[] = []; const deploys: Deploy[] = [];
   for (let t = since; t < until; t += (weak ? 0.5 : 0.2) * day) {
-    ci.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), conclusion: r() < (weak ? 0.68 : 0.94) ? 'success' : 'failure', durationMin: Math.round(weak ? 25 + r() * 30 : 8 + r() * 8) });
+    ci.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), conclusion: r() < (weak ? 0.68 : 0.94) ? 'success' : 'failure', durationMin: Math.round(weak ? 25 + r() * 30 : 8 + r() * 8), branch: 'main' });
   }
   for (let t = since; t < until; t += (weak ? 9 : 0.7) * day) {
     deploys.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), ref: 'sha', success: r() < (weak ? 0.75 : 0.96) });

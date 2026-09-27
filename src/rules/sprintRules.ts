@@ -116,37 +116,29 @@ export const rules: RuleDef[] = [
   },
   {
     id: 'stale_in_progress',
-    title: 'Items stuck in progress',
+    title: 'Work in progress far longer than normal',
     area: 'flow', unit: 'count', amber: 2, red: 4, direction: 'high_bad', weight: 10,
     evaluate(s) {
+      // At the sprint's end for a finished sprint, now for the one in progress. What was in progress then comes from
+      // the status history, not today's status (a ticket stuck then may be done now). Far longer than normal: more
+      // than 3x the team's median cycle time for that ticket size; 5 days where the size has no history yet.
       const ref = s.state === 'closed' ? s.end : new Date().toISOString();
-      const stale = work(s).filter(
-        (i) => i.statusCategory === 'inprogress' && i.inProgressSince && daysBetween(i.inProgressSince, ref) > 5,
-      );
-      return {
-        value: stale.length,
-        message: stale.length
-          ? `${stale.length} items have been in progress for more than 5 days.`
-          : 'Nothing has been in progress longer than 5 days.',
-        action: 'Anything over 5 days is raised at standup: split it, pair on it, or park it.',
-        evidence: keys(stale),
+      const inProgressAt = (i: Issue) => {
+        if (i.statusHistory?.length) return [...i.statusHistory].filter((h) => h.at <= ref).pop()?.category === 'indeterminate';
+        return i.statusCategory === 'inprogress';
       };
-    },
-  },
-  {
-    id: 'bug_share',
-    title: 'Share of sprint spent on bugs',
-    area: 'delivery', unit: '%', amber: 25, red: 40, direction: 'high_bad', weight: 5,
-    evaluate(s) {
-      const w = work(s);
-      if (!w.length) return null;
-      const bugs = w.filter((i) => i.type === 'Bug');
-      const value = pct(bugs.length, w.length);
+      const old = work(s).filter((i) => {
+        if (!i.inProgressSince || i.inProgressSince > ref || !inProgressAt(i)) return false;
+        const norm = s.baseline?.[sizeBucket(i.points)];
+        return daysBetween(i.inProgressSince, ref) > (norm != null ? 3 * norm : 5);
+      });
       return {
-        value,
-        message: `${bugs.length} of ${w.length} items (${Math.round(value)}%) were bugs.`,
-        action: 'Above 25% means quality is eating feature capacity. Trace where bugs originate before adding features.',
-        evidence: keys(bugs),
+        value: old.length,
+        message: old.length
+          ? `${old.length} items ${s.state === 'closed' ? 'were' : 'are'} in progress more than three times longer than normal for their size.`
+          : 'Nothing has been in progress far longer than normal for its size.',
+        action: 'Raise each at standup: split it, pair on it, or park it. Ask what is blocking, not why it is late.',
+        evidence: keys(old),
       };
     },
   },
@@ -175,7 +167,8 @@ export const rules: RuleDef[] = [
   {
     id: 'sprint_goal',
     title: 'Sprint has a goal',
-    area: 'hygiene', unit: 'count', amber: 0.5, red: 0, direction: 'low_bad', weight: 5,
+    // Information only (weight 0): a goal of more than ten characters says little about whether the sprint has direction.
+    area: 'hygiene', unit: 'count', amber: 0.5, red: 0, direction: 'low_bad', weight: 0,
     evaluate(s) {
       const has = s.goal && s.goal.trim().length > 10 ? 1 : 0;
       return {

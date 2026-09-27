@@ -24,10 +24,9 @@ RAG thresholds are inclusive at the boundary.
 | no_estimate | work items with empty story points ÷ work items | 10% | 25% |
 | no_acceptance_criteria | stories with no AC ÷ stories. AC = custom field non-empty, else description matches "acceptance criteria", "Given/When/Then" or "AC:" | 15% | 35% |
 | unassigned | count of In Progress items with no assignee | 1 | 3 |
-| stale_in_progress | count of In Progress items over 5 days (measured at sprint end, or now for active sprint) | 2 | 4 |
-| bug_share | Bug type items ÷ work items | 25% | 40% |
+| stale_in_progress | count of items in progress at sprint end (now for the active sprint), from the status history, in progress more than 3x the team's median cycle time for their size (5 days where the size has no history) | 2 | 4 |
 | cycle_time_vs_size | done items with cycle time > max(2 × team median for that point size, median + 2 days) ÷ done items with a cycle time. Team medians learned from all sprints on the board | 15% | 30% |
-| sprint_goal | 1 if the sprint goal has more than 10 characters, else 0 | missing | missing |
+| sprint_goal | 1 if the sprint goal has more than 10 characters, else 0. Information only, not scored | missing | missing |
 
 ## Flow and DORA (GitHub)
 
@@ -38,15 +37,14 @@ Window: last GITHUB_DAYS (default 90). "Merged PR" excludes drafts. Reviews and 
 | pickup_time | median of (first review or review comment by someone else − PR created), merged PRs, days | 1 | 2 |
 | review_time | median of (merged − first review), days | 1.5 | 3 |
 | pr_size | median of (additions + deletions), merged PRs | 400 | 800 |
-| stale_prs | count of open non-draft PRs older than 72 hours | 3 | 6 |
-| no_review_merges | merged PRs with zero reviews by others ÷ merged PRs | 5% | 15% |
-| no_jira_link | merged PRs with no `[A-Z]+-\d+` key in title, branch or body ÷ merged PRs | 10% | 30% |
+| stale_prs | count of open non-draft PRs older than 72 hours. Information only, not scored | 3 | 6 |
+| no_jira_link | merged PRs with no key of the team's Jira project in title, branch or body ÷ merged PRs | 10% | 30% |
 | reviewer_load | reviews by the top reviewer ÷ all reviews on merged PRs | 40% | 60% |
-| lane_crossing | merged PRs touching both a frontend and a backend path ÷ merged PRs touching either, paths from GITHUB_LANES | below 25% | below 10% |
-| ci_red_rate | failed CI runs ÷ (success + failure), workflows not matching the deploy name | 10% | 25% |
+| lane_crossing | engineers with 5+ merged PRs who merged work in both frontend and backend paths (any repo, GITHUB_LANES) ÷ those engineers | below 25% | below 10% |
+| ci_red_rate | failed CI runs ÷ (success + failure) on each repo's default branch, workflows not matching the deploy name. Feature branch runs left out | 10% | 25% |
 | deploy_frequency | successful runs of the deploy workflow ÷ weeks in window | below 1/week | below 1/month |
 | lead_time | median of (first successful deploy of the PR's own repo after merge − PR created), days. A repo with no deploys of its own falls back to the team's deploys | 7 | 30 |
-| change_failure | (hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys). Hotfix = title or branch contains "hotfix" or "revert" | 15% | 30% |
+| change_failure | the Quality report's change failure rate (CFR_SOURCE: hotfix, bugs or linked) over 90 days; the DORA section uses the same calculation | 15% | 30% |
 
 Time to restore (DORA 4) is not computed until incident data is connected.
 
@@ -55,15 +53,14 @@ Time to restore (DORA 4) is not computed until incident data is connected.
 | Rule | Formula | Amber | Red |
 |---|---|---|---|
 | quality_gate | Sonar alert_status, 1 if OK | fail | fail |
-| coverage | Sonar coverage | below 60% | below 40% |
+| coverage | Sonar coverage. Information only, not scored: legacy code drags it down | below 60% | below 40% |
 | new_code_coverage | Sonar new_coverage (new code period as set in Sonar) | below 70% | below 50% |
 | vulnerabilities | Sonar vulnerabilities count | 1 | 5 |
-| sonar_bugs | Sonar bugs count | 10 | 30 |
+| sonar_bugs | Sonar bugs count. Information only, not scored: not adjusted for codebase size | 10 | 30 |
 | duplication | Sonar duplicated_lines_density | 5% | 10% |
-| test_pass_rate | Testmo latest automation run passed ÷ total | below 97% | below 90% |
+| test_pass_rate | Testmo tests passed ÷ tests run, pooled over automation runs in the last 30 days. Not measured with no runs | below 97% | below 90% |
 | test_runs | Testmo automation runs in the last 30 days | below 20 | below 8 |
 | automation_share | automated tests ÷ (automated + manual cases) | below 50% | below 30% |
-| escaped_bugs | Bug issues created during the latest sprint | 3 | 6 |
 
 ## Features (Jira epics)
 
@@ -78,8 +75,7 @@ Time to restore (DORA 4) is not computed until incident data is connected.
 |---|---|---|---|
 | stale_docs | pages last edited over 90 days ago ÷ pages in the team's spaces | 40% | 70% |
 | runbook_coverage | pages classified runbook ÷ repos configured for the team | below 1 | below 0.5 |
-| adr_activity | pages classified ADR created in the last 90 days | below 2 | 0 |
-| docs_activity | pages edited in the last 30 days | below 4 | below 1 |
+| adr_activity | pages classified ADR created in the last 90 days. Information only, not scored | below 2 | 0 |
 
 Classification: a page is an ADR or runbook if its title or a label contains one of the markers in `.env`.
 
@@ -87,14 +83,12 @@ Classification: a page is an ADR or runbook if its title or a label contains one
 
 | Rule | Formula | Amber | Red |
 |---|---|---|---|
-| failed_requests | App Insights requests with success == false ÷ requests, 30 days | 1% | 3% |
-| availability | App Insights availability test results passed ÷ results, 30 days | below 99.9% | below 99.5% |
+| failed_requests | App Insights requests with a 5xx result code ÷ requests, 30 days (4xx are not failures) | 1% | 3% |
+| availability | App Insights availability test results passed ÷ results, 30 days. Not measured when there are no availability tests | below 99.9% | below 99.5% |
 | incidents | Sev0 to Sev2 alerts fired in 30 days, filtered to the team's resource group | 2 | 5 |
 | time_to_restore | median (alert resolved − alert fired), hours. DORA 4 | 1h | 24h |
 | cloud_cost | Cost Management actual cost for the resource group, last full calendar month, USD converted at 3.6725 | informational | |
-| cost_per_feature | (cloud month + TEAM_MONTHLY_COST) × 3 ÷ epics resolved in the last 90 days, AED | 300,000 | 800,000 |
 
-Cost per feature thresholds are placeholders. Set them with finance once the first real number is in.
 
 ## Per person
 
@@ -122,14 +116,14 @@ of the last three sprints, new_code_coverage ≥ 70%.
 ## 90 day window
 
 Set WINDOW_START. Targets: commit_completion ≥ 80%, no_estimate = 0%, no_acceptance_criteria ≤ 10%, stale_in_progress ≤ 1,
-new_code_coverage ≥ 70%, pickup_time ≤ 1 day, no_review_merges = 0%. "At start" is the last sprint before the window opened.
+new_code_coverage ≥ 70%, pickup_time ≤ 1 day, PRs reviewed by someone else ≥ 95%. "At start" is the last sprint before the window opened for sprint targets, and the value the nightly snapshot recorded on the window's first day for the others.
 On track = targets met ≥ (targets × share of the window elapsed).
 
-## Output and cost
+## Cost facts
 
-points per engineer per sprint = done points in the last 6 closed sprints ÷ sprints ÷ people with any Jira or GitHub activity.
-merged PRs per engineer per week = merged PRs in the GitHub window ÷ weeks ÷ people.
-cost ratio = TEAM_MONTHLY_COST ÷ OFFSHORE_MONTHLY_COST. output vs best = this team's points per engineer ÷ the highest team's.
+Team monthly cost (TEAM_MONTHLY_COST), the configured offshore equivalent (OFFSHORE_MONTHLY_COST), their ratio, and epics
+resolved in the last 90 days. Output per engineer is not compared across teams: story points are sized differently by
+every team and pull request counts reward splitting work.
 
 ## Quality, Predictability and Efficiency reports
 
@@ -142,7 +136,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | Measure | Definition | Target |
 |---|---|---|
 | `change_failure_rate` Change failure rate | (Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch. | under 10% |
-| `rework_rate` Rework rate | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
+| `bugs_per_change` Bugs per change | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
 | `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
 | `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
 | `qa_rejection` QA rejection rate | Tickets sent back from QA (qa, in qa, testing, in testing) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection. | under 15% |
@@ -166,14 +160,13 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `tickets_estimated` Estimates on tickets | Work items closed in the period that have story points ÷ work items closed (sub-tasks excluded). | over 90% |
 | `tickets_in_sprint` Tickets in sprints | Work items closed in the period that were ever in a sprint ÷ work items closed (sub-tasks excluded). | over 80% |
 | `tickets_in_epic` Tickets in epics | Work items closed in the period that belong to an epic ÷ work items closed (sub-tasks and bugs excluded: bugs are often not feature work). | over 80% |
-| `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. | over 80% |
+| `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. |  |
 
 ### Efficiency
 
 | Measure | Definition | Target |
 |---|---|---|
-| `pr_lead_time` PR lead time (median) | Median days from PR opened to merged, PRs merged in the period. | under 2.5 days |
-| `pr_cycle_hours` PR cycle time, weekends excluded (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
+| `pr_cycle_hours` PR cycle time (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
 | `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
 | `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
 | `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
@@ -186,7 +179,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
 | `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
 
-Change failure rate: `CFR_SOURCE=hotfix` (default), `bugs`, or `linked` (a deploy followed within 24 hours by a significant bug, incident or hotfix; each failure linked to one deploy). Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+Change failure rate: `CFR_SOURCE=hotfix` (default), `bugs`, or `linked` (a deploy followed within 24 hours by a significant bug, incident or hotfix; each failure linked to one deploy). The same calculation is used on the team page and in the DORA section. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
 14-day churn is not measured: it needs line-level history the GitHub API does not provide.
 
 ## Current sprint

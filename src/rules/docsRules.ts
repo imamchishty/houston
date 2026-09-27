@@ -23,19 +23,12 @@ export const docsRules: DRule[] = [
       return { value: repos ? Math.round((rb.length / repos) * 10) / 10 : rb.length, message: `${rb.length} runbooks for ${repos} repos, ${fresh.length} updated in the last 6 months.`,
         action: 'One runbook per deployable service, reviewed after every incident. Missing runbooks are a compliance finding in healthcare.', evidence: rb.map((p) => p.title) };
     } },
-  { id: 'adr_activity', title: 'Architecture decisions recorded, last 90 days', unit: 'count', amber: 2, red: 0.5, direction: 'low_bad', weight: 10,
+  { id: 'adr_activity', title: 'Architecture decisions recorded, last 90 days', unit: 'count', amber: 2, red: 0.5, direction: 'low_bad', weight: 0, // information only: counting ADRs rewards writing more of them, not better decisions
     evaluate(s) {
       const recent = s.pages.filter((p) => p.type === 'adr' && days(p.createdAt) <= 90);
       const all = s.pages.filter((p) => p.type === 'adr');
       return { value: recent.length, message: `${recent.length} ADRs written in the last 90 days, ${all.length} in total.${all.length ? ` Newest is ${Math.round(Math.min(...all.map((p) => days(p.createdAt))))} days old.` : ''}`,
         action: 'Any decision that changes an interface, a data model or a dependency gets a one page ADR. That is the architect role, written down.', evidence: recent.map((p) => p.title) };
-    } },
-  { id: 'docs_activity', title: 'Documentation activity, last 30 days', unit: 'count', amber: 4, red: 1, direction: 'low_bad', weight: 5,
-    evaluate(s) {
-      const recent = s.pages.filter((p) => days(p.updatedAt) <= 30);
-      const authors = new Set(recent.map((p) => p.updatedBy));
-      return { value: recent.length, message: `${recent.length} pages edited in the last 30 days by ${authors.size} people.`,
-        action: 'Documentation is part of done. A ticket that changes behaviour updates the relevant page in the same PR cycle.', evidence: recent.map((p) => p.title) };
     } },
 ];
 

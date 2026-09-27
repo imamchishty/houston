@@ -128,6 +128,7 @@ export interface CiRun {
   at: string;
   conclusion: 'success' | 'failure' | 'cancelled' | 'other';
   durationMin: number;
+  branch?: string;             // head branch of the run
 }
 
 export interface GithubSnapshot {
@@ -196,7 +197,7 @@ export interface AzureSnapshot {
     requests30d: number;
     failedRate: number;        // % of requests failed, last 30 days
     p95LatencyMs: number;
-    availability: number;      // % of availability test results passed, last 30 days
+    availability: number | null; // % of availability test results passed, last 30 days; null when no tests run
     incidents30d: number;      // sev0 to sev2 alerts fired
     medianRestoreMin: number | null; // DORA 4: alert fired to resolved
     incidents?: { firedAt: string; resolvedAt: string | null; severity: string }[]; // last 90 days, for the time to restore trend

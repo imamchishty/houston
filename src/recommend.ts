@@ -82,16 +82,17 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
   },
   // 3. Interrupts
   (c) => {
-    const add = f(c, 'scope_added_mid_sprint'), bugs = f(c, 'bug_share');
+    const add = f(c, 'scope_added_mid_sprint'), bugShare = c.diag?.bugWorkload ?? null; // bug workload, Quality report
+    const bugsHigh = bugShare != null && bugShare >= 20;
     if (!bad(add)) return null;
     return {
       id: 'interrupts',
       title: 'Protect the sprint from unplanned work',
-      why: `${add?.value}% of the sprint was added after it started${bad(bugs) ? `, and ${bugs?.value}% of all items were bugs` : ''}. The team cannot deliver a plan that changes every week.`,
+      why: `${add?.value}% of the sprint was added after it started${bugsHigh ? `, and bugs were ${Math.round(bugShare!)}% of the work finished in the last 30 days` : ''}. The team cannot deliver a plan that changes every week.`,
       what: [
         'All mid-sprint requests go through the PO, who swaps an equal size item out.',
         'Label unplanned work "interrupt" so Houston and the retro can see it.',
-        bad(bugs) ? 'Reserve a fixed 20% of capacity for bugs and interrupts, and plan features into the remaining 80%.' : 'Track the interrupt share for two sprints before deciding whether to reserve capacity.',
+        bugsHigh ? 'Reserve a fixed 20% of capacity for bugs and interrupts, and plan features into the remaining 80%.' : 'Track the interrupt share for two sprints before deciding whether to reserve capacity.',
       ],
       owner: 'Product owner', horizon: 'Next 2 sprints', impact: 'medium',
     };
@@ -104,7 +105,7 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
     return {
       id: 'flow',
       title: 'Unstick work faster',
-      why: `${stuck?.value ?? 0} items have been in progress over 5 days and ${slow?.value ?? 0}% of finished tickets took more than double the team's norm for their size${names.length ? `. The same names recur: ${who(c, names)}` : ''}. Long running tickets are where quality and predictability both go.`,
+      why: `${stuck?.value ?? 0} items have been in progress more than three times longer than normal for their size, and ${slow?.value ?? 0}% of finished tickets took more than double the team's norm${names.length ? `. The same names recur: ${who(c, names)}` : ''}. Long running tickets are where quality and predictability both go.`,
       what: [
         'Standup reviews the oldest in-progress ticket first, every day. Split it, pair on it, or park it.',
         'WIP limit of 2 per person. Nobody starts a third ticket while two are open.',
@@ -115,8 +116,8 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
   },
   // 5. Quality debt is eating delivery
   (c) => {
-    const gate = q(c, 'quality_gate'), cov = q(c, 'new_code_coverage'), pass = q(c, 'test_pass_rate'), auto = q(c, 'automation_share'), esc = q(c, 'escaped_bugs');
-    if (![gate, cov, pass, auto, esc].some(bad)) return null;
+    const gate = q(c, 'quality_gate'), cov = q(c, 'new_code_coverage'), pass = q(c, 'test_pass_rate'), auto = q(c, 'automation_share');
+    if (![gate, cov, pass, auto].some(bad)) return null;
     return {
       id: 'quality',
       title: 'Make quality a gate, not a hope',
@@ -125,7 +126,6 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
         bad(cov) ? `new code coverage is ${cov?.value}%` : null,
         bad(pass) ? `the automated suite passes ${pass?.value}%` : null,
         bad(auto) ? `only ${auto?.value}% of tests are automated` : null,
-        bad(esc) ? `${esc?.value} bugs were raised during the sprint` : null,
       ].filter(Boolean).join(', ') + '. Slow feature rollout is mostly rework and manual regression, not lack of hands.',
       what: [
         'Set the Sonar gate to 80% coverage on new code and block merges to main on it. Do not chase overall coverage on legacy code.',
@@ -197,12 +197,13 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
   },
   // 10. Control gaps
   (c) => {
-    const nr = fl(c, 'no_review_merges'), nj = fl(c, 'no_jira_link'), ci = fl(c, 'ci_red_rate');
-    if (![nr, nj, ci].some(bad)) return null;
+    const reviewed = c.diag?.prReviewRate ?? null, nj = fl(c, 'no_jira_link'), ci = fl(c, 'ci_red_rate');
+    const unreviewed = reviewed != null && reviewed < 95;
+    if (!unreviewed && ![nj, ci].some(bad)) return null;
     return {
       id: 'controls',
       title: 'Turn on the basic engineering controls',
-      why: [bad(nr) ? nr!.message : null, bad(nj) ? nj!.message : null, bad(ci) ? ci!.message : null].filter(Boolean).join(' ') + ' These are one-time settings, not habits, and they close audit findings as well as quality gaps.',
+      why: [unreviewed ? `Only ${Math.round(reviewed!)}% of merged pull requests were reviewed by someone else in the last 30 days.` : null, bad(nj) ? nj!.message : null, bad(ci) ? ci!.message : null].filter(Boolean).join(' ') + ' These are one-time settings, not habits, and they close audit findings as well as quality gaps.',
       what: [
         'Branch protection on main: required review, required CI green, no force push.',
         'PR check that fails if no Jira key is in the branch name or title.',

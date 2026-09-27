@@ -24,7 +24,7 @@ export function dataQuality(): DataCheck[] {
     const epi = pct(items.filter((i) => i.epic).length, items.length);
     add(t, 'Epic link', epi === 0 ? 'warn' : 'ok', epi === 0 ? `No item belongs to an epic. Check JIRA_EPIC_FIELD (${config.jira.epicField}), or the team does not use epics.` : `${epi}% of items belong to an epic.`, ['tickets in epics', 'feature cost']);
     const bugs = items.filter((i) => /^bug$/i.test(i.type)).length;
-    add(t, 'Bug issue type', bugs === 0 ? 'warn' : 'ok', bugs === 0 ? 'No items of type Bug. If bugs are filed under another type, bug measures read as zero.' : `${bugs} bugs.`, ['rework rate', 'bug lead time', 'bug fix vs find', 'bug workload']);
+    add(t, 'Bug issue type', bugs === 0 ? 'warn' : 'ok', bugs === 0 ? 'No items of type Bug. If bugs are filed under another type, bug measures read as zero.' : `${bugs} bugs.`, ['bugs per change', 'bug lead time', 'bug fix vs find', 'bug workload']);
     const bugItems = items.filter((i) => /^bug$/i.test(i.type));
     if (bugItems.length) {
       const tagged = bugItems.filter((i) => [...(i.labels ?? []), ...(i.env ? [String(i.env).toLowerCase()] : [])].some((l) => config.bugs.prodLabels.includes(l) || config.bugs.qaLabels.includes(l))).length;
@@ -40,6 +40,11 @@ export function dataQuality(): DataCheck[] {
   }
 
   for (const b of [...new Set(store.sprints().map((s) => s.board))]) {
+    const closed = store.sprints().filter((s) => s.board === b && s.state === 'closed');
+    if (closed.length >= 2) {
+      const withHistory = closed.flatMap((s) => s.issues).filter((i) => i.sprintIds.length > 1).length;
+      add(`Jira board ${b}`, 'Sprint membership', withHistory ? 'ok' : 'fail', withHistory ? `${withHistory} tickets show more than one sprint.` : 'No ticket in any finished sprint shows an earlier sprint. Either nothing was ever carried over, or Jira did not return the sprint fields.', ['carried over', 'carried over per person']);
+    }
     const done = store.sprints().filter((s) => s.board === b).flatMap((s) => s.issues).filter((i) => i.statusCategory === 'done' && i.type !== 'Sub-task');
     const started = pct(done.filter((i) => i.inProgressSince).length, done.length);
     add(`Jira board ${b}`, 'Work start recorded', started < 50 ? 'warn' : 'ok', started < 50 ? `Only ${started}% of done tickets passed through an "in progress" status. Tickets moved straight to Done have no cycle time.` : `${started}% of done tickets have a start.`, ['cycle time', 'stuck in progress', 'tickets over the size norm']);

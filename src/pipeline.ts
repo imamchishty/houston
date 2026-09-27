@@ -17,6 +17,7 @@ import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
 import { rosterFor } from './identity.js';
 import { recordDay, backup } from './store/history.js';
+import { slice, quality, predictability, efficiency, flatMeasures } from './reports.js';
 
 export async function collect() {
   const sprints = config.mode === 'demo' ? demoSprints() : await collectJira();
@@ -63,6 +64,10 @@ export function snapshot(day = new Date().toISOString().slice(0, 10)) {
       ...(['flow', 'quality', 'features', 'ops', 'docs'] as const).flatMap((k) => (b[k] ? [{ area: k, score: b[k]!.score, rag: b[k]!.rag }] : [])),
     ];
     const findings = [b.latest, b.flow, b.quality, b.features, b.ops, b.docs].flatMap((x) => x?.findings ?? []);
+    // Report measures (last 30 days) too, prefixed "r:", so they have a history and the window a starting value.
+    const s30 = slice(board, 30);
+    for (const m of [quality(s30), predictability(s30), efficiency(s30)].flatMap(flatMeasures)) if (m.value != null)
+      findings.push({ ruleId: `r:${m.id}`, title: m.title, area: 'flow', value: m.value, unit: m.unit === 'hours' ? 'count' : m.unit, rag: m.met === false ? 'red' : 'green', message: '', action: '', evidence: [] });
     const cost = config.cost.fteDay || config.cost.contractorDay
       ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(board), weekend: config.weekend })
       : null;

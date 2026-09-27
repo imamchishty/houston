@@ -98,7 +98,7 @@ async function runs(repo: string, since: string): Promise<{ ci: CiRun[]; deploys
     const mins = (new Date(r.updated_at).getTime() - new Date(r.run_started_at ?? r.created_at).getTime()) / 60_000;
     const isDeploy = String(r.name ?? '').toLowerCase().includes(config.github.deployWorkflow.toLowerCase());
     if (isDeploy) deploys.push({ repo, at: r.updated_at, ref: r.head_sha, success: c === 'success' });
-    else ci.push({ repo, at: r.updated_at, conclusion: c, durationMin: Math.round(mins) });
+    else ci.push({ repo, at: r.updated_at, conclusion: c, durationMin: Math.round(mins), branch: r.head_branch ?? undefined });
   }
   return { ci, deploys };
 }
