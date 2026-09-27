@@ -14,4 +14,10 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npx tsc --noEmit -p .
       - run: npm test
+      - name: BDD
+        run: npm run bdd
+      # Stamps build-info.json with this run's number, commit and time: the footer shows "build <run number>".
+      - run: npm run build
       - run: bash -n deploy/azure.sh
+      - name: Build stamp
+        run: cat build-info.json

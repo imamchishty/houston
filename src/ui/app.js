@@ -157,3 +157,12 @@ document.addEventListener('click', (e) => {
   if (el.dataset.act) act(el.dataset.board, el.dataset.rec, el.dataset.act);
   else go(el.dataset.go, el.dataset.tab);
 });
+
+// Footer: which build this is. "Build 42 · a1b2c3d · 27 Sep 2026, 15:02" from CI, "Local build" when run from a checkout.
+fetch('/api/version').then((r) => r.ok ? r.json() : null).then((v) => {
+  if (!v) return;
+  const when = v.builtAt ? new Date(v.builtAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+  const parts = [`Houston ${v.version}`, v.build ? `build ${v.build}` : 'local build', v.commit && `${v.commit}${v.dirty ? ' + uncommitted changes' : ''}`, when].filter(Boolean);
+  $('#version').textContent = parts.join(' · ');
+  if (v.builtAt) $('#version').title = `Built ${v.builtAt}`;
+}).catch(() => {});

@@ -81,6 +81,23 @@ Quality checks: quality gate, coverage (overall and on new code), vulnerabilitie
 Testmo pass rate, run frequency, automation share, and bugs raised during the sprint from Jira.
 Thresholds in `src/rules/qualityRules.ts`.
 
+## Tests
+
+```
+npm test        # unit checks on the rules and recommendations
+npm run bdd     # behaviour: access, privacy, security, Teams digest, version (features/*.feature)
+```
+
+The feature files are plain English and double as the spec for what Houston promises: who can see names,
+what a non viewer gets, which requests are refused. CI runs both, plus `npm audit`, on every push.
+
+## Version
+
+The footer and `GET /api/version` show which build is running: `Houston 0.1.0 · build 42 · a1b2c3d · 27 Sep 2026, 15:02`.
+`scripts/stamp.mjs` writes it at build time. In CI the build number is the Actions run number; `deploy/azure.sh` passes
+the commit and build time into the image. Run from a checkout it says "local build" with the last commit, and
+"+ uncommitted changes" when there are any.
+
 ## Metric definitions
 
 Every formula and threshold is in `METRICS.md`. Every finding links to its raw evidence in the UI.
@@ -134,7 +151,8 @@ docker run -p 4000:4000 -v houston-data:/data --env-file .env houston
 | `GET /api/rules` | The rules, thresholds and weights |
 | `POST /api/teams/:board/notify` | Post the digest headline to Teams now |
 | `POST /api/refresh` | Re-collect and re-score now |
-| `GET /api/health` | Liveness |
+| `GET /api/health` | Liveness, no sign in needed |
+| `GET /api/version` | Build number, commit and build time |
 
 ## The checks
 

@@ -4,14 +4,15 @@
   "description": "Houston: engineering health checks. Phase 1: Jira sprint delivery and hygiene.",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "node scripts/stamp.mjs && tsx src/index.ts",
     "collect": "tsx src/cli.ts collect",
     "score": "tsx src/cli.ts score",
     "notify": "tsx src/cli.ts notify",
-    "build": "tsc -p tsconfig.json && cp -R src/ui dist/",
+    "build": "node scripts/stamp.mjs && tsc -p tsconfig.json && cp -R src/ui dist/",
     "start": "node dist/index.js",
     "test": "tsx src/rules/engine.test.ts && tsx src/recommend.test.ts",
-    "check": "tsx src/check.ts"
+    "check": "tsx src/check.ts",
+    "bdd": "node scripts/stamp.mjs && NODE_OPTIONS='--import tsx' cucumber-js"
   },
   "dependencies": {
     "@fastify/static": "^10.1.5",
@@ -20,6 +21,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@cucumber/cucumber": "^13.2.1",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"

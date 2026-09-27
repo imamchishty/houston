@@ -79,3 +79,5 @@
 .mt { margin-top:10px; }
 .scrollx { overflow-x:auto; }
 header h1 { cursor:pointer; }
+footer#version { max-width:1180px; margin:0 auto; padding:8px 24px 28px; font-size:12px; color:var(--muted, #6B7385); font-variant-numeric:tabular-nums; }
+@media (max-width:760px) { footer#version { padding:8px 16px 24px; } }

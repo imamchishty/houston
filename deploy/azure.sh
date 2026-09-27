@@ -10,7 +10,8 @@ az acr create -n "$ACR" -g "$RG" --sku Basic --admin-enabled false -o none
 # Tag with the commit so every deploy is traceable. .dockerignore keeps .env out of the upload.
 TAG=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M)
 IMAGE="$ACR.azurecr.io/houston:$TAG"
-az acr build -r "$ACR" -t "houston:$TAG" . -o none
+az acr build -r "$ACR" -t "houston:$TAG" -o none \
+  --build-arg BUILD_NUMBER="$TAG" --build-arg GIT_SHA="$(git rev-parse HEAD 2>/dev/null)" --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
 az containerapp env create -n "$ENV" -g "$RG" -l "$LOC" -o none
 az storage account create -n "${ACR}st" -g "$RG" -l "$LOC" --sku Standard_LRS -o none
