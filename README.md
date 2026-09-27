@@ -186,6 +186,7 @@ Tokens are team level only (no people view, no names) unless the token name is i
 
 | Endpoint | Returns |
 |---|---|
+| `GET /api/dashboard` | The home page: counts by band, data freshness, every team at a glance, biggest gains across teams |
 | `GET /api/teams` | Every team: latest score, RAG, 6 sprint trend, top 3 gaps |
 | `GET /api/teams/:board` | Latest scorecard plus history for one team |
 | `GET /api/teams/:board/summary` | One card for the IDP: score, band, areas, DORA tiers, gains, cost |

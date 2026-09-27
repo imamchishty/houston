@@ -8,6 +8,7 @@ import { run } from './pipeline.js';
 import { buildInfo } from './version.js';
 import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
+import { dashboard } from './dashboard.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
 import { costRates, claudeReport } from './claude.js';
@@ -329,6 +330,9 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!store.scorecards().some((c) => c.board === req.params.board)) return reply.code(404).send({ error: 'No such board' });
     return { board: req.params.board, ...claudeReport(req.params.board, namedFor(req as any)) };
   });
+
+  // The home page: every team's status, what needs attention, and whether the data is fresh. Team level only.
+  app.get('/api/dashboard', async () => dashboard());
 
   // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.
   app.get<{ Params: { board: string } }>('/api/teams/:board/summary', async (req, reply) => {

@@ -43,31 +43,65 @@ async function route() {
   return team(board, tab || 'overview');
 }
 
+// Home page: the dashboard. Status of every team at a glance, what needs attention, whether the data is fresh.
+const BAND_ICON = { 'Healthy': '✓', 'Watch': '●', 'Needs attention': '▲' };
+const bandCls = (b) => (b === 'Healthy' ? 'green' : b === 'Watch' ? 'amber' : 'red');
+// A score with its status: icon + number, band in the tooltip. Colour never carries the meaning alone.
+const status = (x, what) => x == null ? '<span class="st none" title="No data">·</span>'
+  : `<span class="st ${bandCls(x.band)}" title="${esc(what)}: ${esc(x.score)}, ${esc(x.band)}"><i aria-hidden="true">${BAND_ICON[x.band]}</i>${esc(x.score)}</span>`;
+const TIER_CLS = { Elite: 'green', High: 'green', Medium: 'amber', Low: 'red' };
+const tier = (d, what) => d ? `<span class="tierchip ${TIER_CLS[d.tier]}" title="${esc(what)}: ${esc(d.value)}${d.unit === '%' ? '%' : d.unit === 'days' ? ' days' : ''}, DORA ${esc(d.tier)}">${esc(d.tier)}</span>` : '<span class="st none">·</span>';
+const ago = (h) => h == null ? 'never' : h < 1 ? 'under an hour ago' : h < 48 ? `${Math.round(h)} hours ago` : `${Math.round(h / 24)} days ago`;
+// Small trend line: context in grey, the latest sprint as the one dark point.
+function trendline(xs, w = 96, h = 32) {
+  if (xs.length < 2) return '';
+  const x = (i) => 3 + i * ((w - 6) / (xs.length - 1)), y = (v) => h - 3 - (v / 100) * (h - 6);
+  return `<svg class="trend" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="Sprint scores ${esc(xs.join(', '))}"><title>Last ${xs.length} sprints: ${esc(xs.join(', '))}</title>
+    <path d="${xs.map((v, i) => `${i ? 'L' : 'M'}${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linejoin="round" opacity=".6"/>
+    <circle cx="${x(xs.length - 1)}" cy="${y(xs[xs.length - 1])}" r="3" fill="var(--ink)" stroke="var(--panel)" stroke-width="1.5"/></svg>`;
+}
+
 async function overview() {
   $('#crumbs').innerHTML = '';
-  const teams = await api('/teams');
-  // Alphabetical, not ranked: the page is for each team to see its own health, not a league table.
-  teams.sort((a, b) => a.board.localeCompare(b.board));
-  if (!teams.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
+  const d = await api('/dashboard');
+  if (!d.teams?.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
+  const c = d.counts, cur = d.cost?.currency;
+  const tile = (label, value, sub, kind) => `<div class="tile ${kind ?? ''}"><div class="k">${esc(label)}</div><div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+  const AREA_COLS = [['flow', 'Flow & DORA', 'Flow'], ['quality', 'Quality', 'Quality'], ['features', 'Features', 'Features'], ['ops', 'Production & cost', 'Prod'], ['docs', 'Docs', 'Docs']];
   $('#main').innerHTML = `
-    <h2>Teams</h2>
-    <div class="grid">${teams.map((t) => `
-      <div class="card team-card" data-go="${esc(t.board)}">
-        <div class="top"><span class="name">${esc(t.board)} <span class="band ${rag(t.score)}">${bandOf(t.score)}</span></span>
-          <span class="delta ${t.delta > 0 ? 'up' : t.delta < 0 ? 'down' : 'flat'}">${t.delta > 0 ? '▲' : t.delta < 0 ? '▼' : '•'} ${Math.abs(t.delta)} vs last sprint</span></div>
-        <div class="scores">
-          <span class="pill ${cls(t.rag)}"><b>${esc(t.score)}</b> sprint</span>
-          ${t.flowScore != null ? `<span class="pill ${cls(t.flowRag)}"><b>${esc(t.flowScore)}</b> flow</span>` : ''}
-          ${t.qualityScore != null ? `<span class="pill ${cls(t.qualityRag)}"><b>${esc(t.qualityScore)}</b> quality</span>` : ''}
-          ${t.featuresScore != null ? `<span class="pill ${rag(t.featuresScore)}"><b>${t.featuresScore}</b> features</span>` : ''}
-          ${t.opsScore != null ? `<span class="pill ${rag(t.opsScore)}"><b>${t.opsScore}</b> prod</span>` : ''}
-          ${t.docsScore != null ? `<span class="pill ${rag(t.docsScore)}"><b>${t.docsScore}</b> docs</span>` : ''}
-        </div>
-        <p class="headline">${esc(t.headline)}</p>
-        ${spark(t.trend)}
-      </div>`).join('')}
+    <div class="tiles">
+      ${tile('Healthy', `<i class="ic green" aria-hidden="true">✓</i>${esc(c.Healthy ?? 0)}`, `of ${esc(c.teams)} teams`)}
+      ${tile('Watch', `<i class="ic amber" aria-hidden="true">●</i>${esc(c.Watch ?? 0)}`, 'score 50 to 74')}
+      ${tile('Needs attention', `<i class="ic red" aria-hidden="true">▲</i>${esc(c['Needs attention'] ?? 0)}`, 'score below 50')}
+      ${tile('Data', d.data.stale ? '<i class="ic red" aria-hidden="true">▲</i>Stale' : '<i class="ic green" aria-hidden="true">✓</i>Fresh',
+        `Updated ${esc(ago(d.data.ageHours))}${d.data.stale ? '. The nightly run has been missed' : ''}`, d.data.stale ? 'warn' : '')}
+      ${d.cost ? tile('On features', `${esc(d.cost.onFeaturesPct)}%`, `of ${money(d.cost.teamCost, cur)} team cost`) : ''}
+      ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
-    <p class="note">Sprint score over the last ${teams[0].trend.length} sprints, dotted line is 75 (green). Tap a team.</p>`;
+
+    <h2>Teams at a glance</h2>
+    <div class="card scrollx"><table class="t dash">
+      <tr><th rowspan="2">Team</th><th rowspan="2">Sprint health</th><th rowspan="2">Last 6 sprints</th><th colspan="${AREA_COLS.length}" class="grp">Area scores</th>
+        <th colspan="3" class="grp">DORA</th><th rowspan="2" title="Headcount gate">Gate</th>${d.claudeAdoptionPct != null ? '<th rowspan="2" class="num">Claude</th>' : ''}</tr>
+      <tr>${AREA_COLS.map(([, n, short]) => `<th title="${esc(n)}">${esc(short)}</th>`).join('')}<th title="Deployment frequency">Deploys</th><th title="Lead time for changes">Lead</th><th title="Change failure rate">Fail</th></tr>
+      ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}" title="Open ${esc(t.board)}">
+        <td><b>${esc(t.board)}</b><div class="note">${esc(t.sprint)}</div></td>
+        <td>${status({ score: t.score, band: t.band }, 'Sprint process')} <span class="bandtxt">${esc(t.band)}</span>
+          <div class="chg ${t.change > 0 ? 'up' : t.change < 0 ? 'down' : ''}">${t.change > 0 ? '▲ +' : t.change < 0 ? '▼ ' : ''}${esc(t.change)} vs last sprint</div></td>
+        <td>${trendline(t.trend)}</td>
+        ${AREA_COLS.map(([k, n]) => `<td>${status(t.areas[k], n)}</td>`).join('')}
+        <td>${tier(t.dora.deploy_frequency, 'Deployment frequency, per week')}</td><td>${tier(t.dora.lead_time, 'Lead time for changes')}</td><td>${tier(t.dora.change_failure, 'Change failure rate')}</td>
+        <td title="Headcount gate">${t.headcountGateOpen ? '<span class="st green"><i aria-hidden="true">✓</i>Open</span>' : '<span class="st none">Closed</span>'}</td>
+        ${d.claudeAdoptionPct != null ? `<td class="num">${t.claudeAdoptionPct == null ? '·' : esc(t.claudeAdoptionPct) + '%'}</td>` : ''}
+      </tr>`).join('')}
+    </table>
+    <p class="note legend"><span class="st green"><i>✓</i></span> Healthy 75+ · <span class="st amber"><i>●</i></span> Watch 50 to 74 · <span class="st red"><i>▲</i></span> Needs attention below 50 · DORA tiers from the State of DevOps research. Click a team for detail.</p></div>
+
+    ${d.attention.length ? `<h2>Where effort moves scores most</h2>
+    <div class="card"><table class="t">
+      <tr><th class="num">Gain</th><th>Team</th><th>Check</th><th>Area</th></tr>
+      ${d.attention.map((g) => `<tr class="row" data-go="${esc(g.board)}"><td class="num"><b>+${esc(g.gain)}</b></td><td>${esc(g.board)}</td><td>${esc(g.title)}</td><td>${esc(g.area)}</td></tr>`).join('')}
+    </table><p class="note">Points each check would add to its area score if it went green, across all teams.</p></div>` : ''}`;
 }
 
 const finding = (board, f) => `

@@ -48,6 +48,7 @@ export const openapi = (version: string) => ({
     schemas: { Finding, Summary, Rag, Band },
   },
   paths: {
+    '/api/dashboard': { get: { summary: 'Home page status: counts by band, data freshness, every team at a glance, and the biggest gains across teams. Team level only', responses: { 200: json('Dashboard') } } },
     '/api/teams': { get: { summary: 'Every team: latest score, trend and top gaps', responses: { 200: json('Teams', { type: 'array', items: { type: 'object' } }) } } },
     '/api/teams/{board}': { get: { summary: 'Everything about one team: scorecards, areas, window, output, incidents', parameters: [board], responses: { 200: json('Team'), ...notFound } } },
     '/api/teams/{board}/summary': { get: { summary: 'One team on one card, for an IDP. Team level only', parameters: [board], responses: { 200: json('Summary', { $ref: '#/components/schemas/Summary' }), ...notFound } } },
