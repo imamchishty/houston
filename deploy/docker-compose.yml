@@ -12,7 +12,8 @@ services:
     env_file: ../.env
     environment: { HOUSTON_DATA_DIR: /data }
     volumes: [houston-data:/data]
-    entrypoint: ["sh", "-c", "while true; do tsx src/cli.ts; sleep 86400; done"]
+    # Collect and score once a day; on Fridays also post the digest to Teams (skipped if TEAMS_WEBHOOK is blank).
+    entrypoint: ["sh", "-c", "while true; do tsx src/cli.ts; [ \"$$(date +%u)\" = 5 ] && tsx src/cli.ts notify; sleep 86400; done"]
     restart: unless-stopped
 volumes:
   houston-data:

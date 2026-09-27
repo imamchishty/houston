@@ -36,7 +36,8 @@ Show them the team page, not the people table.
 
 ## Friday: first digest
 
-`/api/teams/OSSI/digest.md` into Confluence before the retro. Same list you saw Wednesday.
+`/api/teams/OSSI/digest.md` into Confluence before the retro. Same list you saw Wednesday, without names.
+With `TEAMS_WEBHOOK` and `HOUSTON_URL` set, the headline is posted to Teams at 09:00 automatically (`npm run notify` to send it by hand).
 
 ## Rules for the first month
 

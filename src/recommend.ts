@@ -27,6 +27,7 @@ type Ctx = {
   docs?: { score: number; rag: Rag; findings: Finding[] } | null;
   docsPeople?: { name: string; created: number; edited: number; adrs: number; runbooks: number }[];
   features?: { score: number; rag: Rag; findings: Finding[] } | null;
+  named?: boolean;                  // false for shared outputs: names become a count
 };
 const dc = (c: Ctx, id: string) => c.docs?.findings.find((x) => x.ruleId === id);
 const ft = (c: Ctx, id: string) => c.features?.findings.find((x) => x.ruleId === id);
@@ -34,6 +35,9 @@ const fl = (c: Ctx, id: string) => c.flow?.findings.find((x) => x.ruleId === id)
 
 const f = (c: Ctx, id: string) => c.card.findings.find((x) => x.ruleId === id);
 const q = (c: Ctx, id: string) => c.quality?.findings.find((x) => x.ruleId === id);
+// Names only for people viewers. Shared outputs (digest, Teams, other users) get a count and a pointer to the people view.
+const who = (c: Ctx, names: string[], sep = ', ') =>
+  c.named === false ? `${names.length} ${names.length === 1 ? 'person' : 'people'} (names in the people view)` : names.join(sep);
 const bad = (x?: Finding) => !!x && x.rag !== 'green';
 const red = (x?: Finding) => !!x && x.rag === 'red';
 
@@ -99,11 +103,11 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
     return {
       id: 'flow',
       title: 'Unstick work faster',
-      why: `${stuck?.value ?? 0} items have been in progress over 5 days and ${slow?.value ?? 0}% of finished tickets took more than double the team's norm for their size${names.length ? `. The same names recur: ${names.join(', ')}` : ''}. Long running tickets are where quality and predictability both go.`,
+      why: `${stuck?.value ?? 0} items have been in progress over 5 days and ${slow?.value ?? 0}% of finished tickets took more than double the team's norm for their size${names.length ? `. The same names recur: ${who(c, names)}` : ''}. Long running tickets are where quality and predictability both go.`,
       what: [
         'Standup reviews the oldest in-progress ticket first, every day. Split it, pair on it, or park it.',
         'WIP limit of 2 per person. Nobody starts a third ticket while two are open.',
-        names.length ? `Have a one to one with ${names.join(' and ')} this week. Ask what is blocking, not why it is late. Under-estimation, unclear tickets and dependencies are the usual answers, and all three are fixable by the team.` : 'Ask on each stuck ticket: under-estimated, blocked, or interrupted?',
+        names.length ? `Have a one to one with ${who(c, names, ' and ')} this week. Ask what is blocking, not why it is late. Under-estimation, unclear tickets and dependencies are the usual answers, and all three are fixable by the team.` : 'Ask on each stuck ticket: under-estimated, blocked, or interrupted?',
       ],
       owner: 'Tech lead', horizon: 'This sprint', impact: 'high',
     };
@@ -150,10 +154,10 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
     const silent = (c.github ?? []).filter((p) => p.flags.some((f) => f.startsWith('No commits')));
     if (!bad(load) && !bad(pickup) && !reviewOnly.length && !silent.length) return null;
     const why = [
-      bad(load) ? load!.message : null,
+      bad(load) ? (c.named === false ? `One person did ${load!.value}% of all reviews.` : load!.message) : null, // the message names the reviewer
       bad(pickup) ? `Median wait for a first review is ${pickup!.value} days.` : null,
-      reviewOnly.length ? `${reviewOnly.map((p) => p.name).join(', ')}: reviews only, no code authored in 90 days.` : null,
-      silent.length ? `${silent.map((p) => p.name).join(', ')}: no PRs, commits or reviews in 90 days.` : null,
+      reviewOnly.length ? `${who(c, reviewOnly.map((p) => p.name))}: reviews only, no code authored in 90 days.` : null,
+      silent.length ? `${who(c, silent.map((p) => p.name))}: no PRs, commits or reviews in 90 days.` : null,
     ].filter(Boolean).join(' ');
     return {
       id: 'review_roles',
@@ -161,8 +165,9 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
       why: why + ' A single gatekeeper slows everyone and hides whether senior people are contributing.',
       what: [
         'Branch protection: one approval from any engineer, not a named person. Every engineer reviews at least two PRs a week.',
-        reviewOnly.length ? `Reset the tech lead role for ${reviewOnly.map((p) => p.name).join(', ')}: 30% coding, architecture decisions written as ADRs in Confluence, reviews shared with the team. Measure again in 30 days.` : 'Tech lead reviews are for design and risk, not the only gate.',
-        silent.length ? silent.map((p) => {
+        reviewOnly.length ? `Reset the tech lead role for ${who(c, reviewOnly.map((p) => p.name))}: 30% coding, architecture decisions written as ADRs in Confluence, reviews shared with the team. Measure again in 30 days.` : 'Tech lead reviews are for design and risk, not the only gate.',
+        silent.length && c.named === false ? `${who(c, silent.map((p) => p.name))}: ask for the last 90 days of output, in code, Confluence or elsewhere. If it cannot be shown, the role is not being done.`
+        : silent.length ? silent.map((p) => {
           const d = (c.docsPeople ?? []).find((x) => x.name === p.name);
           return d && (d.created + d.edited) > 0
             ? `${p.name}: no code in 90 days, but ${d.created} pages created and ${d.edited} edited in Confluence (${d.adrs} ADRs). Ask whether that output is what the role should produce.`
@@ -183,7 +188,7 @@ const patterns: ((c: Ctx) => Recommendation | null)[] = [
       why: `${lanes!.message} ${stuckInLane.length} of ${(c.github ?? []).filter((p) => p.prsAuthored >= 5).length} active engineers have never touched the other side. Every feature needs a handoff, and every handoff is a wait.`,
       what: [
         'Tickets are sized and owned end to end by one engineer, frontend and backend together.',
-        `Pair across lanes for two sprints: ${stuckInLane.slice(0, 4).map((p) => p.name).join(', ')} each pair with someone from the other side.`,
+        `Pair across lanes for two sprints: ${who(c, stuckInLane.slice(0, 4).map((p) => p.name))} each pair with someone from the other side.`,
         'Track lane crossing in Houston. Target: 25% of PRs touch both sides within a quarter.',
       ],
       owner: 'Tech lead', horizon: 'Next 2 sprints', impact: 'medium',

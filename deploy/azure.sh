@@ -14,15 +14,28 @@ KEY=$(az storage account keys list -n "${ACR}st" -g "$RG" --query '[0].value' -o
 az storage share create -n houston-data --account-name "${ACR}st" --account-key "$KEY" -o none
 az containerapp env storage set -n "$ENV" -g "$RG" --storage-name data --azure-file-account-name "${ACR}st" --azure-file-account-key "$KEY" --azure-file-share-name houston-data --access-mode ReadWrite -o none
 
-# Secrets come from .env. Put real values there first. Never commit it.
-SECRETS=$(grep -E '^(JIRA_API_TOKEN|GITHUB_TOKEN|SONAR_TOKEN|TESTMO_TOKEN|HOUSTON_PASSWORD)=' .env | sed 's/=/=/' | tr '\n' ' ')
-ENVVARS=$(grep -vE '^(#|$|JIRA_API_TOKEN|GITHUB_TOKEN|SONAR_TOKEN|TESTMO_TOKEN|HOUSTON_PASSWORD)' .env | tr '\n' ' ')
+# Secrets and settings come from .env. Put real values there first. Never commit it.
+# Container Apps secret names allow only lowercase letters, digits and hyphens, so JIRA_API_TOKEN is stored as jira-api-token.
+SECRET_KEYS="JIRA_API_TOKEN GITHUB_TOKEN SONAR_TOKEN TESTMO_TOKEN HOUSTON_PASSWORD AZURE_CLIENT_SECRET TEAMS_WEBHOOK"
+# Value of one key: last definition wins, inline "  # comment" and surrounding quotes removed.
+envval() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^"(.*)"$/\1/'; }
+SECRETS=(); SECRET_REFS=(); ENVVARS=()
+for k in $SECRET_KEYS; do
+  v=$(envval "$k"); [ -z "$v" ] && continue          # blank means not configured, skip it
+  n=$(echo "$k" | tr 'A-Z_' 'a-z-'); SECRETS+=("$n=$v"); SECRET_REFS+=("$k=secretref:$n")
+done
+for k in $(grep -oE '^[A-Z_][A-Z0-9_]*=' .env | tr -d '=' | sort -u); do
+  case " $SECRET_KEYS HOUSTON_DATA_DIR " in *" $k "*) continue;; esac
+  v=$(envval "$k"); [ -n "$v" ] && ENVVARS+=("$k=$v")   # array keeps values with spaces intact
+done
+# Empty-array safe expansion for the bash 3.2 that ships with macOS.
+SECRET_ARGS=(); [ ${#SECRETS[@]} -gt 0 ] && SECRET_ARGS=(--secrets "${SECRETS[@]}")
+ENV_ARGS=(--env-vars ${ENVVARS[@]+"${ENVVARS[@]}"} ${SECRET_REFS[@]+"${SECRET_REFS[@]}"} HOUSTON_DATA_DIR=/data)
 
 az containerapp create -n "$APP" -g "$RG" --environment "$ENV" \
   --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" \
   --target-port 4000 --ingress internal --min-replicas 1 --max-replicas 1 \
-  --secrets $SECRETS --env-vars $ENVVARS HOUSTON_DATA_DIR=/data \
-  JIRA_API_TOKEN=secretref:jira_api_token GITHUB_TOKEN=secretref:github_token SONAR_TOKEN=secretref:sonar_token TESTMO_TOKEN=secretref:testmo_token HOUSTON_PASSWORD=secretref:houston_password -o none
+  ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 # Mount the share so scorecards persist across restarts
 az containerapp show -n "$APP" -g "$RG" -o yaml > /tmp/app.yaml
@@ -39,8 +52,12 @@ az containerapp update -n "$APP" -g "$RG" --yaml /tmp/app.yaml -o none
 # Nightly collect at 02:00 Gulf time (22:00 UTC)
 az containerapp job create -n houston-nightly -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 22 * * *" \
   --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" --command "tsx" "src/cli.ts" \
-  --secrets $SECRETS --env-vars $ENVVARS HOUSTON_DATA_DIR=/data \
-  JIRA_API_TOKEN=secretref:jira_api_token GITHUB_TOKEN=secretref:github_token SONAR_TOKEN=secretref:sonar_token TESTMO_TOKEN=secretref:testmo_token -o none
+  ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
+
+# Friday digest to Teams at 09:00 Gulf time (05:00 UTC), before the retro. Needs TEAMS_WEBHOOK and HOUSTON_URL in .env.
+az containerapp job create -n houston-friday -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 5 * * 5" \
+  --image "$ACR.azurecr.io/houston:latest" --registry-server "$ACR.azurecr.io" --command "tsx" "src/cli.ts" "notify" \
+  ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 echo "Houston: $(az containerapp show -n $APP -g $RG --query properties.configuration.ingress.fqdn -o tsv)"
 echo "Ingress is internal (VNet only). Put it behind your usual internal gateway or SSO proxy."

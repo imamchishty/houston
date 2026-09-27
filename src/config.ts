@@ -16,6 +16,7 @@ export const config = {
     teamCost: pairs(process.env.TEAM_MONTHLY_COST ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:850000,PLAT:520000' : '')).map((p) => ({ name: p.name, aed: Number(p.id) })),
   },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
+  publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
   confluence: {
     spaces: (process.env.CONFLUENCE_SPACES ?? '').split(',').filter(Boolean).map((s) => { const [name, list] = s.split(':'); return { name: name.trim(), spaces: list.split('|').map((x) => x.trim()) }; }),
     adr: (process.env.CONFLUENCE_ADR_MARKERS ?? 'adr,decision-record').split(',').map((x) => x.trim().toLowerCase()),

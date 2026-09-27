@@ -7,9 +7,10 @@
     "dev": "tsx src/index.ts",
     "collect": "tsx src/cli.ts collect",
     "score": "tsx src/cli.ts score",
+    "notify": "tsx src/cli.ts notify",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx src/rules/engine.test.ts",
+    "test": "tsx src/rules/engine.test.ts && tsx src/recommend.test.ts",
     "check": "tsx src/check.ts"
   },
   "dependencies": {

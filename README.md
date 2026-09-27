@@ -90,7 +90,14 @@ Every formula and threshold is in `METRICS.md`. Every finding links to its raw e
 `PEOPLE=Aisha Khan=akhan|aisha.khan;Karim Haddad=karimh` maps Jira display names and GitHub logins to one person.
 `TEAM_ROSTER=OSSI:Aisha Khan|Karim Haddad|...` lists who is on the team so zero activity still shows.
 `HOUSTON_USER` and `HOUSTON_PASSWORD` turn on basic auth for everything. `HOUSTON_PEOPLE_VIEWERS` restricts
-the per person endpoints to named users; everyone else gets team level only.
+the per person endpoints to named users; everyone else gets team level only. Recommendations name people only
+for those viewers; everyone else, the digest and Teams posts get a count ("2 people, names in the people view").
+
+## Friday digest in Teams
+
+Set `TEAMS_WEBHOOK` and `HOUSTON_URL` (so the post links to the full digest). `npm run notify` posts every board's
+headline: scores and the top three red findings, no names. `deploy/azure.sh` schedules it for 09:00 Gulf time on Fridays,
+and the compose `nightly` service runs it on Fridays after the collect.
 
 `npm run check` tests every configured connection and reports what it can see. Run it before the first collect.
 
@@ -107,12 +114,13 @@ docker run -p 4000:4000 -v houston-data:/data --env-file .env houston
 |---|---|
 | `GET /api/teams` | Every team: latest score, RAG, 6 sprint trend, top 3 gaps |
 | `GET /api/teams/:board` | Latest scorecard plus history for one team |
-| `GET /api/teams/:board/digest.md` | Markdown retro digest, paste into Confluence |
+| `GET /api/teams/:board/digest.md` | Markdown retro digest, paste into Confluence. No names; people viewers can add `?named=1` |
 | `GET /api/teams/:board/people` | Per person: tickets and points done, median cycle time vs team, tickets over the size norm, stuck, carried over |
 | `GET /api/teams/:board/recommendations` | Ranked recommendations (pattern across findings, owner, steps) and the headcount gate |
 | `GET /api/teams/:board/evidence/:ruleId` | The raw tickets, PRs, pages or epics behind one finding |
 | `GET/POST /api/teams/:board/actions` | Action log: accepted, rejected, done per recommendation, with the numbers frozen at that moment and their movement since |
 | `GET /api/rules` | The rules, thresholds and weights |
+| `POST /api/teams/:board/notify` | Post the digest headline to Teams now |
 | `POST /api/refresh` | Re-collect and re-score now |
 | `GET /api/health` | Liveness |
 

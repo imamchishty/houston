@@ -16,13 +16,13 @@ import { rosterFor } from './identity.js';
 import { scoreDocs, docsPeople } from './rules/docsRules.js';
 import { scoreFeatures } from './rules/featureRules.js';
 import { scoreOps } from './rules/opsRules.js';
-import { postToTeams } from './teams.js';
+import { notifyBoard } from './teams.js';
 import { sprintInsights, heatmap, headline } from './insights.js';
 import { windowStatus } from './window.js';
 import { outputBench } from './outputBench.js';
 import { activity } from './activity.js';
 import { incidentLog } from './incidents.js';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Action } from './types.js';
 
 // Everything Houston knows about one board, assembled once per request.
@@ -58,10 +58,24 @@ const auth = { user: process.env.HOUSTON_USER ?? '', pass: process.env.HOUSTON_P
 app.addHook('onRequest', async (req, reply) => {
   if (!auth.pass) return;
   const hdr = req.headers.authorization ?? '';
-  const [u, p] = Buffer.from(hdr.replace(/^Basic /, ''), 'base64').toString().split(':');
-  if (u !== auth.user || p !== auth.pass) return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston"').send('Sign in');
-  if (req.url.includes('/people') && auth.viewers.length && !auth.viewers.includes(u)) return reply.code(403).send({ error: 'Per person data is restricted' });
+  const decoded = Buffer.from(hdr.replace(/^Basic /, ''), 'base64').toString();
+  const i = decoded.indexOf(':');
+  const u = decoded.slice(0, i), p = decoded.slice(i + 1); // passwords may contain ':'
+  if (i < 0 || !same(u, auth.user) || !same(p, auth.pass)) return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston"').send('Sign in');
+  if (req.url.includes('/people') && !canSeePeople(u)) return reply.code(403).send({ error: 'Per person data is restricted' });
+  (req as any).houstonUser = u;
 });
+
+// Constant time compare, so the password cannot be guessed a character at a time.
+function same(a: string, b: string) {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+function canSeePeople(user: string | undefined) {
+  if (!auth.pass || !auth.viewers.length) return true; // no auth, or no viewer list: everyone signed in may see names
+  return !!user && auth.viewers.includes(user);
+}
+const namedFor = (req: { houstonUser?: string }) => canSeePeople(req.houstonUser);
 
 // Every team's latest scorecard plus trend. This is what the Backstage plugin will call.
 app.get('/api/teams', async () => {
@@ -114,7 +128,8 @@ app.get<{ Params: { board: string } }>('/api/teams/:board', async (req, reply) =
 });
 
 // Markdown digest for the sprint retro. Paste into Confluence or post to Teams.
-app.get<{ Params: { board: string } }>('/api/teams/:board/digest.md', async (req, reply) => {
+// Shared with the whole team, so names are left out. People viewers can add ?named=1 for their own copy.
+app.get<{ Params: { board: string }; Querystring: { named?: string } }>('/api/teams/:board/digest.md', async (req, reply) => {
   const cards = store.scorecards().filter((c) => c.board === req.params.board).sort((a, b) => b.sprintId - a.sprintId);
   if (!cards.length) return reply.code(404).send('No scorecards');
   const c = cards[0];
@@ -124,7 +139,7 @@ app.get<{ Params: { board: string } }>('/api/teams/:board/digest.md', async (req
   const qs = store.quality().find((x) => x.board === req.params.board);
   const gB = store.github().find((x) => x.board === req.params.board);
   const bdd = boardData(req.params.board);
-  const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features });
+  const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features, named: req.query.named === '1' && namedFor(req as any) });
   const lines = [
     `# ${c.board}: ${c.sprintName}`,
     '',
@@ -164,7 +179,7 @@ app.get<{ Params: { board: string } }>('/api/teams/:board/recommendations', asyn
   const qs = store.quality().find((x) => x.board === req.params.board);
   const g = store.github().find((x) => x.board === req.params.board);
   const bd = boardData(req.params.board);
-  const ctx = { card: bd.latest, history: bd.history, quality: bd.quality, people: bd.people, flow: bd.flow, github: bd.github, docs: bd.docs, docsPeople: bd.docsPeople, features: bd.features };
+  const ctx = { card: bd.latest, history: bd.history, quality: bd.quality, people: bd.people, flow: bd.flow, github: bd.github, docs: bd.docs, docsPeople: bd.docsPeople, features: bd.features, named: namedFor(req as any) };
   return { board: req.params.board, recommendations: recommend(ctx), headcountGate: headcountGate(ctx) };
 });
 
@@ -203,17 +218,11 @@ app.post<{ Params: { board: string }; Body: { recId: string; title: string; stat
   return a;
 });
 
-// Post the digest headline to Teams. Schedule: curl -X POST .../notify on Fridays, or call from the nightly job.
+// Post the digest headline to Teams. The Friday job does this for every board: `tsx src/cli.ts notify`.
 app.post<{ Params: { board: string } }>('/api/teams/:board/notify', async (req, reply) => {
-  const b = boardData(req.params.board);
-  if (!b.latest) return reply.code(404).send({ error: 'No data' });
-  const gaps = [...b.latest.findings, ...(b.flow?.findings ?? []), ...(b.quality?.findings ?? [])].filter((f) => f.rag === 'red').slice(0, 3);
-  const lines = [
-    `Sprint ${b.latest.score} (${b.latest.rag})${b.flow ? `, flow ${b.flow.score}` : ''}${b.quality ? `, quality ${b.quality.score}` : ''}${b.features ? `, features ${b.features.score}` : ''}`,
-    ...gaps.map((f) => `**${f.title}**: ${f.message}`),
-    `Full digest: /api/teams/${req.params.board}/digest.md`,
-  ];
-  return postToTeams(`Houston: ${b.latest.board}, ${b.latest.sprintName}`, lines);
+  const r = await notifyBoard(req.params.board);
+  if (r.reason === 'No scorecards') return reply.code(404).send({ error: 'No data' });
+  return r;
 });
 
 app.get('/api/rules', async () =>
