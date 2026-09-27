@@ -96,6 +96,13 @@ export async function testTeam(t: TeamInput): Promise<Check[]> {
     const closed = (sp?.values ?? []).filter((x: any) => x.state === 'closed').map((x: any) => String(x.completeDate ?? x.endDate ?? '')).sort();
     return `Board "${name}" (${String(b?.type ?? '')}), project ${t.jiraProject} found, ${(sp?.values ?? []).length} sprints${closed.length ? `, last closed ${closed[closed.length - 1].slice(0, 10)}` : ''}`;
   });
+  const supportKey = t.supportProject || t.jiraProject;
+  await one(`Support tickets in ${supportKey}`, has.jira(), 'JIRA_BASE_URL and JIRA_API_TOKEN', async () => {
+    const { supportJqlFor } = await import('../collectors/support.js');
+    const jql = supportJqlFor(supportKey, !!t.supportProject && t.supportProject !== t.jiraProject, 90);
+    const { body } = await get(`${config.jira.baseUrl}/rest/api/2/search?jql=${enc(jql)}&maxResults=0`, jiraAuth());
+    return `${Number(body?.total ?? 0)} support tickets in the last 90 days or still open${t.supportProject ? '' : ` (issue types ${config.jira.supportTypes.join(', ')} or labels ${config.jira.supportLabels.join(', ')})`}`;
+  });
   for (const r of t.repos) await one(`GitHub ${r}`, has.github(), 'GITHUB_TOKEN', async () => {
     const path = r.split('/').map(enc).join('/');
     const { body } = await get(`${config.github.api}/repos/${path}`, ghAuth());

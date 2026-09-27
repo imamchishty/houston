@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.js';
-import type { ProjectSnapshot, ClaudeSnapshot, AzureSnapshot, Action, DocsSnapshot, Epic, GithubSnapshot, QualitySnapshot, Scorecard, Sprint } from '../types.js';
+import type { SupportSnapshot, ProjectSnapshot, ClaudeSnapshot, AzureSnapshot, Action, DocsSnapshot, Epic, GithubSnapshot, QualitySnapshot, Scorecard, Sprint } from '../types.js';
 
 // JSON file store. Same interface can be backed by Postgres in phase 2.
 const file = (name: string) => join(config.dataDir, `${name}.json`);
@@ -35,6 +35,8 @@ export const store = {
   projects: () => read<ProjectSnapshot[]>('projects', []),
   saveClaude: (c: ClaudeSnapshot[]) => write('claude', c),
   claude: () => read<ClaudeSnapshot[]>('claude', []),
+  saveSupport: (s: SupportSnapshot[]) => write('support', s),
+  support: () => read<SupportSnapshot[]>('support', []),
   actions: () => read<Action[]>('actions', []),
   saveActions: (a: Action[]) => write('actions', a),
 };

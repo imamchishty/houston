@@ -98,6 +98,7 @@ function teamForm(t, source) {
       ${f('name', 'Team name', t.name, 'As Houston shows it, e.g. OSSI. Letters, digits, - and _.')}
       ${f('jiraProject', 'Jira project key', t.jiraProject, 'e.g. OSS')}
       ${f('jiraBoardId', 'Jira board id', t.jiraBoardId || '', 'The number in the board URL: …/boards/123', 'number')}
+      ${f('supportProject', 'Support project key', t.supportProject, 'Optional: a separate Jira project for support. Blank: support issue types and labels in the team\'s own project.')}
       ${f('sonarProject', 'SonarQube project key', t.sonarProject, 'Optional')}
       ${f('testmoProject', 'Testmo project id', t.testmoProject, 'Optional, a number')}
       ${f('resourceGroup', 'Azure resource group', t.resourceGroup, 'Optional: cloud cost and production data')}
@@ -115,7 +116,7 @@ function teamForm(t, source) {
 }
 const formTeam = () => {
   const fd = new FormData($('#teamform'));
-  return Object.fromEntries(['name', 'jiraProject', 'jiraBoardId', 'sonarProject', 'testmoProject', 'resourceGroup', 'appInsights', 'repos', 'confluenceSpaces', 'roster'].map((k) => [k, String(fd.get(k) ?? '')]));
+  return Object.fromEntries(['name', 'jiraProject', 'jiraBoardId', 'supportProject', 'sonarProject', 'testmoProject', 'resourceGroup', 'appInsights', 'repos', 'confluenceSpaces', 'roster'].map((k) => [k, String(fd.get(k) ?? '')]));
 };
 const showChecks = (checks) => `<div class="scrollx"><table class="t"><tr><th>Check</th><th>Result</th><th>Found</th></tr>${checks.map((c) => `<tr><td>${esc(c.source)}</td><td>${okChip(c.ok, 'Works', 'Failing', 'Not set')}</td><td>${esc(c.detail)}</td></tr>`).join('')}</table></div>`;
 const showProblems = (e) => `<div class="warnbox"><b>${esc(e.message)}</b><ul>${(e.body?.problems ?? []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;

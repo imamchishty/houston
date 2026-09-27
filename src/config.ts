@@ -44,6 +44,8 @@ export const config = {
     envField: process.env.JIRA_BUG_ENV_FIELD ?? '',   // optional custom field holding the environment
   },
   // Working week. UAE: Saturday and Sunday off since 2022.
+  // Working day in local time, for "outside working hours": HH:MM-HH:MM.
+  workingHours: (() => { const m = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(process.env.WORKING_HOURS ?? '08:00-18:00'); return m ? { start: +m[1] + +m[2] / 60, end: +m[3] + +m[4] / 60 } : { start: NaN, end: NaN }; })(),
   weekend: (process.env.WEEKEND ?? 'sat,sun').split(',').map((d) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(d.trim().toLowerCase())),
   publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
   confluence: {
@@ -88,6 +90,14 @@ export const config = {
     sprintField: process.env.JIRA_SPRINT_FIELD ?? 'customfield_10020', // Sprint field on Jira Cloud
     // Jira project key per board, when it differs from the board name: "OSSI:OSS,PLAT:PLATFORM"
     projects: Object.fromEntries(pairs(process.env.JIRA_PROJECTS).map((p) => [p.name, p.id])) as Record<string, string>,
+    // Support tickets. SUPPORT_PROJECTS: a separate support project per team ("OSSI:OSSSUP"); every ticket in it counts.
+    // A team without one: tickets in its own project count when their type is a support type or they carry a support label.
+    supportProjects: Object.fromEntries(pairs(process.env.SUPPORT_PROJECTS).map((p) => [p.name, p.id])) as Record<string, string>,
+    supportTypes: (process.env.SUPPORT_ISSUE_TYPES ?? 'Support,Incident,Service Request').split(',').map((x) => x.trim()).filter(Boolean),
+    supportLabels: (process.env.SUPPORT_LABELS ?? 'support').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    // SLAs per priority, response/resolution, in working time: "Highest=4h/1d,High=8h/2d". 1d = one working day.
+    supportSla: Object.fromEntries((process.env.SUPPORT_SLA ?? 'Highest=2h/1d,High=4h/2d,Medium=1d/5d,Low=2d/10d').split(',').filter((x) => x.includes('='))
+      .map((x) => { const [p, v] = x.split('='); const [resp, res] = v.split('/'); return [p.trim().toLowerCase(), { response: resp?.trim() ?? '', resolution: res?.trim() ?? '' }]; })) as Record<string, { response: string; resolution: string }>,
     // Which priorities count as significant (serious bugs, and the bug based change failure rate)
     significant: (process.env.JIRA_SIGNIFICANT_PRIORITIES ?? 'Highest,Blocker,Critical,P1').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
     days: Number(process.env.JIRA_DAYS ?? 90),
@@ -108,6 +118,10 @@ export function configProblems(c = config): string[] {
   const check = (what: string, v: string, re: RegExp) => { if (v && !re.test(v)) out.push(`${what}: "${v}" is not valid`); };
   const BOARD = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/, GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   for (const [b, k] of Object.entries(c.jira.projects)) { check('JIRA_PROJECTS board', b, BOARD); check('JIRA_PROJECTS key', k, /^[A-Z][A-Z0-9_]{0,31}$/); }
+  for (const [b, k] of Object.entries(c.jira.supportProjects)) { check('SUPPORT_PROJECTS board', b, BOARD); check('SUPPORT_PROJECTS key', k, /^[A-Z][A-Z0-9_]{0,31}$/); }
+  for (const t of c.jira.supportTypes) check('SUPPORT_ISSUE_TYPES', t, /^[\w .-]{1,60}$/);
+  for (const [p, v] of Object.entries(c.jira.supportSla)) for (const d of [v.response, v.resolution]) check(`SUPPORT_SLA ${p}`, d, /^\d+(\.\d+)?[hd]$/);
+  if (!(c.workingHours.start >= 0 && c.workingHours.end <= 24 && c.workingHours.start < c.workingHours.end)) out.push('WORKING_HOURS: use HH:MM-HH:MM, e.g. 08:00-18:00');
   if (!Number.isInteger(c.jira.days) || c.jira.days < 7 || c.jira.days > 365) out.push('JIRA_DAYS must be 7 to 365');
   for (const b of c.jira.boards) { check('JIRA_BOARDS name', b.name, BOARD); if (!Number.isInteger(b.id) || b.id <= 0) out.push(`JIRA_BOARDS id for ${b.name} must be a number`); }
   for (const r of c.github.repos) { check('GITHUB_REPOS board', r.name, BOARD); for (const x of r.repos) check('GITHUB_REPOS repo', x, /^[\w.-]+\/[\w.-]+$/); }

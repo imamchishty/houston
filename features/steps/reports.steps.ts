@@ -12,7 +12,7 @@ const blank = (v: string | undefined) => !v || !v.trim();
 After(function () { delete process.env.CFR_SOURCE; });
 
 Given('a reporting period from {word} to {word}', function (from: string, to: string) {
-  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], security: { alerts: [], coverage: {} }, projectKeys: [], defaultBranches: {} };
+  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], security: { alerts: [], coverage: {} }, support: [], supportConnected: true, projectKeys: [], defaultBranches: {} };
   measures = [];
 });
 Given("the team's Jira project is {string} and repos merge into {string}", function (key: string, branch: string) {
@@ -127,3 +127,28 @@ Given('scanning is turned on like this:', function (t: DataTable) {
 });
 Then(/^(\w+) counts (\d+)$/, function (id: string, n: string) { assert.equal(m(id).value, Number(n), id); });
 Then(/^(\w+) shows these, one per line:$/, function (id: string, t: DataTable) { assert.deepEqual(m(id).failing, t.raw().map((r) => r[0].trim())); });
+
+// Support: times as "YYYY-MM-DD HH:MM" in UTC; lists comma separated.
+const at = (v: string) => new Date(`${v.trim().replace(' ', 'T')}:00Z`).toISOString();
+const saved: { wh?: typeof import('../../src/config.js').config.workingHours; tz?: number; weekend?: number[]; sla?: Record<string, { response: string; resolution: string }> } = {};
+After(async function () {
+  const { config } = await import('../../src/config.js');
+  if (saved.wh) { config.workingHours = saved.wh; config.tzOffset = saved.tz!; config.weekend = saved.weekend!; }
+  if (saved.sla) config.jira.supportSla = saved.sla;
+  delete saved.wh; delete saved.sla;
+});
+Given(/^the working day is (\d\d):(\d\d) to (\d\d):(\d\d) UTC with Saturday and Sunday off$/, async function (h1: string, m1: string, h2: string, m2: string) {
+  const { config } = await import('../../src/config.js');
+  saved.wh ??= config.workingHours; saved.tz ??= config.tzOffset; saved.weekend ??= config.weekend;
+  config.workingHours = { start: +h1 + +m1 / 60, end: +h2 + +m2 / 60 }; config.tzOffset = 0; config.weekend = [6, 0];
+});
+Given('support SLAs are {string}', async function (v: string) {
+  const { config } = await import('../../src/config.js');
+  saved.sla ??= config.jira.supportSla;
+  config.jira.supportSla = Object.fromEntries(v.split(',').map((x) => { const [p, d] = x.split('='); const [a, b] = d.split('/'); return [p.trim().toLowerCase(), { response: a, resolution: b }]; }));
+});
+Given('these support tickets:', function (t: DataTable) {
+  s.support = t.hashes().map((r) => ({ key: r.key, priority: r.priority || null, created: at(r.created),
+    firstResponse: blank(r['first response']) ? null : at(r['first response']), resolved: blank(r.resolved) ? null : at(r.resolved),
+    reopened: yes(r.reopened), duplicate: yes(r.duplicate), changes: blank(r['status changes']) ? [] : r['status changes'].split(',').map(at) }));
+});

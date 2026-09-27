@@ -50,6 +50,13 @@ export function dataQuality(): DataCheck[] {
     add(`Jira board ${b}`, 'Work start recorded', started < 50 ? 'warn' : 'ok', started < 50 ? `Only ${started}% of done tickets passed through an "in progress" status. Tickets moved straight to Done have no cycle time.` : `${started}% of done tickets have a start.`, ['cycle time', 'stuck in progress', 'tickets over the size norm']);
   }
 
+  for (const sp of store.support()) {
+    const t = `Support ${sp.board}`, T = sp.tickets;
+    add(t, 'Support tickets collected', T.length ? 'ok' : 'warn', T.length ? `${T.length} tickets from ${sp.project}.` : `No support tickets in ${sp.project}. If support lives elsewhere, set the support project in the admin page (or SUPPORT_PROJECTS), or check SUPPORT_ISSUE_TYPES and SUPPORT_LABELS.`, T.length ? [] : ['Support']);
+    if (!T.length) continue;
+    const noSla = T.filter((x) => !config.jira.supportSla[(x.priority ?? '').toLowerCase()]);
+    add(t, 'Every priority has an SLA', noSla.length ? 'warn' : 'ok', noSla.length ? `${noSla.length} of ${T.length} tickets have a priority with no SLA (${[...new Set(noSla.map((x) => x.priority ?? 'none'))].join(', ')}). Add it to SUPPORT_SLA.` : 'Every ticket\'s priority has an SLA.', noSla.length ? ['Service levels'] : []);
+  }
   for (const g of store.github()) {
     const t = `GitHub ${g.board}`;
     if (g.security) {

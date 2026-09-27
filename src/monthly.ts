@@ -30,6 +30,8 @@ const KEYS: { id: string; title: string; unit: string; better: 'up' | 'down'; ta
   { id: 'flow_efficiency', title: 'Flow efficiency', unit: '%', better: 'up', target: TARGETS.flow_efficiency },
   { id: 'security_on_time', title: 'Security fixed on time', unit: '%', better: 'up', target: TARGETS.security_on_time },
   { id: 'security_overdue', title: 'Security alerts overdue', unit: 'count', better: 'down', target: TARGETS.security_overdue },
+  { id: 'support_share', title: 'Support share of work', unit: '%', better: 'down', target: TARGETS.support_share },
+  { id: 'sla_resolution', title: 'Support resolved within SLA', unit: '%', better: 'up', target: { op: '>', value: 95 } },
   { id: 'tickets_done', title: 'Work items completed', unit: 'count', better: 'up', target: null },
 ];
 
@@ -69,7 +71,7 @@ function compute(team: string, from: number, to: number): Map<string, Val> {
     ['change_failure_rate', { value: cfr.value, num: cfr.num, den: cfr.den, smallSample: cfr.smallSample }],
     ['tickets_done', { value: activitySummary(s).ticketsCompleted, num: null, den: null }],
   ]);
-  for (const id of ['time_to_restore', 'sprint_completion', 'bugs_per_change', 'defect_leakage', 'bug_workload', 'pr_cycle_hours', 'flow_efficiency', 'security_on_time', 'security_overdue']) out.set(id, m(id));
+  for (const id of ['time_to_restore', 'sprint_completion', 'bugs_per_change', 'defect_leakage', 'bug_workload', 'pr_cycle_hours', 'flow_efficiency', 'security_on_time', 'security_overdue', 'support_share', 'sla_resolution']) out.set(id, m(id));
   // Flow distribution: items completed this month by kind (features, defects, risks, debt), saved with the month.
   const dist = (REPORTS.flow(s).groups.find((g) => 'distribution' in g) as { distribution?: { kind: string; items: number }[] } | undefined)?.distribution ?? [];
   for (const d of dist) out.set(`dist_${d.kind.toLowerCase()}`, { value: d.items, num: null, den: null });

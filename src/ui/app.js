@@ -43,7 +43,7 @@ async function route() {
   const adm = location.hash.match(/^#_admin(?:\/(tests|connections|teams|log))?$/);
   if (adm) return adminPage(adm[1] ?? 'tests');
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
-  const rep = location.hash.match(/^#_(dora|flow|quality|security|planning)$/);
+  const rep = location.hash.match(/^#_(dora|flow|quality|security|support|planning)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
@@ -240,14 +240,14 @@ const finding = (board, f) => `
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r, cost, hist, ai, cs, sec] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null), api('/reports/security?team=' + encodeURIComponent(board) + '&days=90').catch(() => null)]);
+  const [d, p, r, cost, hist, ai, cs, sec, sup] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null), api('/reports/security?team=' + encodeURIComponent(board) + '&days=90').catch(() => null), api('/reports/support?team=' + encodeURIComponent(board) + '&days=30').catch(() => null)]);
   if (!d?.latest) { $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a>`; $('#main').innerHTML = `<p class="empty">No team called ${esc(board)}.</p>`; return; }
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
   // Tabs in the same areas as the site: DORA, Flow, Quality, Planning, then cost, production, docs and people.
   const DORA_IDS = ['deploy_frequency', 'lead_time', 'change_failure'];
   const doraFindings = (flow?.findings ?? []).filter((f) => DORA_IDS.includes(f.ruleId)), flowFindings = (flow?.findings ?? []).filter((f) => !DORA_IDS.includes(f.ruleId));
-  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], doraFindings.length && ['dora', 'DORA'], flowFindings.length && ['flow', 'Flow'], quality && ['quality', 'Quality'], sec?.groups && ['security', 'Security'], ['sprint', 'Planning'], features && ['features', 'Features & cost'], ops && ['prod', 'Production'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
+  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], doraFindings.length && ['dora', 'DORA'], flowFindings.length && ['flow', 'Flow'], quality && ['quality', 'Quality'], sec?.groups && ['security', 'Security'], sup?.groups?.some((g) => g.measures.length) && ['support', 'Support'], ['sprint', 'Planning'], features && ['features', 'Features & cost'], ops && ['prod', 'Production'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
   const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
   // What moves the scores: points each check would add to its area score if it went green, biggest first.
@@ -319,6 +319,7 @@ async function team(board, tab) {
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
     now: () => sprintBoard(cs),
     security: () => `<h2>Security, GitHub and SonarQube, last 90 days</h2>${sec.groups.map((g) => `<section class="group"><h3>${esc(g.title)}</h3><p class="muted">${esc(g.question)}</p><div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}</section>`).join('')}<p class="note"><a href="#_security">Security for all teams →</a></p>`,
+    support: () => `<h2>Support, Jira, last 30 days</h2>${sup.groups.map((g) => `<section class="group"><h3>${esc(g.title)}</h3><p class="muted">${esc(g.question)}</p><div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}</section>`).join('')}<p class="note"><a href="#_support">Support for all teams, with the weekly chart →</a></p>`,
     claude: () => claudeSection(ai),
     people: () => `
       <h2>Jira, last ${p.people[0]?.sprints ?? 0} sprints</h2>

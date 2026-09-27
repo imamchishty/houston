@@ -12,6 +12,7 @@ import { collectEpics, demoEpics } from './collectors/epics.js';
 import { collectAzure, demoAzure } from './collectors/azure.js';
 import { collectClaude, demoClaude } from './collectors/claude.js';
 import { collectProjects, demoProjects } from './collectors/projects.js';
+import { collectSupport, demoSupport } from './collectors/support.js';
 import { boardData } from './board.js';
 import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
@@ -24,6 +25,7 @@ export async function collect() {
   const sprints = config.mode === 'demo' ? demoSprints() : await collectJira();
   store.saveSprints(sprints);
   store.saveProjects(config.mode === 'demo' ? demoProjects(sprints) : await collectProjects());
+  store.saveSupport(config.mode === 'demo' ? demoSupport() : await collectSupport());
   store.saveQuality(config.mode === 'demo' ? demoQuality(sprints) : await collectQuality(sprints));
   store.saveGithub(config.mode === 'demo' ? demoGithub() : config.github.token ? await collectGithub() : []);
   store.saveDocs(config.mode === 'demo' ? demoConfluence() : config.confluence.spaces.length ? await collectConfluence() : []);

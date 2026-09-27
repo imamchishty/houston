@@ -249,3 +249,15 @@ export interface WorkItem {
   env?: string | null;        // JIRA_BUG_ENV_FIELD value, if configured
 }
 export interface ProjectSnapshot { board: string; project: string; since: string; until: string; items: WorkItem[] }
+
+// Support tickets from plain Jira. Plain Jira has no SLA clock, so Houston keeps the times it needs and measures SLAs
+// itself (SUPPORT_SLA, in working time). Changes are status changes made by people (automation left out), kept as
+// times only: never who made them.
+export interface SupportTicket {
+  key: string; priority: string | null; created: string; resolved: string | null;
+  reopened: boolean;              // resolved, then reopened (its resolution cleared)
+  duplicate: boolean;             // linked as a duplicate of another ticket
+  firstResponse: string | null;   // first comment by someone other than the reporter, or first status change by a person
+  changes: string[];              // times of status changes made by people
+}
+export interface SupportSnapshot { board: string; project: string; capturedAt: string; tickets: SupportTicket[] }

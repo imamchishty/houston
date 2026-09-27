@@ -39,6 +39,7 @@ const REPORTS = {
   flow: { title: 'Flow', intro: 'How much work flows and where it waits: the Flow Framework (velocity, time, efficiency, load, distribution), bottlenecks, cycle time and pull request flow.' },
   quality: { title: 'Quality', intro: 'Bugs and the code itself: how many bugs each change brings, how many reach customers, what stops them, code quality from SonarQube and tests, and how fast bugs are fixed.' },
   security: { title: 'Security', intro: 'Whether serious security issues are fixed within their deadline, what is exposed right now, and whether every repo is actually scanned: vulnerable dependencies, leaked secrets and flaws in the team\'s own code.' },
+  support: { title: 'Support', intro: 'How much support work arrives and how much of the team\'s work it takes, whether customers are answered and helped within the agreed service levels, how much happens outside working hours, and whether the same problems keep coming back.' },
   planning: { title: 'Planning', intro: 'Whether the team delivers what it plans, how much unplanned work arrives, and whether work is set up so plans can be trusted.' },
 };
 const FILT = { team: 'all', days: 30 };
@@ -69,6 +70,9 @@ async function reportPage(name, teams) {
             return { subtitle: `${w.prs} ${w.prs === 1 ? 'PR' : 'PRs'} deployed`, rows: w.prs ? [{ name: 'Average per PR', value: per(w.coding + w.review + w.deploy) }] : [{ name: 'Nothing merged this week has been deployed yet', value: '' }] }; }, series: [
           { name: 'Coding', key: 's1', values: g.stages.weekly.map((w) => Math.round(w.coding)) }, { name: 'Review', key: 's2', values: g.stages.weekly.map((w) => Math.round(w.review)) }, { name: 'Waiting to deploy', key: 'muted', values: g.stages.weekly.map((w) => Math.round(w.deploy)) }] })}
         <p class="note">Total hours across the PRs deployed each week, so the stages add up exactly. Of all lead time in the period: coding ${esc(pctOf(g.stages.total.coding, g.stages.total))}, review ${esc(pctOf(g.stages.total.review, g.stages.total))}, waiting to deploy ${esc(pctOf(g.stages.total.deploy, g.stages.total))}.</p></div>` : ''}
+      ${g.weekly ? `<div class="card mt"><h3>Support tickets by week</h3>${barChart('sup-' + g.id, { labels: g.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'tickets', W: 900, H: 180, series: [
+          { name: 'Created', key: 's2', values: g.weekly.map((w) => w.created) }, { name: 'Resolved', key: 's1', values: g.weekly.map((w) => w.resolved) }] })}
+        <p class="note">When created stays above resolved, the queue grows.</p></div>` : ''}
       ${g.distribution ? `<div class="twocol mt"><div class="card"><h3>Flow distribution</h3>${barChart('dist', { labels: g.distribution.map((d) => d.kind), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.distribution.map((d) => d.items) }] })}
           <p class="note">Bugs are defects; debt and risk come from labels; everything else is feature work.</p></div>
         <div class="card"><h3>Flow velocity by week</h3>${barChart('vel', { labels: g.velocityByWeek.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.velocityByWeek.map((w) => w.items) }] })}</div></div>` : ''}
@@ -144,7 +148,7 @@ function sizeBars() { document.querySelectorAll('i[data-w]').forEach((i) => { i.
 function dashHeadlines(d) {
   return `<div class="heads">${d.headlines.map((h) => `<a class="card head" href="#_${esc(h.page)}">
     <div class="hh"><h3>${esc(h.title)}</h3><span class="muted">${esc(h.question)}</span></div>
-    <div class="mtiles two">${h.measures.map((m) => measureTile(m, { compact: true })).join('')}</div>
+    ${h.measures.length ? `<div class="mtiles two">${h.measures.map((m) => measureTile(m, { compact: true })).join('')}</div>` : '<p class="muted">Not collected yet: shows after the next data collection.</p>'}
     <div class="more">Full ${esc(h.title.toLowerCase())} report →</div></a>`).join('')}</div>
     <p class="note">Last 30 days, all teams.</p>`;
 }

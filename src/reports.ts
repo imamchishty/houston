@@ -1,8 +1,8 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
-import type { Epic, GithubSnapshot, PullRequest, ScanCoverage, SecurityAlert, Sprint, WorkItem } from './types.js';
-import { hoursExcludingWeekends, weekOf } from './time.js';
+import type { Epic, GithubSnapshot, PullRequest, ScanCoverage, SecurityAlert, Sprint, SupportTicket, WorkItem } from './types.js';
+import { addWorkingMinutes, durationMinutes, hoursExcludingWeekends, outsideWorkingHours, weekOf, workingMinutes } from './time.js';
 import { flow } from './flow.js';
 import { leadTimes } from './leadtime.js';
 
@@ -41,6 +41,7 @@ export const TARGETS: Record<string, Target> = {
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
   pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
   security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
+  support_share: { op: '<', value: 20 }, support_out_of_hours: { op: '<', value: 10 }, support_repeat: { op: '<', value: 20 },
   scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
 };
 
@@ -65,6 +66,7 @@ export interface Slice {
   defaultBranches: Record<string, string>;
   quality: import('./types.js').QualitySnapshot[];
   security: { alerts: SecurityAlert[]; coverage: Record<string, ScanCoverage> };
+  support: SupportTicket[]; supportConnected: boolean;
 }
 
 export const slice = (team: string, days: Period, now = Date.now()): Slice => sliceRange(team, now - days * DAY, now);
@@ -84,6 +86,8 @@ export function sliceRange(team: string, from: number, to: number): Slice {
     defaultBranches: Object.assign({}, ...gh.map((g) => g.defaultBranches ?? {})),
     quality: store.quality().filter((q) => boards.includes(q.board)),
     security: { alerts: gh.flatMap((g) => g.security?.alerts ?? []), coverage: Object.assign({}, ...gh.map((g) => g.security?.coverage ?? {})) },
+    support: store.support().filter((x) => boards.includes(x.board)).flatMap((x) => x.tickets),
+    supportConnected: store.support().some((x) => boards.includes(x.board)),
   };
 }
 
@@ -459,5 +463,89 @@ export function security(s: Slice) {
   ] };
 }
 
+// ---------- Support ----------
+// Support tickets from plain Jira. Plain Jira has no SLA clock, so Houston measures SLAs itself: SUPPORT_SLA goals per
+// priority, in working time (WORKING_HOURS on working days, in TZ_OFFSET_HOURS). Each ticket's SLA is judged once:
+// when it is met (first response, or resolution) or when its goal passes unmet, whichever is first.
+const SLA_TARGET: Target = { op: '>', value: 95 };
+const outside = (iso: string) => outsideWorkingHours(iso, config.weekend, config.tzOffset, config.workingHours);
+const wmin = (a: string, b: string) => workingMinutes(a, b, config.weekend, config.tzOffset, config.workingHours);
+const breachOf = (created: string, goal: string) => { const m = durationMinutes(goal, config.workingHours); return m == null ? null : addWorkingMinutes(created, m, config.weekend, config.tzOffset, config.workingHours); };
+
+export function support(s: Slice) {
+  const T = s.support, weeks = Math.max(1, (s.to - s.from) / (7 * DAY));
+  if (!s.supportConnected) return { groups: [{ id: 'support_volume', title: 'Incoming support', question: 'How much support work arrives, and how much of the team\'s work is it?', measures: [] as Measure[],
+    note: 'No support data yet: collected from Jira on the next run (SUPPORT_PROJECTS, SUPPORT_ISSUE_TYPES, SUPPORT_LABELS).' }] };
+  const created = T.filter((t) => inWin(s, t.created)), resolved = T.filter((t) => inWin(s, t.resolved));
+  const work = s.items.filter((i) => !isSub(i) && inWin(s, i.resolved));
+  const open = T.filter((t) => Date.parse(t.created) < s.to && (!t.resolved || Date.parse(t.resolved) >= s.to)).sort((a, b) => a.created.localeCompare(b.created));
+  const perWeek: Measure = { id: 'support_per_week', title: 'Support tickets per week', value: round1(created.length / weeks), unit: 'count', num: created.length, den: null, numLabel: 'tickets created',
+    target: null, met: null, how: 'Support tickets created in the period ÷ weeks in the period: tickets in the team\'s support project, or support issue types and labels in its own project.' };
+  const backlog: Measure = { id: 'support_open', title: 'Open support tickets', value: open.length, unit: 'count', num: null, den: null, target: null, met: null,
+    how: 'Support tickets not resolved at the end of the period, oldest listed first with their age.', failing: open.map((t) => `${t.key} (${Math.floor((s.to - Date.parse(t.created)) / DAY)} days)`) };
+  const weekly = new Map<string, { created: number; resolved: number }>();
+  for (let t = s.from; t < s.to; t += 7 * DAY) weekly.set(weekOf(new Date(t).toISOString(), config.tzOffset), { created: 0, resolved: 0 });
+  for (const t of created) { const w = weekly.get(weekOf(t.created, config.tzOffset)); if (w) w.created++; }
+  for (const t of resolved) { const w = weekly.get(weekOf(t.resolved!, config.tzOffset)); if (w) w.resolved++; }
+
+  // SLAs: first response and resolution against the goal for the ticket's priority.
+  const noSla = new Set<string>();
+  const slaRate = (kind: 'response' | 'resolution') => {
+    const judged: { key: string; met: boolean }[] = [];
+    for (const t of T) {
+      const goal = config.jira.supportSla[(t.priority ?? '').toLowerCase()]?.[kind];
+      if (!goal) { noSla.add(t.priority ?? 'no priority'); continue; }
+      const breach = breachOf(t.created, goal), done = kind === 'response' ? t.firstResponse : t.resolved;
+      if (!breach) continue;
+      if (done && Date.parse(done) <= Date.parse(breach)) { if (inWin(s, done)) judged.push({ key: t.key, met: true }); }
+      else if (inWin(s, breach)) judged.push({ key: t.key, met: false });
+    }
+    const id = kind === 'response' ? 'sla_response' : 'sla_resolution';
+    const m = rate(id, kind === 'response' ? 'First response within SLA' : 'Resolved within SLA', judged.filter((x) => x.met).length, judged.length,
+      `Tickets ${kind === 'response' ? 'answered' : 'resolved'} within the SLA for their priority (SUPPORT_SLA, working time: ${hoursText} on working days). Judged once: when ${kind === 'response' ? 'first answered' : 'resolved'}, or when the goal passes unmet. ${kind === 'response' ? 'First response: the first comment by someone other than the reporter, or the first status change by a person.' : ''}`.trim(),
+      ['within SLA', 'tickets due or done'], judged.filter((x) => !x.met).map((x) => x.key));
+    return { ...m, target: SLA_TARGET, met: m.value == null ? null : metTarget(m.value, SLA_TARGET) };
+  };
+  const respTimes = T.filter((t) => t.firstResponse && inWin(s, t.firstResponse)).map((t) => wmin(t.created, t.firstResponse!) / 60);
+  const resTimes = T.filter((t) => inWin(s, t.resolved)).map((t) => wmin(t.created, t.resolved!) / 60);
+  const hoursText = `${String(Math.floor(config.workingHours.start)).padStart(2, '0')}:${String(Math.round((config.workingHours.start % 1) * 60)).padStart(2, '0')} to ${String(Math.floor(config.workingHours.end)).padStart(2, '0')}:${String(Math.round((config.workingHours.end % 1) * 60)).padStart(2, '0')}`;
+  const slaMeasures = [
+    slaRate('response'), med('support_response_time', 'Time to first response (median)', respTimes, 'hours', 'Median working hours from a ticket being raised to its first response, tickets first answered in the period.', 'answered tickets'),
+    slaRate('resolution'), med('support_resolution_time', 'Time to resolve (median)', resTimes, 'hours', 'Median working hours from a ticket being raised to it being resolved, tickets resolved in the period.', 'resolved tickets'),
+  ];
+
+  // Out of hours: status changes people made outside WORKING_HOURS or on the weekend, and incidents fired then.
+  const changes = T.flatMap((t) => t.changes).filter((c) => inWin(s, c));
+  const inc = s.incidents.filter((i) => inWin(s, i.firedAt));
+  const incOut = inc.filter((i) => outside(i.firedAt));
+
+  // Repeat issues: resolved tickets that were reopened, or that duplicate another ticket. Both are recorded by Jira
+  // itself (the resolution being cleared, the Duplicate link), so nothing is guessed from names or components.
+  const repeats = resolved.filter((t) => t.reopened || t.duplicate);
+  const repeatM = rate('support_repeat', 'Reopened or duplicate', repeats.length, resolved.length,
+    'Support tickets resolved in the period that had been reopened after an earlier resolution, or are linked as a duplicate of another ticket: a fix that did not hold, or the same problem raised again.',
+    ['reopened or duplicate', 'resolved tickets'], repeats.map((t) => `${t.key} (${[t.reopened && 'reopened', t.duplicate && 'duplicate'].filter(Boolean).join(', ')})`));
+
+  return { groups: [
+    { id: 'support_volume', title: 'Incoming support', question: 'How much support work arrives, and how much of the team\'s work is it?', measures: [
+      perWeek,
+      rate('support_share', 'Support share of work finished', resolved.length, resolved.length + work.length,
+        'Support tickets resolved ÷ (support tickets resolved + the team\'s own work items resolved), in the period. A count of items, not hours: a big story and a quick support answer count one each.',
+        ['support tickets', 'items finished']),
+      backlog,
+    ], weekly: [...weekly.entries()].map(([week, v]) => ({ week, ...v })) },
+    { id: 'support_sla', title: 'Service levels', question: 'Are customers answered and helped within the agreed time?', measures: slaMeasures,
+      note: `SLA goals per priority: ${Object.entries(config.jira.supportSla).map(([p, v]) => `${p} ${v.response} to respond, ${v.resolution} to resolve`).join('; ') || 'none set'} (working time).${noSla.size ? ` No SLA for: ${[...noSla].join(', ')}.` : ''}` },
+    { id: 'support_hours', title: 'Outside working hours', question: 'Is support pulling people in at night and at weekends?', measures: [
+      rate('support_out_of_hours', 'Support work outside working hours', changes.filter(outside).length, changes.length,
+        `Status changes on support tickets made by people (not automation) outside ${hoursText} or at the weekend, in local time (TZ_OFFSET_HOURS, WORKING_HOURS, WEEKEND). Team total only: Houston does not keep who made them.`,
+        ['outside hours', 'status changes']),
+      { ...rate('incidents_out_of_hours', 'Incidents outside working hours', incOut.length, inc.length,
+        `Sev0 to Sev2 incidents (Azure Monitor) fired outside ${hoursText} or at the weekend. With no on-call tool, this counts incidents, not who responded.`, ['outside hours', 'incidents']), target: null, met: null },
+    ] },
+    { id: 'support_repeat', title: 'Repeat issues', question: 'Do the same problems keep coming back?', measures: [repeatM] },
+  ] };
+}
+
 // Report names as the pages show them.
-export const REPORTS = { dora, flow: efficiency, quality, planning: predictability, security } as const;
+export const REPORTS = { dora, flow: efficiency, quality, planning: predictability, security, support } as const;

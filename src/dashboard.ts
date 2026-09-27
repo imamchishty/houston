@@ -46,10 +46,11 @@ export function dashboard(now = Date.now()) {
     { page: 'flow', title: 'Flow', question: 'How much work flows, and where does it wait?', ids: ['flow_efficiency', 'flow_time'] },
     { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers, and is the code sound?', ids: ['bugs_per_change', 'defect_leakage'] },
     { page: 'security', title: 'Security', question: 'Are serious security issues fixed in time?', ids: ['security_on_time', 'security_overdue'] },
+    { page: 'support', title: 'Support', question: 'How much support arrives, and is it answered in time?', ids: ['support_share', 'sla_resolution'] },
     { page: 'planning', title: 'Planning', question: 'Does the team deliver what it plans?', ids: ['sprint_completion', 'unplanned_work'] },
   ] as const;
   const headlines = AREAS.map((h) => { const all = flatMeasures(REPORTS[h.page](s30));
-    return { page: h.page, title: h.title, question: h.question, measures: h.ids.map((id) => { const { failing, how, ...m } = all.find((x) => x.id === id)!; return m; }) }; });
+    return { page: h.page, title: h.title, question: h.question, measures: h.ids.flatMap((id) => { const x = all.find((y) => y.id === id); if (!x) return []; const { failing, how, ...m } = x; return [m]; }) }; }); // a measure not collected yet is left out, never a crash
 
   // Team health alerts: every target a team missed in the last 30 days, per team. Red when it was missed the
   // 30 days before as well (a pattern, not a blip); amber when it is new. Small samples never raise an alert.

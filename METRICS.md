@@ -125,9 +125,9 @@ Team monthly cost (TEAM_MONTHLY_COST), the configured offshore equivalent (OFFSH
 resolved in the last 90 days. Output per engineer is not compared across teams: story points are sized differently by
 every team and pull request counts reward splitting work.
 
-## Area reports: DORA, Flow, Quality, Security, Planning
+## Area reports: DORA, Flow, Quality, Security, Support, Planning
 
-Served by `/api/reports/{dora,flow,quality,security,planning}?team=&days=` and shown on the pages of the same names. Each measure lives in exactly one area.
+Served by `/api/reports/{dora,flow,quality,security,support,planning}?team=&days=` and shown on the pages of the same names. Each measure lives in exactly one area.
 Every rate is shown with its counts. "Not measured" means there was nothing to count (0 of 0), never 0%.
 The period is the last 7, 30 or 90 days; an item counts when its date (merged, created, resolved, fired) falls inside it.
 
@@ -144,6 +144,192 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | `stage_deploy` Waiting to deploy (median) | Median hours from merge to the first successful production deploy of its repo. |  |
 
 ### Flow
+
+| Measure | Definition | Target |
+|---|---|---|
+| `pr_cycle_hours` PR cycle time (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
+| `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
+| `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
+| `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
+| `flow_efficiency` Flow efficiency | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | over 40% |
+| `flow_efficiency_request` Flow efficiency from request | Active working hours ÷ all working hours from the ticket being created to done, so time waiting in the backlog counts too (the Flow Framework's definition). Usually far lower than flow efficiency from start, which is the part the team controls. |  |
+| `flow_velocity` Flow velocity | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
+| `flow_time` Flow time (median) | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | under 14 days |
+| `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
+| `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
+
+### Quality
+
+| Measure | Definition | Target |
+|---|---|---|
+| `bugs_per_change` Bugs per change | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
+| `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
+| `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
+| `qa_rejection` QA rejection rate | Tickets sent back from QA (qa, in qa, testing, in testing) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection. | under 15% |
+| `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
+| `quality_gate_pass` Quality gate passing | Teams whose SonarQube quality gate passes, latest scan. | over 99% |
+| `new_code_coverage` Coverage on new code | SonarQube coverage on new code, latest scan (the median team when several). | over 70% |
+| `test_pass_rate` Automated test pass rate | Tests passed ÷ tests run over the last 30 days of Testmo automation runs (the median team when several). | over 97% |
+| `bug_lead_time` Bug lead time (median) | Median days from bug created to resolved, bugs resolved in the period. | under 14 days |
+| `bug_fix_find` Bug fix vs find rate | Bugs resolved in the period ÷ bugs created in the period. Above 100% means the backlog of bugs is shrinking. | over 80% |
+| `bug_workload` Bug workload | Bugs resolved ÷ all work items resolved (sub-tasks excluded), in the period. By count, not points. | under 20% |
+| `revert_ratio` Code revert ratio | Merged revert PRs (GitHub's revert button: title "Revert …" or branch revert-N-…) ÷ merged PRs. | under 5% |
+
+### Security
+
+| Measure | Definition | Target |
+|---|---|---|
+| `security_on_time` Critical and high fixed on time | Critical and high alerts fixed within their deadline (critical 7 days, high 30 days). Each alert is judged once, when it is fixed or when its deadline passes, whichever is first, in the period. Still open at the deadline counts as late even if dismissed later. Dismissed before the deadline is left out and listed separately. | over 95% |
+| `security_fix_critical` Time to fix, critical (median) | Median days from a critical alert being opened to it being fixed (for a leaked secret: revoked), alerts fixed in the period. | under 7 days |
+| `security_fix_high` Time to fix, high (median) | Median days from a high alert being opened to it being fixed (for a leaked secret: revoked), alerts fixed in the period. | under 30 days |
+| `security_overdue` Overdue now | Open alerts past their deadline at the end of the period, any severity with a deadline. Each is listed with its age. | under 1 |
+| `security_open_critical_high` Open critical and high | Open critical and high alerts at the end of the period, within their deadline or not. |  |
+| `secrets_open` Leaked secrets not yet revoked | Secrets (passwords, keys, tokens) found in code and not yet revoked, at the end of the period. Houston stores only the secret type, never the secret. | under 1 |
+| `vulnerabilities` SonarQube vulnerabilities | SonarQube open vulnerabilities, latest scan, all teams together (not the selected period). | under 1 |
+| `security_dismissed` Dismissed instead of fixed | Alerts dismissed in the period (false positive, won't fix, used in tests, or auto-dismissed). Shown so dismissals are seen, not hidden. |  |
+| `scan_dependency` Dependency scanning | Team repos with Dependabot alerts turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+| `scan_secret` Secret scanning | Team repos with secret scanning turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+| `scan_code` Code scanning | Team repos with code scanning turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+
+### Support
+
+| Measure | Definition | Target |
+|---|---|---|
+| `support_per_week` Support tickets per week | Support tickets created in the period ÷ weeks in the period: tickets in the team's support project, or support issue types and labels in its own project. |  |
+| `support_share` Support share of work finished | Support tickets resolved ÷ (support tickets resolved + the team's own work items resolved), in the period. A count of items, not hours: a big story and a quick support answer count one each. | under 20% |
+| `support_open` Open support tickets | Support tickets not resolved at the end of the period, oldest listed first with their age. |  |
+| `sla_response` First response within SLA | Tickets answered within the SLA for their priority (SUPPORT_SLA, working time: 08:00 to 18:00 on working days). Judged once: when first answered, or when the goal passes unmet. First response: the first comment by someone other than the reporter, or the first status change by a person. | over 95% |
+| `support_response_time` Time to first response (median) | Median working hours from a ticket being raised to its first response, tickets first answered in the period. |  |
+| `sla_resolution` Resolved within SLA | Tickets resolved within the SLA for their priority (SUPPORT_SLA, working time: 08:00 to 18:00 on working days). Judged once: when resolved, or when the goal passes unmet. | over 95% |
+| `support_resolution_time` Time to resolve (median) | Median working hours from a ticket being raised to it being resolved, tickets resolved in the period. |  |
+| `support_out_of_hours` Support work outside working hours | Status changes on support tickets made by people (not automation) outside 08:00 to 18:00 or at the weekend, in local time (TZ_OFFSET_HOURS, WORKING_HOURS, WEEKEND). Team total only: Houston does not keep who made them. | under 10% |
+| `incidents_out_of_hours` Incidents outside working hours | Sev0 to Sev2 incidents (Azure Monitor) fired outside 08:00 to 18:00 or at the weekend. With no on-call tool, this counts incidents, not who responded. |  |
+| `support_repeat` Reopened or duplicate | Support tickets resolved in the period that had been reopened after an earlier resolution, or are linked as a duplicate of another ticket: a fix that did not hold, or the same problem raised again. | under 20% |
+
+### Planning
+
+| Measure | Definition | Target |
+|---|---|---|
+| `sprint_completion` Sprint completion | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | over 80% |
+| `unplanned_work` Unplanned work | Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work. | under 20% |
+| `scope_added` Scope added mid-sprint | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | under 15% |
+| `use_of_branches` Use of branches | Non-merge commits on the default branch that arrived through a merged PR ÷ all non-merge commits on the default branch, in the period. GitHub links each commit to its PR, whatever the merge strategy. | over 95% |
+| `merged_with_pr` Merged branches with PR | PRs merged to the default branch ÷ (those PRs + plain git merges on the default branch with no PR), in the period. | over 95% |
+| `prs_traceable` PRs traceable to a ticket | Merged PRs whose title, branch or body contains a ticket key of the team's Jira project ÷ merged PRs. | over 90% |
+| `tickets_estimated` Estimates on tickets | Work items closed in the period that have story points ÷ work items closed (sub-tasks excluded). | over 90% |
+| `tickets_in_sprint` Tickets in sprints | Work items closed in the period that were ever in a sprint ÷ work items closed (sub-tasks excluded). | over 80% |
+| `tickets_in_epic` Tickets in epics | Work items closed in the period that belong to an epic ÷ work items closed (sub-tasks and bugs excluded: bugs are often not feature work). | over 80% |
+| `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. |  |
+
+Security deadlines: `SECURITY_DEADLINE_DAYS` (default `critical:7,high:30,medium:90`; low has no deadline). Needs the GitHub token to read Dependabot, code scanning and secret scanning alerts. A leaked secret is fixed only when revoked; its value is never stored.
+
+Support: plain Jira tickets in `SUPPORT_PROJECTS` (every ticket), or in the team's own project when the issue type is in `SUPPORT_ISSUE_TYPES` or a label is in `SUPPORT_LABELS`. SLAs from `SUPPORT_SLA` (priority=response/resolution, h hours or d working days), measured in working time: `WORKING_HOURS` on days not in `WEEKEND`, in `TZ_OFFSET_HOURS`. First response: the first comment by someone other than the reporter, or the first status change by a person. Only times are stored, never names or comment text.
+
+Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+14-day churn is not measured: it needs line-level history the GitHub API does not provide.
+
+## Current sprint
+
+- Working days: days from sprint start to end not in `WEEKEND`. Left = total - elapsed (elapsed counts days started before now).
+- Committed: points of items in the sprint before it started. Scope: points of every item in the sprint now. Done: points of items resolved by now.
+- Outlook: projected = done ÷ working days elapsed × working days in the sprint. On track if projected ≥ scope, at risk if ≥ 80% of scope, otherwise off track.
+- Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
+- Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
+
+## Flow
+
+| Measure | Definition | Target |
+|---|---|---|
+| `pr_cycle_hours` PR cycle time (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
+| `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
+| `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
+| `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
+| `flow_efficiency` Flow efficiency | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | over 40% |
+| `flow_efficiency_request` Flow efficiency from request | Active working hours ÷ all working hours from the ticket being created to done, so time waiting in the backlog counts too (the Flow Framework's definition). Usually far lower than flow efficiency from start, which is the part the team controls. |  |
+| `flow_velocity` Flow velocity | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
+| `flow_time` Flow time (median) | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | under 14 days |
+| `flow_load` Flow load | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
+| `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
+
+### Quality
+
+| Measure | Definition | Target |
+|---|---|---|
+| `bugs_per_change` Bugs per change | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
+| `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
+| `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
+| `qa_rejection` QA rejection rate | Tickets sent back from QA (qa, in qa, testing, in testing) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection. | under 15% |
+| `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
+| `quality_gate_pass` Quality gate passing | Teams whose SonarQube quality gate passes, latest scan. | over 99% |
+| `new_code_coverage` Coverage on new code | SonarQube coverage on new code, latest scan (the median team when several). | over 70% |
+| `test_pass_rate` Automated test pass rate | Tests passed ÷ tests run over the last 30 days of Testmo automation runs (the median team when several). | over 97% |
+| `bug_lead_time` Bug lead time (median) | Median days from bug created to resolved, bugs resolved in the period. | under 14 days |
+| `bug_fix_find` Bug fix vs find rate | Bugs resolved in the period ÷ bugs created in the period. Above 100% means the backlog of bugs is shrinking. | over 80% |
+| `bug_workload` Bug workload | Bugs resolved ÷ all work items resolved (sub-tasks excluded), in the period. By count, not points. | under 20% |
+| `revert_ratio` Code revert ratio | Merged revert PRs (GitHub's revert button: title "Revert …" or branch revert-N-…) ÷ merged PRs. | under 5% |
+
+### Security
+
+| Measure | Definition | Target |
+|---|---|---|
+| `security_on_time` Critical and high fixed on time | Critical and high alerts fixed within their deadline (critical 7 days, high 30 days). Each alert is judged once, when it is fixed or when its deadline passes, whichever is first, in the period. Still open at the deadline counts as late even if dismissed later. Dismissed before the deadline is left out and listed separately. | over 95% |
+| `security_fix_critical` Time to fix, critical (median) | Median days from a critical alert being opened to it being fixed (for a leaked secret: revoked), alerts fixed in the period. | under 7 days |
+| `security_fix_high` Time to fix, high (median) | Median days from a high alert being opened to it being fixed (for a leaked secret: revoked), alerts fixed in the period. | under 30 days |
+| `security_overdue` Overdue now | Open alerts past their deadline at the end of the period, any severity with a deadline. Each is listed with its age. | under 1 |
+| `security_open_critical_high` Open critical and high | Open critical and high alerts at the end of the period, within their deadline or not. |  |
+| `secrets_open` Leaked secrets not yet revoked | Secrets (passwords, keys, tokens) found in code and not yet revoked, at the end of the period. Houston stores only the secret type, never the secret. | under 1 |
+| `vulnerabilities` SonarQube vulnerabilities | SonarQube open vulnerabilities, latest scan, all teams together (not the selected period). | under 1 |
+| `security_dismissed` Dismissed instead of fixed | Alerts dismissed in the period (false positive, won't fix, used in tests, or auto-dismissed). Shown so dismissals are seen, not hidden. |  |
+| `scan_dependency` Dependency scanning | Team repos with Dependabot alerts turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+| `scan_secret` Secret scanning | Team repos with secret scanning turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+| `scan_code` Code scanning | Team repos with code scanning turned on. A repo with scanning off shows no alerts, so it looks safe when it is not. | over 99% |
+
+### Support
+
+| Measure | Definition | Target |
+|---|---|---|
+| `support_per_week` Support tickets per week | Support tickets created in the period ÷ weeks in the period: tickets in the team's support project, or support issue types and labels in its own project. |  |
+| `support_share` Support share of work finished | Support tickets resolved ÷ (support tickets resolved + the team's own work items resolved), in the period. A count of items, not hours: a big story and a quick support answer count one each. | under 20% |
+| `support_open` Open support tickets | Support tickets not resolved at the end of the period, oldest listed first with their age. |  |
+| `sla_response` First response within SLA | Tickets answered within the SLA for their priority (SUPPORT_SLA, working time: 08:00 to 18:00 on working days). Judged once: when first answered, or when the goal passes unmet. First response: the first comment by someone other than the reporter, or the first status change by a person. | over 95% |
+| `support_response_time` Time to first response (median) | Median working hours from a ticket being raised to its first response, tickets first answered in the period. |  |
+| `sla_resolution` Resolved within SLA | Tickets resolved within the SLA for their priority (SUPPORT_SLA, working time: 08:00 to 18:00 on working days). Judged once: when resolved, or when the goal passes unmet. | over 95% |
+| `support_resolution_time` Time to resolve (median) | Median working hours from a ticket being raised to it being resolved, tickets resolved in the period. |  |
+| `support_out_of_hours` Support work outside working hours | Status changes on support tickets made by people (not automation) outside 08:00 to 18:00 or at the weekend, in local time (TZ_OFFSET_HOURS, WORKING_HOURS, WEEKEND). Team total only: Houston does not keep who made them. | under 10% |
+| `incidents_out_of_hours` Incidents outside working hours | Sev0 to Sev2 incidents (Azure Monitor) fired outside 08:00 to 18:00 or at the weekend. With no on-call tool, this counts incidents, not who responded. |  |
+| `support_repeat` Repeat issues | Resolved tickets whose component had another ticket in the 30 days before: the same problem coming back because its cause was not fixed. Only tickets with a component count. | under 20% |
+
+### Planning
+
+| Measure | Definition | Target |
+|---|---|---|
+| `sprint_completion` Sprint completion | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | over 80% |
+| `unplanned_work` Unplanned work | Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work. | under 20% |
+| `scope_added` Scope added mid-sprint | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | under 15% |
+| `use_of_branches` Use of branches | Non-merge commits on the default branch that arrived through a merged PR ÷ all non-merge commits on the default branch, in the period. GitHub links each commit to its PR, whatever the merge strategy. | over 95% |
+| `merged_with_pr` Merged branches with PR | PRs merged to the default branch ÷ (those PRs + plain git merges on the default branch with no PR), in the period. | over 95% |
+| `prs_traceable` PRs traceable to a ticket | Merged PRs whose title, branch or body contains a ticket key of the team's Jira project ÷ merged PRs. | over 90% |
+| `tickets_estimated` Estimates on tickets | Work items closed in the period that have story points ÷ work items closed (sub-tasks excluded). | over 90% |
+| `tickets_in_sprint` Tickets in sprints | Work items closed in the period that were ever in a sprint ÷ work items closed (sub-tasks excluded). | over 80% |
+| `tickets_in_epic` Tickets in epics | Work items closed in the period that belong to an epic ÷ work items closed (sub-tasks and bugs excluded: bugs are often not feature work). | over 80% |
+| `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. |  |
+
+Security deadlines: `SECURITY_DEADLINE_DAYS` (default `critical:7,high:30,medium:90`; low has no deadline). Needs the GitHub token to read Dependabot, code scanning and secret scanning alerts. A leaked secret is fixed only when revoked; its value is never stored.
+
+Support: plain Jira tickets in `SUPPORT_PROJECTS` (every ticket), or in the team's own project when the issue type is in `SUPPORT_ISSUE_TYPES` or a label is in `SUPPORT_LABELS`. SLAs from `SUPPORT_SLA` (priority=response/resolution, h hours or d working days), measured in working time: `WORKING_HOURS` on days not in `WEEKEND`, in `TZ_OFFSET_HOURS`. First response: the first comment by someone other than the reporter, or the first status change by a person. Only times are stored, never names or comment text.
+
+Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+14-day churn is not measured: it needs line-level history the GitHub API does not provide.
+
+## Current sprint
+
+- Working days: days from sprint start to end not in `WEEKEND`. Left = total - elapsed (elapsed counts days started before now).
+- Committed: points of items in the sprint before it started. Scope: points of every item in the sprint now. Done: points of items resolved by now.
+- Outlook: projected = done ÷ working days elapsed × working days in the sprint. On track if projected ≥ scope, at risk if ≥ 80% of scope, otherwise off track.
+- Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
+- Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
+
+## Flow
 
 | Measure | Definition | Target |
 |---|---|---|

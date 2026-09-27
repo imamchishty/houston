@@ -7,7 +7,7 @@ import { docsRules } from './rules/docsRules.js';
 // finding and on the Metrics page. The formulas match METRICS.md; thresholds come from the rule definitions
 // where they are exported, so the explanation cannot drift from what is scored.
 
-export type Area = 'DORA' | 'Flow' | 'Planning' | 'Quality' | 'Security' | 'Features' | 'Production' | 'Docs' | 'Claude' | 'Scores';
+export type Area = 'DORA' | 'Flow' | 'Planning' | 'Quality' | 'Security' | 'Support' | 'Features' | 'Production' | 'Docs' | 'Claude' | 'Scores';
 export interface DoraBand { tier: 'Elite' | 'High' | 'Medium' | 'Low'; test: string; min?: number; max?: number }
 export interface MetricInfo { id: string; area: Area; name: string; why: string; how: string; thresholds?: string; dora?: DoraBand[] }
 
@@ -179,6 +179,17 @@ const catalogue: MetricInfo[] = [
     'In a regulated healthcare environment an open vulnerability is a compliance exposure, not a backlog item.',
     'SonarQube vulnerability count.'),
 
+  // Support
+  W('Support', 'support_per_week', 'Support tickets per week', 'Support is work the plan does not show. Rising volume explains slow delivery before anyone asks.', 'Support tickets created per week, from plain Jira (SUPPORT_PROJECTS, or support issue types and labels).'),
+  W('Support', 'support_share', 'Support share of work finished', 'A team spending a third of its output on support cannot hit a feature plan built as if it spent none.', 'Support tickets resolved ÷ all items resolved (support plus the team\'s own work). A count, not hours.'),
+  W('Support', 'support_open', 'Open support tickets', 'A growing queue means customers waiting.', 'Unresolved support tickets at the end of the period, oldest first.'),
+  W('Support', 'sla_response', 'First response within SLA', 'Customers mind silence more than waiting: a quick first answer is the promise most often broken.', 'Tickets answered within the SUPPORT_SLA response goal for their priority, in working time.'),
+  W('Support', 'sla_resolution', 'Resolved within SLA', 'Whether the agreed service levels are kept.', 'Tickets resolved within the SUPPORT_SLA resolution goal for their priority, in working time.'),
+  W('Support', 'support_response_time', 'Time to first response', 'How long customers wait for an answer.', 'Median working hours from raised to the first comment by someone other than the reporter, or first status change by a person.'),
+  W('Support', 'support_resolution_time', 'Time to resolve', 'How long customers wait for a fix.', 'Median working hours from raised to resolved.'),
+  W('Support', 'support_out_of_hours', 'Support work outside working hours', 'Regular night and weekend work burns people out and is invisible in delivery numbers.', 'Status changes on support tickets made by people outside WORKING_HOURS or at the weekend. Team total only.'),
+  W('Support', 'incidents_out_of_hours', 'Incidents outside working hours', 'Incidents at night pull someone out of bed, with no on-call rota to share the load.', 'Sev0 to Sev2 incidents fired outside WORKING_HOURS or at the weekend.'),
+  W('Support', 'support_repeat', 'Reopened or duplicate', 'A ticket reopened means the fix did not hold; a duplicate means the same problem was raised again.', 'Resolved support tickets that were reopened (resolution cleared) or are linked as a duplicate of another ticket.'),
   // Features
   W('Features', 'feature_lead_time', 'Feature lead time',
     'Product sees features, not tickets. This is the number they judge engineering by.',
