@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, PullRequest, Sprint, WorkItem } from './types.js';
+import { hoursExcludingWeekends, weekOf } from './time.js';
 
 // Quality, Predictability and Efficiency: every measure with the counts behind it, its target and whether it is met.
 // One set of functions feeds the dashboard headline, the summary pages and the detailed reports, so they always agree.
@@ -13,6 +14,7 @@ export type Period = (typeof PERIODS)[number];
 
 export interface Target { op: '<' | '>'; value: number }
 export interface Measure {
+  previous?: number | null; trend?: 'better' | 'worse' | 'same' | null; previousMet?: boolean | null; // from withPrevious
   id: string; title: string;
   value: number | null;          // null when there is nothing to measure (0 of 0 is not 0%)
   unit: '%' | 'days' | 'hours' | 'count';
@@ -21,6 +23,7 @@ export interface Measure {
   how: string;                   // the exact definition, as shown to people
   failing?: string[];            // items that did not pass (tickets, PRs, commits), for drill-down
   smallSample?: boolean;         // too few items to trust the value: under 10 for a rate, under 5 for a median
+  note?: string;                 // what was left out and why
 }
 export const MIN_RATE_SAMPLE = 10, MIN_MEDIAN_SAMPLE = 5;
 
@@ -30,10 +33,10 @@ export const TARGETS: Record<string, Target> = {
   pr_review_rate: { op: '>', value: 95 }, pr_review_comment_rate: { op: '>', value: 50 },
   time_to_restore: { op: '<', value: 24 }, bug_lead_time: { op: '<', value: 14 },
   bug_fix_find: { op: '>', value: 80 }, bug_workload: { op: '<', value: 20 }, revert_ratio: { op: '<', value: 5 },
-  sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 },
+  sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 },
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 }, epics_with_due_date: { op: '>', value: 80 },
-  pr_lead_time: { op: '<', value: 2.5 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  pr_lead_time: { op: '<', value: 2.5 }, pr_cycle_hours: { op: '<', value: 60 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -108,12 +111,32 @@ export function quality(s: Slice) {
   const commented = merged.filter((p) => (p.reviewComments ?? 0) > 0);
   const restore = s.incidents.filter((i) => inWin(s, i.firedAt) && i.resolvedAt).map((i) => (Date.parse(i.resolvedAt!) - Date.parse(i.firedAt)) / 3_600_000);
   const reverts = merged.filter((p) => p.isRevert);
+  // Defect leakage: production bugs ÷ (bugs caught before release + production bugs). A bug is production if a
+  // production label (or the environment field) says so; caught before release if a QA/staging label does.
+  // Bugs with neither are left out and counted in the note, never guessed.
+  const envOf = (i: WorkItem) => {
+    const tags = [...(i.labels ?? []), ...(i.env ? [String(i.env).toLowerCase()] : [])];
+    return tags.some((l) => config.bugs.prodLabels.includes(l)) ? 'prod' : tags.some((l) => config.bugs.qaLabels.includes(l)) ? 'qa' : null;
+  };
+  const prodBugs = bugsCreated.filter((i) => envOf(i) === 'prod'), qaBugs = bugsCreated.filter((i) => envOf(i) === 'qa');
+  const unlabelled = bugsCreated.length - prodBugs.length - qaBugs.length;
+  const leakage = rate('defect_leakage', 'Defect leakage', prodBugs.length, prodBugs.length + qaBugs.length,
+    `Bugs created in the period found in production ÷ bugs found in production or before release (labels ${config.bugs.prodLabels.join('/')} vs ${config.bugs.qaLabels.join('/')}${config.bugs.envField ? ', or the environment field' : ''}).`,
+    ['found in production', 'labelled bugs'], prodBugs.map((i) => i.key));
+  if (unlabelled) leakage.note = `${unlabelled} of ${bugsCreated.length} bugs had no environment label and are not counted.`;
+  // Escaped bugs by week: significant bugs found in production (or any significant bug if unlabelled), and incidents.
+  const weeks = new Map<string, { significantBugs: number; incidents: number }>();
+  for (let t = s.from; t < s.to; t += 7 * DAY) weeks.set(weekOf(new Date(t).toISOString(), config.tzOffset), { significantBugs: 0, incidents: 0 });
+  for (const i of bugsCreated.filter((b) => significant(b) && envOf(b) !== 'qa')) { const w = weeks.get(weekOf(i.created, config.tzOffset)); if (w) w.significantBugs++; }
+  for (const i of s.incidents.filter((x) => inWin(s, x.firedAt))) { const w = weeks.get(weekOf(i.firedAt, config.tzOffset)); if (w) w.incidents++; }
   return {
     groups: [
       { id: 'bug_creation', title: 'Bug creation', question: 'How many bugs are being created, and by how much change?', measures: [
         cfr,
         rate('rework_rate', 'Rework rate', bugsCreated.length, merged.length, 'Bugs created ÷ PRs merged to the default branch, in the period. All priorities.', ['bugs created', 'merged PRs'], bugsCreated.map((i) => i.key)),
       ] },
+      { id: 'bug_escape', title: 'Bugs reaching customers', question: 'How many bugs get past us into production?', measures: [leakage],
+        trend: [...weeks.entries()].map(([week, v]) => ({ week, ...v })) },
       { id: 'bug_prevention', title: 'Bug prevention', question: 'Do our processes stop bugs getting in?', measures: [
         rate('pr_review_rate', 'PR review rate', reviewed.length, merged.length, 'Merged PRs with at least one review by someone other than the author ÷ merged PRs.', ['reviewed', 'merged PRs'], merged.filter((p) => p.reviewCount === 0).map(ref)),
         rate('pr_review_comment_rate', 'PR review comment rate', commented.length, merged.length, 'Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs.', ['with review comments', 'merged PRs'], merged.filter((p) => !(p.reviewComments ?? 0)).map(ref)),
@@ -144,6 +167,10 @@ export function predictability(s: Slice) {
   const added = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task'));
   const addedLate = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task' && i.addedToSprintAt && i.addedToSprintAt > sp.start));
   const plannedSum = completion.reduce((t, c) => t + c.planned, 0), doneSum = completion.reduce((t, c) => t + c.done, 0);
+  // Unplanned work: of the points finished in these sprints, how many were on tickets created after the sprint started.
+  const finished = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task' && i.points != null && doneInSprint(i, sp)).map((i) => ({ i, sp })));
+  const unplanned = finished.filter(({ i, sp }) => i.created > sp.start);
+  const unestimatedDone = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task' && i.points == null && doneInSprint(i, sp))).length;
 
   // Code traceability
   const commits = s.mainCommits.filter((c) => inWin(s, c.at));
@@ -162,6 +189,10 @@ export function predictability(s: Slice) {
     groups: [
       { id: 'delivery', title: 'Delivery against plan', question: 'Does the team deliver what it commits to?', measures: [
         rate('sprint_completion', 'Sprint completion', doneSum, plannedSum, 'Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started.', ['points done', 'points committed']),
+        (() => { const m = rate('unplanned_work', 'Unplanned work', unplanned.reduce((t, x) => t + x.i.points!, 0), finished.reduce((t, x) => t + x.i.points!, 0),
+          'Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work.',
+          ['points unplanned', 'points finished'], unplanned.map((x) => x.i.key));
+          if (unestimatedDone) m.note = `${unestimatedDone} finished tickets had no estimate and are not counted.`; return m; })(),
         rate('scope_added', 'Scope added mid-sprint', addedLate.length, added.length, 'Items added after the sprint started ÷ items in the sprint, sprints that closed in the period.', ['added late', 'items'], addedLate.map((i) => i.key)),
       ], detail: completion.map((c) => ({ ...c, pct: round1(c.pct) })) },
       { id: 'traceability', title: 'Code traceability', question: 'Is all work visible as tickets and pull requests?', measures: [
@@ -189,6 +220,8 @@ export function efficiency(s: Slice) {
     groups: [
       { id: 'pr_flow', title: 'Pull request flow', question: 'How fast does a change get from opened to merged?', measures: [
         med('pr_lead_time', 'PR lead time (median)', merged.map((p) => hrs(p.createdAt, p.mergedAt!) / 24), 'days', 'Median days from PR opened to merged, PRs merged in the period.', 'merged PRs'),
+        med('pr_cycle_hours', 'PR cycle time, weekends excluded (median)', merged.map((p) => hoursExcludingWeekends(p.createdAt, p.mergedAt!, config.weekend, config.tzOffset)), 'hours',
+          `Median hours from PR opened to merged, leaving out weekend days (${config.weekend.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}, UTC${config.tzOffset >= 0 ? '+' : ''}${config.tzOffset}). PRs merged in the period.`, 'merged PRs'),
         med('pickup_time', 'Time to first review (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.createdAt, p.firstReviewAt!) / 24), 'days', 'Median days from PR opened to the first review or review comment by someone else, PRs merged in the period.', 'reviewed PRs'),
         med('review_time', 'Review to merge (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.firstReviewAt!, p.mergedAt!) / 24), 'days', 'Median days from first review to merge, PRs merged in the period.', 'reviewed PRs'),
         (() => { const xs = merged.map((p) => p.additions + p.deletions); const v = xs.length ? Math.round(median(xs)) : null; return { id: 'pr_size', title: 'PR size (median)', value: v, unit: 'count' as const, num: null, den: xs.length, denLabel: 'merged PRs', target: TARGETS.pr_size, met: metTarget(v, TARGETS.pr_size), how: 'Median lines changed (additions + deletions) per PR merged in the period.', smallSample: xs.length > 0 && xs.length < MIN_MEDIAN_SAMPLE }; })(),
@@ -224,3 +257,22 @@ export function perTeam<T>(team: string, days: Period, fn: (s: Slice) => T, now 
 }
 
 export const flatMeasures = (r: { groups: { measures: Measure[] }[] }) => r.groups.flatMap((g) => g.measures);
+
+// The same report for the period before, so every measure can say whether it got better. A previous value is given
+// only when the collected data reaches back that far (Jira JIRA_DAYS, GitHub GITHUB_DAYS); otherwise null.
+export function withPrevious<T extends { groups: { measures: Measure[] }[] }>(team: string, days: Period, fn: (s: Slice) => T, now = Date.now()): T {
+  const cur = fn(slice(team, days, now));
+  const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team];
+  const starts = [...store.github().filter((g) => boards.includes(g.board)).map((g) => Date.parse(g.since)),
+    ...store.projects().filter((p) => boards.includes(p.board)).map((p) => Date.parse(p.since))];
+  const covered = starts.length > 0 && now - 2 * days * DAY >= Math.max(...starts) - DAY;
+  const prev = covered ? flatMeasures(fn(slice(team, days, now - days * DAY))) : [];
+  for (const m of flatMeasures(cur)) {
+    const p = prev.find((x) => x.id === m.id);
+    (m as Measure & { previous?: number | null; trend?: string | null }).previous = p?.value ?? null;
+    (m as Measure & { trend?: string | null }).trend = p?.value == null || m.value == null || !m.target ? null
+      : m.value === p.value ? 'same' : (m.target.op === '<' ? m.value < p.value : m.value > p.value) ? 'better' : 'worse';
+    (m as Measure & { previousMet?: boolean | null }).previousMet = p?.met ?? null;
+  }
+  return cur;
+}

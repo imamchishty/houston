@@ -10,8 +10,9 @@ import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
 import { dataQuality } from './dataQuality.js';
+import { simpleDashboard } from './simple.js';
 import { doraSeries, PERIODS } from './dora.js';
-import { slice, quality, predictability, efficiency, perTeam, flatMeasures, type Period } from './reports.js';
+import { slice, quality, predictability, efficiency, perTeam, flatMeasures, withPrevious, type Period } from './reports.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
@@ -338,6 +339,9 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // The home page: every team's status, what needs attention, and whether the data is fresh. Team level only.
   app.get('/api/dashboard', async () => dashboard());
 
+  // The simple dashboard: each team in plain English, four questions answered Yes / Partly / No. Team level only.
+  app.get('/api/dashboard/simple', async () => simpleDashboard());
+
   // Checks on the collected data for setups that would make a correct formula give a wrong number.
   app.get('/api/data-quality', async () => dataQuality());
 
@@ -363,16 +367,18 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
       const f = filters(req.query, reply); if (!f) return;
       const s = slice(f.team, f.days);
       return { report: name, team: f.team, days: f.days, from: new Date(s.from).toISOString().slice(0, 10), to: new Date(s.to - 1).toISOString().slice(0, 10),
-        ...fn(s), teams: perTeam(f.team, f.days, (x) => ({ measures: flatMeasures(fn(x)).map(({ failing, how, ...m }) => m) })) };
+        ...withPrevious(f.team, f.days, fn), teams: perTeam(f.team, f.days, (x) => ({ measures: flatMeasures(fn(x)).map(({ failing, how, ...m }) => m) })) };
     });
   }
 
   // The sprint in progress, per team: days and points left, outlook, burndown, work in flight. Assignees only for people viewers.
-  app.get<{ Querystring: { team?: string } }>('/api/sprints/current', async (req, reply) => {
+  app.get<{ Querystring: { team?: string; sprint?: string } }>('/api/sprints/current', async (req, reply) => {
     const team = req.query.team ?? 'all';
+    const sprintId = req.query.sprint != null ? Number(req.query.sprint) : undefined;
+    if (sprintId != null && !Number.isInteger(sprintId)) return reply.code(400).send({ error: 'sprint must be a sprint id' });
     if (team === 'all') return currentSprints(namedFor(req as any));
     if (!store.scorecards().some((c) => c.board === team)) return reply.code(404).send({ error: 'No such team' });
-    return currentSprint(team, namedFor(req as any)) ?? reply.code(404).send({ error: 'No sprint in progress' });
+    return currentSprint(team, namedFor(req as any), Date.now(), sprintId) ?? reply.code(404).send({ error: sprintId != null ? 'No such sprint' : 'No sprint in progress' });
   });
 
   // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.

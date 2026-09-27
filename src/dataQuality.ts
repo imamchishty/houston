@@ -25,6 +25,12 @@ export function dataQuality(): DataCheck[] {
     add(t, 'Epic link', epi === 0 ? 'warn' : 'ok', epi === 0 ? `No item belongs to an epic. Check JIRA_EPIC_FIELD (${config.jira.epicField}), or the team does not use epics.` : `${epi}% of items belong to an epic.`, ['tickets in epics', 'feature cost']);
     const bugs = items.filter((i) => /^bug$/i.test(i.type)).length;
     add(t, 'Bug issue type', bugs === 0 ? 'warn' : 'ok', bugs === 0 ? 'No items of type Bug. If bugs are filed under another type, bug measures read as zero.' : `${bugs} bugs.`, ['rework rate', 'bug lead time', 'bug fix vs find', 'bug workload']);
+    const bugItems = items.filter((i) => /^bug$/i.test(i.type));
+    if (bugItems.length) {
+      const tagged = bugItems.filter((i) => [...(i.labels ?? []), ...(i.env ? [String(i.env).toLowerCase()] : [])].some((l) => config.bugs.prodLabels.includes(l) || config.bugs.qaLabels.includes(l))).length;
+      const share = pct(tagged, bugItems.length);
+      add(t, 'Bug environment labels', share < 70 ? 'warn' : 'ok', `${share}% of bugs are labelled production (${config.bugs.prodLabels.join('/')}) or pre-release (${config.bugs.qaLabels.join('/')}).${share < 70 ? ' Unlabelled bugs are left out of defect leakage; label them, or set BUG_PROD_LABELS / BUG_QA_LABELS / JIRA_BUG_ENV_FIELD to what the team uses.' : ''}`, ['defect leakage', 'escaped bugs trend']);
+    }
     const prios = new Set(items.filter((i) => /^bug$/i.test(i.type)).map((i) => (i.priority ?? '').toLowerCase()).filter(Boolean));
     const sig = config.jira.significant.filter((x) => prios.has(x));
     if ((process.env.CFR_SOURCE ?? 'hotfix') === 'bugs')
@@ -55,6 +61,8 @@ export function dataQuality(): DataCheck[] {
     add(t, 'Default branch known', g.mainCommits?.length ? 'ok' : 'warn', g.mainCommits?.length ? `${g.mainCommits.length} commits on the default branch, ${withBase}% of PRs with a known base branch.` : 'No default branch commits collected (data from before this version). Re-collect.', ['use of branches', 'merged with PR']);
   }
 
+  if (config.mode !== 'demo' && !process.env.TZ_OFFSET_HOURS)
+    add('Settings', 'Time zone', 'warn', 'TZ_OFFSET_HOURS is not set, so weekends and working days are judged in UTC. For the UAE set 4.', ['PR cycle time excluding weekends', 'working days', 'cost']);
   for (const a of store.azure()) {
     const inc = a.ops?.incidents ?? [];
     if (!inc.length) continue;

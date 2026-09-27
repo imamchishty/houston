@@ -166,15 +166,29 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'ddays') { DORA.days = Number(e.target.value); renderDora(); }
 });
 
+// Simple or detailed dashboard, remembered in this browser. Simple is the default: most people want the answer.
+const VIEW_KEY = 'houston-view';
+let VIEW = (() => { try { return localStorage.getItem(VIEW_KEY) === 'detailed' ? 'detailed' : 'simple'; } catch { return 'simple'; } })();
+const viewSwitch = () => `<div class="viewswitch" role="group" aria-label="Dashboard view">${[['simple', 'Simple'], ['detailed', 'Detailed']].map(([v, l]) => `<button type="button" data-view="${v}" aria-pressed="${VIEW === v}" class="${VIEW === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-view]'); if (b) { VIEW = b.dataset.view; try { localStorage.setItem(VIEW_KEY, VIEW); } catch { /* private window */ } route(); return; }
+  const r = e.target.closest?.('tr[data-href]'); if (r) location.hash = r.dataset.href;
+});
+
 async function overview() {
   $('#crumbs').innerHTML = '';
+  if (VIEW === 'simple') {
+    const [teams, dq] = await Promise.all([api('/dashboard/simple'), api('/data-quality').catch(() => [])]);
+    $('#main').innerHTML = viewSwitch() + (teams.length ? simpleView(teams, dq) : '<p class="empty">No data yet. Fill .env and press Refresh now.</p>');
+    return;
+  }
   const [d, dq] = await Promise.all([api('/dashboard'), api('/data-quality').catch(() => [])]);
   const dqBad = dq.filter((x) => x.status !== 'ok');
   if (!d.teams?.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
   const c = d.counts, cur = d.cost?.currency;
   const tile = (label, value, sub, kind) => `<div class="tile ${kind ?? ''}"><div class="k">${esc(label)}</div><div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
   const AREA_COLS = [['flow', 'Flow & DORA', 'Flow'], ['quality', 'Quality', 'Quality'], ['features', 'Features', 'Features'], ['ops', 'Production & cost', 'Prod'], ['docs', 'Docs', 'Docs']];
-  $('#main').innerHTML = `
+  $('#main').innerHTML = viewSwitch() + `
     <div class="tiles">
       ${tile('Healthy', `<i class="ic green" aria-hidden="true">✓</i>${esc(c.Healthy ?? 0)}`, `of ${esc(c.teams)} teams`)}
       ${tile('Watch', `<i class="ic amber" aria-hidden="true">●</i>${esc(c.Watch ?? 0)}`, 'score 50 to 74')}
@@ -184,6 +198,7 @@ async function overview() {
       ${d.cost ? tile('On features', `${esc(d.cost.onFeaturesPct)}%`, `of ${money(d.cost.teamCost, cur)} team cost`) : ''}
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
+    ${alertsPanel(d.alerts)}
     ${dashActivity(d)}
     ${dashHeadlines(d)}
     ${dashSprints(d)}

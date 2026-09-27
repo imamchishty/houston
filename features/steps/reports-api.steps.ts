@@ -50,7 +50,7 @@ Then('every work in progress item has an assignee field', function (this: Housto
 // ---- Sprint board, hand-built ----
 let saved: string | null = null, board: any = null;
 After(async function () { if (saved) { houston.config.dataDir = saved; saved = null; } board = null; });
-Given(/^a sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these items:$/, async function (name: string, from: string, to: string, t: DataTable) {
+Given(/^a (closed )?sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these items:$/, async function (closed: string | undefined, name: string, from: string, to: string, t: DataTable) {
   saved = houston.config.dataDir; houston.config.dataDir = mkdtempSync(join(tmpdir(), 'houston-sprint-'));
   const start = `${from}T00:00:00.000Z`;
   const issues: Issue[] = t.hashes().map((r) => ({
@@ -59,13 +59,14 @@ Given(/^a sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these items:$/, asyn
     assignee: 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,
     addedToSprintAt: r.added ? `${r.added}T12:00:00.000Z` : null, sprintIds: [1], inProgressSince: r.status === 'todo' ? null : '2026-09-08T09:00:00.000Z', epic: null,
   }));
-  const sprint: Sprint = { id: 1, name, board: 'ABC', goal: 'g', start, end: `${to}T00:00:00.000Z`, state: 'active', issues };
+  const sprint: Sprint = { id: 1, name, board: 'ABC', goal: 'g', start, end: `${to}T00:00:00.000Z`, state: closed ? 'closed' : 'active', issues };
   const { store } = await import('../../src/store/index.js');
   store.saveSprints([sprint]); store.saveProjects([]);
 });
-When('the sprint board is read at {word}', async function (at: string) {
+When(/^the (?:sprint board|board for sprint (\d+)) is read at (\S+)$/, async function (id: string | undefined, at: string) {
   const { currentSprint } = await import('../../src/sprintNow.js');
-  board = currentSprint('ABC', false, Date.parse(`${at}:00Z`));
+  board = currentSprint('ABC', false, Date.parse(`${at}:00Z`), id ? Number(id) : undefined);
+  (globalThis as any).__houstonBoard = board;
   assert.ok(board, 'no sprint');
 });
 Then('the sprint has {int} working days, {int} elapsed and {int} left', function (total: number, el: number, left: number) {

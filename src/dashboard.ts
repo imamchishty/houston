@@ -2,7 +2,7 @@ import { store } from './store/index.js';
 import { teamSummary } from './summary.js';
 import { claudeReport } from './claude.js';
 import { BANDS } from './metrics.js';
-import { slice, quality, predictability, efficiency, activitySummary, flatMeasures } from './reports.js';
+import { slice, quality, predictability, efficiency, activitySummary, flatMeasures, withPrevious } from './reports.js';
 import { currentSprints } from './sprintNow.js';
 import { featureCosts } from './cost.js';
 import { costRates } from './claude.js';
@@ -48,6 +48,16 @@ export function dashboard(now = Date.now()) {
     { page: 'efficiency', title: 'Efficiency', question: 'Where is work waiting?', measures: ['pr_lead_time', 'pickup_time'].map((id) => pick(efficiency(s30), id)) },
   ].map((h) => ({ ...h, measures: h.measures.map(({ failing, how, ...m }) => m) }));
 
+  // Team health alerts: every target a team missed in the last 30 days, per team. Red when it was missed the
+  // 30 days before as well (a pattern, not a blip); amber when it is new. Small samples never raise an alert.
+  const alerts = boards.flatMap((board) => (['quality', 'predictability', 'efficiency'] as const).flatMap((page) => {
+    const fn = page === 'quality' ? quality : page === 'predictability' ? predictability : efficiency;
+    return flatMeasures(withPrevious(board, 30, fn, now)).filter((m) => m.met === false && !m.smallSample).map((m) => ({
+      board, page, id: m.id, title: m.title, value: m.value, unit: m.unit, target: m.target, num: m.num, den: m.den, denLabel: m.denLabel,
+      severity: m.previousMet === false ? 'red' as const : 'amber' as const, previous: m.previous ?? null, trend: m.trend ?? null,
+    }));
+  })).sort((a, b) => (a.severity === b.severity ? a.board.localeCompare(b.board) || a.title.localeCompare(b.title) : a.severity === 'red' ? -1 : 1));
+
   // Features in progress, with what they have cost so far and are estimated to cost to finish.
   const projects = boards.flatMap((board) => {
     const b = boardData(board);
@@ -64,6 +74,7 @@ export function dashboard(now = Date.now()) {
   return {
     generatedAt: new Date(now).toISOString(),
     activity: { days: 30, ...activitySummary(s30) },
+    alerts,
     headlines,
     sprints: currentSprints(false, now).map(({ burndown, byStatus, statusType, bugTrend, cycleByDay, inProgress, cycle, velocity, ...sp }) => sp),
     projects,

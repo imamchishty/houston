@@ -35,6 +35,14 @@ export const config = {
     days: Number(process.env.CLAUDE_DAYS ?? 30),
     usdRate: Number(process.env.USD_TO_CURRENCY ?? 3.6725),                     // for the API-equivalent value
   },
+  // Time zone for working days and weekends, hours from UTC (UAE: 4).
+  tzOffset: Number(process.env.TZ_OFFSET_HOURS ?? 0),
+  // How to tell production bugs from bugs caught before release, for defect leakage: labels, or a field's value.
+  bugs: {
+    prodLabels: (process.env.BUG_PROD_LABELS ?? 'production,prod,escaped,customer').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    qaLabels: (process.env.BUG_QA_LABELS ?? 'qa,staging,test,uat').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    envField: process.env.JIRA_BUG_ENV_FIELD ?? '',   // optional custom field holding the environment
+  },
   // Working week. UAE: Saturday and Sunday off since 2022.
   weekend: (process.env.WEEKEND ?? 'sat,sun').split(',').map((d) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(d.trim().toLowerCase())),
   publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
@@ -109,6 +117,7 @@ export function configProblems(c = config): string[] {
   check('CLAUDE_OTEL_APPINSIGHTS', c.claude.appInsights, GUID);
   if (!Number.isFinite(c.claude.seatMonthly) || c.claude.seatMonthly < 0) out.push('CLAUDE_SEAT_MONTHLY must be a number, 0 or more');
   if (!Number.isInteger(c.claude.days) || c.claude.days < 1 || c.claude.days > 90) out.push('CLAUDE_DAYS must be 1 to 90');
+  if (!Number.isFinite(c.tzOffset) || c.tzOffset < -12 || c.tzOffset > 14) out.push('TZ_OFFSET_HOURS must be between -12 and 14');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
     const i = t.indexOf(':'), name = t.slice(0, i), token = t.slice(i + 1);

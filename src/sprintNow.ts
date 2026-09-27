@@ -12,10 +12,12 @@ const work = (s: Sprint) => s.issues.filter((i) => i.type !== 'Sub-task');
 const pts = (xs: Issue[]) => xs.reduce((t, i) => t + (i.points ?? 0), 0);
 const dayOf = (t: number) => new Date(t).toISOString().slice(0, 10);
 
-export function currentSprint(board: string, named: boolean, now = Date.now()) {
+// A sprint's board: the one in progress, or a past one by id (then "now" is its end).
+export function currentSprint(board: string, named: boolean, now = Date.now(), sprintId?: number) {
   const sprints = store.sprints().filter((s) => s.board === board).sort((a, b) => a.start.localeCompare(b.start));
-  const sp = sprints.filter((s) => s.state === 'active').pop();
+  const sp = sprintId != null ? sprints.find((s) => s.id === sprintId) : sprints.filter((s) => s.state === 'active').pop();
   if (!sp) return null;
+  if (sp.state === 'closed') now = Math.min(now, Date.parse(sp.end));
   const start = Date.parse(sp.start), end = Date.parse(sp.end), today = Math.min(now, end);
   const items = work(sp);
   const committed = items.filter((i) => !i.addedToSprintAt || i.addedToSprintAt <= sp.start);
@@ -61,7 +63,15 @@ export function currentSprint(board: string, named: boolean, now = Date.now()) {
   const order = { todo: 0, inprogress: 1, done: 2 } as const;
   const statusType = [...new Map(items.map((i) => [i.status, i.statusCategory])).entries()].sort((a, b) => order[a[1]] - order[b[1]])
     .map(([status]) => ({ status, bugs: items.filter((i) => i.status === status && /^bug$/i.test(i.type)).length, other: items.filter((i) => i.status === status && !/^bug$/i.test(i.type)).length }));
-  const velocity = sprints.filter((s) => s.state === 'closed').slice(-6).map((s) => {
+  // WIP per person: tickets in progress at once. Over 2 means switching between tasks, and slower finishing.
+  const WIP_LIMIT = 2;
+  const wipBy = new Map<string, number>();
+  for (const i of items.filter((x) => x.statusCategory === 'inprogress' && x.assignee)) wipBy.set(i.assignee!, (wipBy.get(i.assignee!) ?? 0) + 1);
+  const over = [...wipBy.entries()].filter(([, n]) => n > WIP_LIMIT).sort((a, b) => b[1] - a[1]);
+  const wip = { limit: WIP_LIMIT, people: wipBy.size, overLimit: over.length, max: Math.max(0, ...wipBy.values()),
+    unassigned: items.filter((x) => x.statusCategory === 'inprogress' && !x.assignee).length,
+    ...(named ? { over: over.map(([name, count]) => ({ name, count })) } : {}) };
+  const velocity = sprints.filter((s) => s.state === 'closed' && s.start <= sp.start).slice(-6).map((s) => {
     const c = work(s).filter((i) => i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= s.start));
     return { sprint: s.name, committed: pts(c), completed: pts(c.filter((i) => doneInSprint(i, s))) };
   });
@@ -75,7 +85,8 @@ export function currentSprint(board: string, named: boolean, now = Date.now()) {
     outlook,
     burndown, byStatus, statusType, bugTrend, cycleByDay,
     bugs: { total: bugs.length, resolved: bugs.filter((b) => b.statusCategory === 'done').length },
-    inProgress, cycle, velocity,
+    inProgress, cycle, velocity, wip, state: sp.state, id: sp.id,
+    sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),
   };
 }
 

@@ -21,7 +21,8 @@ function measureTile(m, opts = {}) {
   return `<div class="mtile">
     <div class="mt">${esc(m.title)}</div>
     <div class="mv">${m.value == null ? '<span class="muted">·</span>' : `${esc(chartFmt(m.value))}<small>${esc(unitOf(m))}</small>`}</div>
-    <div class="ms">${countsText(m)}</div>
+    <div class="ms">${countsText(m)}${m.trend ? ` · ${trendArrow(m.trend)} than ${esc(chartFmt(m.previous))}${esc(unitOf(m))}` : ''}</div>
+    ${m.note ? `<div class="ms">${esc(m.note)}</div>` : ''}
     <div class="mg">${metChip(m)} <span class="muted">${esc(targetText(m.target, m))}</span>${m.smallSample ? '<span class="st amber" title="Too few items to trust this value: under 10 for a rate, under 5 for a median"><i aria-hidden="true">●</i>Small sample</span>' : ''}</div>
     ${about}${failing}
   </div>`;
@@ -49,6 +50,9 @@ async function reportPage(name, teams) {
     ${d.groups.map((g) => `<section class="group"><h2>${esc(g.title)}</h2><p class="muted">${esc(g.question)}</p>
       <div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>
       ${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}
+      ${g.trend?.length ? `<div class="card mt"><h3>Escaped bugs by week</h3>${barChart('esc-' + g.id, { labels: g.trend.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: '', W: 900, H: 180, series: [
+        { name: 'Significant bugs found in production', key: 's2', values: g.trend.map((w) => w.significantBugs) }, { name: 'Incidents (Sev0 to Sev2)', key: 's1', values: g.trend.map((w) => w.incidents) }] })}
+        <p class="note">Significant = priority ${esc('in JIRA_SIGNIFICANT_PRIORITIES')}; bugs labelled pre-release are left out.</p></div>` : ''}
       ${g.detail?.length ? `<details class="tbl"><summary>Sprints in this period</summary><table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
         ${g.detail.map((x) => `<tr><td>${esc(x.board)}</td><td>${esc(x.sprint)}</td><td class="num">${esc(x.planned)}</td><td class="num">${esc(x.done)}</td><td class="num">${esc(x.pct)}%</td></tr>`).join('')}</table></details>` : ''}
     </section>`).join('')}
@@ -81,9 +85,10 @@ function sprintBoard(cs) {
   return `<div class="sboard">
     <div class="card sb-days"><div class="k">Days left in sprint</div><div class="huge ${dayCls}">${esc(cs.workingDaysLeft)}</div><div class="s">working days of ${esc(cs.workingDays)}</div></div>
     <div class="card sb-rem"><div class="k">Remaining story points</div><div class="huge ${remCls}">${esc(p.remaining)}</div><div class="s">${outlookChip(cs.outlook)}${cs.unestimated ? ` · ${esc(cs.unestimated)} unestimated items not counted` : ''}</div></div>
-    <div class="card sb-title"><div class="k">Sprint</div><div class="sname">${esc(cs.sprint)}</div><div class="s">${esc(shortDate(cs.start))} to ${esc(shortDate(cs.end))}${cs.goal ? ` · ${esc(cs.goal)}` : ' · no sprint goal'}</div>
+    <div class="card sb-title"><div class="k">Sprint <select class="sprintpick" data-board="${esc(cs.board)}">${cs.sprints.slice().reverse().map((x) => `<option value="${esc(x.id)}"${x.id === cs.id ? ' selected' : ''}>${esc(x.name)}${x.state === 'active' ? ' (now)' : ''}</option>`).join('')}</select></div><div class="sname">${esc(cs.sprint)}</div><div class="s">${esc(shortDate(cs.start))} to ${esc(shortDate(cs.end))}${cs.goal ? ` · ${esc(cs.goal)}` : ' · no sprint goal'}</div>
       <p class="note">Outlook: points done per working day so far (${esc(p.done)} in ${esc(cs.workingDaysElapsed)} days), carried to the end of the sprint: ${esc(p.projected)} of ${esc(p.scope)} points.</p></div>
-    <div class="card sb-wip"><h3>Work in progress</h3>${cs.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days</th>${named ? '<th>Assignee</th>' : ''}</tr>
+    <div class="card sb-wip"><h3>Work in progress <span class="muted">${esc(cs.inProgress.length)} items, ${esc(cs.wip.people)} people${cs.wip.overLimit ? ` · <span class="down">${esc(cs.wip.overLimit)} ${cs.wip.overLimit === 1 ? 'person has' : 'people have'} more than ${esc(cs.wip.limit)} at once</span>` : ` · nobody over ${esc(cs.wip.limit)} at once`}</span></h3>
+      ${cs.wip.over?.length ? `<p class="note">Over the limit: ${cs.wip.over.map((o) => `${esc(o.name)} (${esc(o.count)})`).join(', ')}. Starting fewer things finishes more.</p>` : ''}${cs.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days</th>${named ? '<th>Assignee</th>' : ''}</tr>
       ${cs.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num ${x.days > 5 ? 'warn' : ''}">${esc(x.days ?? '·')}</td>${named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : ''}</tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}
       <p class="note">${esc(cs.inProgress.length)} items. Days in progress over 5 are highlighted.</p></div>
     <div class="card sb-burn"><h3>Sprint burndown</h3>${lineChart('sb-burn', { labels: days, xLabel: shortDate, unit: 'points', whole: true, H: 240, W: 560, series: [
@@ -152,3 +157,43 @@ function dashActivity(d) {
     <div class="tile"><div class="k">Tickets completed</div><div class="v">${esc(a.ticketsCompleted.toLocaleString())}</div><div class="s">last ${esc(a.days)} days, sub-tasks excluded</div></div>
   </div>`;
 }
+
+// ---------- Simple dashboard: each team in plain English ----------
+const ANSWER = { 'Yes': ['green', '✓'], 'Partly': ['amber', '●'], 'No': ['red', '▲'], 'Not enough data': ['none', '·'] };
+function simpleView(teams, dq) {
+  const bad = dq.filter((x) => x.status !== 'ok').length;
+  return `<p class="lead">${esc(teams.length)} ${teams.length === 1 ? 'team' : 'teams'}: ${esc(teams.filter((t) => t.band === 'Healthy').length)} healthy, ${esc(teams.filter((t) => t.band === 'Watch').length)} to watch, ${esc(teams.filter((t) => t.band === 'Needs attention').length)} needing attention.${bad ? ` <a href="#_data">${esc(bad)} data ${bad === 1 ? 'check' : 'checks'} to look at</a> before trusting every number.` : ''}</p>
+    <div class="simple">${teams.map((t) => `<section class="card sc">
+      <div class="sch"><h2 class="big">${esc(t.board)}</h2><span class="band ${bandCls(t.band)}">${esc(t.band)}</span></div>
+      <p class="sum">${esc(t.summary)}</p>
+      ${t.questions.map((q) => `<div class="qa"><span class="st ${ANSWER[q.answer][0]} ans"><i aria-hidden="true">${ANSWER[q.answer][1]}</i>${esc(q.answer)}</span>
+        <div><div class="qq">${esc(q.question)}</div><div class="muted">${esc(q.sentence)}</div></div></div>`).join('')}
+      ${t.fixFirst.length ? `<div class="fix"><b>Fix first</b><ul>${t.fixFirst.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
+      ${t.worse.length ? `<div class="fix"><b>Keeps missing its target</b><ul>${t.worse.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>${t.worseCount > t.worse.length ? `<span class="muted">and ${esc(t.worseCount - t.worse.length)} more</span>` : ''}</div>` : ''}
+      <a class="more" href="#${esc(encodeURIComponent(t.board))}">See the detail →</a>
+    </section>`).join('')}</div>
+    <p class="note">Answers use the last 30 days. Switch to Detailed for every number, chart and definition.</p>`;
+}
+
+// ---------- Team health alerts (detailed dashboard) ----------
+function alertsPanel(alerts) {
+  if (!alerts.length) return `<div class="card alerts"><h3>Team health alerts</h3><p class="note"><span class="st green"><i>✓</i></span> Every target met in the last 30 days.</p></div>`;
+  const red = alerts.filter((a) => a.severity === 'red').length;
+  const shown = alerts.slice(0, 10);
+  return `<div class="card alerts"><h3>Team health alerts <span class="muted">${esc(alerts.length)} targets missed, ${esc(red)} for two periods running</span></h3>
+    <table class="t">${shown.map((a) => `<tr class="row" data-href="#_${esc(a.page)}"><td><span class="st ${a.severity}"><i aria-hidden="true">${a.severity === 'red' ? '▲' : '●'}</i>${a.severity === 'red' ? 'Keeps missing' : 'Missed'}</span></td>
+      <td><b>${esc(a.board)}</b></td><td>${esc(a.title)}</td><td class="num">${esc(chartFmt(a.value))}${esc(unitOf(a))}</td>
+      <td class="muted">${esc(targetText(a.target, a))}</td><td class="muted">${a.trend ? trendArrow(a.trend) : ''}</td></tr>`).join('')}</table>
+    ${alerts.length > shown.length ? `<p class="note">and ${esc(alerts.length - shown.length)} more on the Quality, Predictability and Efficiency pages.</p>` : ''}
+    <p class="note">Amber: target missed in the last 30 days. Red: missed in the 30 days before as well. Small samples never raise an alert.</p></div>`;
+}
+const trendArrow = (t) => (t === 'better' ? '<span class="up">▲ better</span>' : t === 'worse' ? '<span class="down">▼ worse</span>' : t === 'same' ? '<span class="muted">no change</span>' : '');
+
+// Choosing a past sprint re-renders the board for it.
+document.addEventListener('change', async (e) => {
+  if (!e.target.classList?.contains('sprintpick')) return;
+  const board = e.target.dataset.board, id = e.target.value;
+  const cs = await api(`/sprints/current?team=${encodeURIComponent(board)}&sprint=${encodeURIComponent(id)}`);
+  const box = document.querySelector('.sboard'); if (!box) return;
+  box.outerHTML = sprintBoard(cs); sizeBars();
+});

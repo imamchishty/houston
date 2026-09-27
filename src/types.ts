@@ -227,5 +227,7 @@ export interface WorkItem {
   priority: string | null; reporter: string | null; assignee: string | null;
   created: string; resolved: string | null;
   points: number | null; epic: string | null; inSprint: boolean;
+  labels?: string[];          // Jira labels, lower case
+  env?: string | null;        // JIRA_BUG_ENV_FIELD value, if configured
 }
 export interface ProjectSnapshot { board: string; project: string; since: string; until: string; items: WorkItem[] }

@@ -52,6 +52,18 @@ Given('these incidents:', function (t: DataTable) {
   s.incidents = t.hashes().map((r) => ({ firedAt: iso(r.fired), resolvedAt: blank(r.resolved) ? null : iso(r.resolved) }));
 });
 
+Given('a closed sprint from {word} to {word} with these finished tickets:', function (from: string, to: string, t: DataTable) {
+  const start = `${from}T00:00:00.000Z`, end = `${to}T00:00:00.000Z`;
+  s.sprints = [{ id: 7, name: 'ABC Sprint 7', board: 'ABC', goal: 'g', start, end, state: 'closed', issues: t.hashes().map((r) => ({
+    key: r.key, summary: r.key, type: 'Story', status: 'Done', statusCategory: 'done' as const, points: r.points ? Number(r.points) : null, assignee: null,
+    hasAcceptanceCriteria: true, created: `${r.created}T09:00:00.000Z`, resolved: `${r.resolved}T12:00:00.000Z`, addedToSprintAt: null, sprintIds: [7], inProgressSince: null })) }];
+});
+Given('these labelled bugs:', function (t: DataTable) {
+  s.items = t.hashes().map((r) => ({ key: r.key, type: 'Bug', status: 'To Do', statusCategory: 'todo' as const, priority: 'Medium', reporter: null, assignee: null,
+    created: iso(r.created), resolved: null, points: null, epic: null, inSprint: false, labels: r.labels ? [r.labels] : [] }));
+});
+Then(/^(\w+) notes "([^"]+)"$/, function (id: string, note: string) { assert.equal(m(id).note, note); });
+
 When('the reports are calculated', async function () {
   const { quality, predictability, efficiency, flatMeasures } = await import('../../src/reports.js');
   measures = [quality(s), predictability(s), efficiency(s)].flatMap(flatMeasures);

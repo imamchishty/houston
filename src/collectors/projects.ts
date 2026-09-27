@@ -15,7 +15,7 @@ export async function collectProjects(): Promise<ProjectSnapshot[]> {
     const project = projectKeyFor(b.name);
     const rows = await searchAll(
       `project = ${jqlString(project)} AND issuetype != Epic AND (created >= -${config.jira.days}d OR resolved >= -${config.jira.days}d)`,
-      ['issuetype', 'status', 'priority', 'reporter', 'assignee', 'created', 'resolutiondate', 'parent', pointsField, epicField, sprintField]);
+      ['issuetype', 'status', 'priority', 'reporter', 'assignee', 'created', 'resolutiondate', 'parent', 'labels', pointsField, epicField, sprintField, ...(config.bugs.envField ? [config.bugs.envField] : [])]);
     const items: WorkItem[] = rows.map((r) => {
       const f = r.fields ?? {};
       const parentIsEpic = f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic';
@@ -27,6 +27,8 @@ export async function collectProjects(): Promise<ProjectSnapshot[]> {
         points: typeof f[pointsField] === 'number' ? f[pointsField] : null,
         epic: f[epicField] ?? (parentIsEpic ? f.parent.key : null),
         inSprint: Array.isArray(sprints) ? sprints.length > 0 : !!sprints,
+        labels: (f.labels ?? []).map((l: string) => String(l).toLowerCase()),
+        env: config.bugs.envField ? (f[config.bugs.envField]?.value ?? f[config.bugs.envField] ?? null) : null,
       };
     });
     out.push({ board: b.name, project, since: since.toISOString(), until: until.toISOString(), items });
@@ -49,6 +51,7 @@ export function demoProjects(sprints: Sprint[]): ProjectSnapshot[] {
         priority: i.type === 'Bug' ? (r() < (weak ? 0.25 : 0.08) ? 'Highest' : r() < 0.5 ? 'High' : 'Medium') : 'Medium',
         reporter: i.type === 'Bug' ? (r() < 0.3 ? 'Support' : r() < 0.5 ? 'QA' : i.assignee) : i.assignee,
         assignee: i.assignee, created: i.created, resolved: i.resolved, points: i.points, epic: i.epic ?? null, inSprint: true,
+        labels: i.type === 'Bug' ? (r() < 0.15 ? [] : [r() < (weak ? 0.45 : 0.15) ? 'production' : 'qa']) : [],
       });
     }
     const people = [...new Set([...seen.values()].map((x) => x.assignee).filter((x): x is string => !!x))];
@@ -61,6 +64,7 @@ export function demoProjects(sprints: Sprint[]): ProjectSnapshot[] {
         created: new Date(created).toISOString(), resolved: done ? new Date(created + (1 + r() * (weak ? 25 : 8)) * DAY).toISOString() : null,
         points: r() < (weak ? 0.5 : 0.85) ? [1, 2, 3][Math.floor(r() * 3)] : null,
         epic: !bug && r() < (weak ? 0.3 : 0.7) ? `${board}-E${1 + Math.floor(r() * 6)}` : null, inSprint: false,
+        labels: bug ? (r() < 0.2 ? [] : [r() < (weak ? 0.5 : 0.2) ? 'production' : 'staging']) : [],
       });
     }
     return { board, project: board, since: new Date(since).toISOString(), until: new Date(until).toISOString(), items: [...seen.values()] };

@@ -143,6 +143,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 |---|---|---|
 | `change_failure_rate` Change failure rate | (Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch. | under 10% |
 | `rework_rate` Rework rate | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
+| `defect_leakage` Defect leakage | Bugs created in the period found in production ÷ bugs found in production or before release (labels production/prod/escaped/customer vs qa/staging/test/uat). | under 20% |
 | `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
 | `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
 | `time_to_restore` Time to restore (median) | Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor). | under 24 hours |
@@ -156,6 +157,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | Measure | Definition | Target |
 |---|---|---|
 | `sprint_completion` Sprint completion | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | over 80% |
+| `unplanned_work` Unplanned work | Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work. | under 20% |
 | `scope_added` Scope added mid-sprint | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | under 15% |
 | `use_of_branches` Use of branches | Non-merge commits on the default branch that arrived through a merged PR ÷ all non-merge commits on the default branch, in the period. GitHub links each commit to its PR, whatever the merge strategy. | over 95% |
 | `merged_with_pr` Merged branches with PR | PRs merged to the default branch ÷ (those PRs + plain git merges on the default branch with no PR), in the period. | over 95% |
@@ -170,6 +172,7 @@ The period is the last 7, 30 or 90 days; an item counts when its date (merged, c
 | Measure | Definition | Target |
 |---|---|---|
 | `pr_lead_time` PR lead time (median) | Median days from PR opened to merged, PRs merged in the period. | under 2.5 days |
+| `pr_cycle_hours` PR cycle time, weekends excluded (median) | Median hours from PR opened to merged, leaving out weekend days (Sat, Sun, UTC+0). PRs merged in the period. | under 60 hours |
 | `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
 | `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
 | `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
@@ -186,6 +189,14 @@ Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priori
 - Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
 - Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
 
+
+## Simple dashboard
+
+Four questions per team, last 30 days, built from the measures above: delivering what it promised (sprint completion:
+Yes at 80% or more, Partly at 60%, else No); current sprint on track (outlook); quality (change failure rate and defect
+leakage: Yes if both meet target, Partly if one, No if neither); speed (DORA lead time tier: Elite or High Yes, Medium
+Partly, Low No; nothing released while work was finished is No). "Not enough data" when there is nothing to measure or
+the sample is small. Alerts: amber when a target is missed in the last 30 days, red when also missed the 30 days before.
 
 ## Cost to build a feature
 
