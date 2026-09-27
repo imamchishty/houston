@@ -28,3 +28,6 @@ Feature: Every metric is explained
       | change_failure   | 10    | High   |
       | change_failure   | 20    | Low    |
       | time_to_restore  | 30    | Medium |
+
+  Scenario: Every report measure is defined in METRICS.md
+    Then METRICS.md defines every report measure

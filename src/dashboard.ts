@@ -65,7 +65,7 @@ export function dashboard(now = Date.now()) {
     generatedAt: new Date(now).toISOString(),
     activity: { days: 30, ...activitySummary(s30) },
     headlines,
-    sprints: currentSprints(false, now).map(({ burndown, byStatus, inProgress, cycle, velocity, ...sp }) => sp),
+    sprints: currentSprints(false, now).map(({ burndown, byStatus, statusType, bugTrend, cycleByDay, inProgress, cycle, velocity, ...sp }) => sp),
     projects,
     data: { lastCollected: last, ageHours: ageHours == null ? null : Math.round(ageHours * 10) / 10, stale: ageHours == null || ageHours > STALE_HOURS },
     counts: { teams: teams.length, ...Object.fromEntries(BANDS.map((b) => [b.label, teams.filter((t) => t.band === b.label).length])) },

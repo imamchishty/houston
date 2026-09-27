@@ -49,6 +49,8 @@ window.addEventListener('hashchange', route); route();
 async function route() {
   await metricsReady;
   if (location.hash === '#_metrics') return metricsPage();
+  const rep = location.hash.match(/^#_(quality|predictability|efficiency)$/);
+  if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
   return team(board, tab || 'overview');
@@ -82,7 +84,9 @@ const fmtNum = (v) => (v == null ? '·' : Number.isInteger(v) ? v.toLocaleString
 
 function doraChart(m) {
   const id = 'c' + m.id, W = 640, H = 170, L = 34, R = 8, T = 10, B = 22, n = m.series.length;
-  CHARTS.set(id, m);
+  CHARTS.set(id, { tip: (i) => { const p = m.series[i]; return { title: shortDay(p.day), rows: [
+    { name: m.seriesLabel, value: `${fmtNum(p.value)} ${p.value === 1 ? m.seriesUnit.replace(/s$/, '') : m.seriesUnit}`, color: 'var(--series)', line: m.chart === 'line' },
+    { name: '7 day average', value: fmtNum(p.avg), color: 'var(--ink)', line: true }] }; } });
   const vals = m.series.flatMap((p) => [p.value, p.avg]).filter((v) => v != null);
   // Counts get whole-number gridlines: an even top, so the middle line is whole too.
   let max = niceMax(Math.max(0, ...vals)); if (m.chart === 'bar' && max % 2) max += 1;
@@ -130,19 +134,25 @@ async function renderDora() {
   box.classList.remove('loading');
 }
 
-// Hover readout for every DORA chart: value first, then the average; text only, never HTML.
+// Hover readout for every chart: a crosshair at the hovered x, then the values (strong) with their series names.
+// Built with textContent only: labels come from Jira and GitHub and are never treated as HTML.
 function showTip(hit, evt) {
-  const m = CHARTS.get(hit.dataset.chart), i = Number(hit.dataset.i), p = m.series[i], tip = $('#tip');
+  const entry = CHARTS.get(hit.dataset.chart); if (!entry) return;
+  const t = entry.tip(Number(hit.dataset.i)), tip = $('#tip');
   const svg = hit.ownerSVGElement, x = Number(hit.getAttribute('x')) + Number(hit.getAttribute('width')) / 2;
-  const xh = svg.querySelector('.xhair'); xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('visibility', 'visible');
+  const xh = svg.querySelector('.xhair'); if (xh) { xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('visibility', 'visible'); }
   tip.replaceChildren();
-  const strong = document.createElement('b'); strong.textContent = `${fmtNum(p.value)} ${p.value === 1 ? m.seriesUnit.replace(/s$/, '') : m.seriesUnit}`;
-  const avg = document.createElement('div'); avg.textContent = `7 day average ${fmtNum(p.avg)}`;
-  const day = document.createElement('div'); day.className = 'muted'; day.textContent = shortDay(p.day);
-  tip.append(strong, avg, day);
-  const r = svg.getBoundingClientRect();
-  tip.style.left = `${Math.min(window.innerWidth - 180, r.left + (x / 640) * r.width + 12)}px`;
-  tip.style.top = `${(evt?.clientY ?? r.top + 20) + window.scrollY - 10}px`;
+  const head = document.createElement('div'); head.className = 'muted'; head.textContent = t.title; tip.append(head);
+  for (const r of t.rows) {
+    const row = document.createElement('div'); row.className = 'tiprow';
+    const key = document.createElement('i'); key.className = r.line ? 'tipkey line' : 'tipkey'; key.style.background = r.color; // CSSOM, allowed by the CSP
+    const v = document.createElement('b'); v.textContent = r.value;
+    const n = document.createElement('span'); n.textContent = r.name;
+    row.append(key, v, n); tip.append(row);
+  }
+  const box = svg.getBoundingClientRect(), vbw = svg.viewBox.baseVal.width || 640;
+  tip.style.left = `${Math.min(window.innerWidth - 220, box.left + (x / vbw) * box.width + 12)}px`;
+  tip.style.top = `${(evt?.clientY ?? box.top + 20) + window.scrollY - 10}px`;
   tip.hidden = false;
 }
 document.addEventListener('pointerover', (e) => { const h = e.target.closest?.('rect.hit'); if (h) showTip(h, e); });
@@ -172,6 +182,9 @@ async function overview() {
       ${d.cost ? tile('On features', `${esc(d.cost.onFeaturesPct)}%`, `of ${money(d.cost.teamCost, cur)} team cost`) : ''}
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
+    ${dashActivity(d)}
+    ${dashHeadlines(d)}
+    ${dashSprints(d)}
 
     <div class="filters" role="group" aria-label="DORA filters">
       <label>Team <select id="dteam"><option value="all">All teams</option>${d.teams.map((t) => `<option value="${esc(t.board)}"${DORA.team === t.board ? ' selected' : ''}>${esc(t.board)}</option>`).join('')}</select></label>
@@ -198,12 +211,14 @@ async function overview() {
     </table>
     <p class="note legend"><span class="st green"><i>✓</i></span> Healthy 75+ · <span class="st amber"><i>●</i></span> Watch 50 to 74 · <span class="st red"><i>▲</i></span> Needs attention below 50 · DORA tiers from the State of DevOps research. Click a team for detail.</p></div>
 
+    ${dashProjects(d)}
     ${d.attention.length ? `<h2>Where effort moves scores most</h2>
     <div class="card"><table class="t">
       <tr><th class="num">Gain</th><th>Team</th><th>Check</th><th>Area</th></tr>
       ${d.attention.map((g) => `<tr class="row" data-go="${esc(g.board)}"><td class="num"><b>+${esc(g.gain)}</b></td><td>${esc(g.board)}</td><td>${esc(g.title)}</td><td>${esc(g.area)}</td></tr>`).join('')}
     </table><p class="note">Points each check would add to its area score if it went green, across all teams.</p></div>` : ''}`;
   renderDora();
+  sizeBars();
 }
 
 const finding = (board, f) => `
@@ -216,10 +231,10 @@ const finding = (board, f) => `
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r, cost, hist, ai] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null)]);
+  const [d, p, r, cost, hist, ai, cs] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null)]);
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
-  const tabs = [['overview', 'Overview'], ['sprint', 'Sprint'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
+  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], ['sprint', 'Sprint checks'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
   const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
   // What moves the scores: points each check would add to its area score if it went green, biggest first.
@@ -293,6 +308,7 @@ async function team(board, tab) {
     features: () => `<h2>Features, from Jira epics</h2>${features.findings.map((f) => finding(board, f)).join('')}${costSection(cost)}`,
     prod: () => `<h2>Production & cost, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
+    now: () => sprintBoard(cs),
     claude: () => claudeSection(ai),
     people: () => `
       <h2>Jira, last ${p.people[0]?.sprints ?? 0} sprints</h2>
@@ -307,13 +323,14 @@ async function team(board, tab) {
       ${p.docs.map((x) => `<tr><td>${esc(x.name)}</td><td class="num">${esc(x.created)}</td><td class="num">${esc(x.edited)}</td><td class="num">${esc(x.adrs)}</td><td class="num">${esc(x.runbooks)}</td><td>${x.last ? esc(String(x.last).slice(0, 10)) : ''}</td></tr>`).join('')}</table>` : ''}
       ${p.activity?.length ? `<h2>Active days, last 6 weeks</h2>
       <table class="t"><tr><th>Name</th><th class="num">Active days / week</th><th class="num">Weekdays with a trace</th><th>Pattern</th><th>Last active</th></tr>
-      ${p.activity.map((x) => `<tr><td>${esc(x.name)}</td><td class="num ${x.activeDaysPerWeek < 3 ? 'warn' : ''}">${esc(x.activeDaysPerWeek)}</td><td class="num">${esc(x.weekdaysCovered)} of ${x.weekdaysInWindow}</td><td>${esc(x.pattern)}</td><td>${esc(x.lastActive ?? '')}</td></tr>`).join('')}</table>
+      ${p.activity.map((x) => `<tr><td>${esc(x.name)}</td><td class="num ${x.activeDaysPerWeek < 3 ? 'warn' : ''}">${esc(x.activeDaysPerWeek)}</td><td class="num">${esc(x.weekdaysCovered)} of ${esc(x.weekdaysInWindow)}</td><td>${esc(x.pattern)}</td><td>${esc(x.lastActive ?? '')}</td></tr>`).join('')}</table>
       <p class="note">A day counts if any Jira transition or GitHub action left a trace. This is not attendance and not hours. Someone can be in the office all day with no trace, or at home with ten. Use it to ask, never to conclude.</p>` : ''}
       <p class="note">Questions to ask, not verdicts. Absence in a tool is proof of no trace, not of no work.</p>`,
   };
   $('#main').innerHTML = `
     <div class="tabs">${tabs.map(([k, l]) => `<a href="#" class="${k === tab ? 'on' : ''}" data-go="${esc(board)}" data-tab="${esc(k)}">${esc(l)}</a>`).join('')}</div>
     ${(content[tab] || content.overview)()}`;
+  sizeBars();
   window.scrollTo(0, 0);
 }
 

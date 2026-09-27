@@ -1,0 +1,19 @@
+Feature: Current sprint numbers are exact
+  Days left count working days only. Committed is what was in the sprint at the start; scope includes what was
+  added. The outlook carries the points done per working day so far to the end of the sprint.
+
+  Scenario: Days, points and outlook for a sprint two thirds of the way through
+    Given a sprint "ABC Sprint 7" from Monday 2026-09-07 to Monday 2026-09-21 with these items:
+      | key   | points | status | resolved   | added      |
+      | ABC-1 | 5      | done   | 2026-09-10 |            |
+      | ABC-2 | 3      | done   | 2026-09-15 |            |
+      | ABC-3 | 8      | doing  |            |            |
+      | ABC-4 | 2      | todo   |            | 2026-09-12 |
+      | ABC-5 |        | todo   |            |            |
+    When the sprint board is read at 2026-09-16T12:00
+    Then the sprint has 10 working days, 8 elapsed and 2 left
+    And committed is 16 points, scope 18, done 8 and remaining 10
+    And the projection is 10 points and the outlook is "Off track"
+    And 1 item is unestimated
+    And the ideal line runs from 16 to 0
+    And scope on 2026-09-11 is 16 and on 2026-09-14 is 18

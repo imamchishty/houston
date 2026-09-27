@@ -126,6 +126,62 @@ points per engineer per sprint = done points in the last 6 closed sprints ÷ spr
 merged PRs per engineer per week = merged PRs in the GitHub window ÷ weeks ÷ people.
 cost ratio = TEAM_MONTHLY_COST ÷ OFFSHORE_MONTHLY_COST. output vs best = this team's points per engineer ÷ the highest team's.
 
+## Quality, Predictability and Efficiency reports
+
+Served by `/api/reports/{quality,predictability,efficiency}?team=&days=` and shown on the pages of the same names.
+Every rate is shown with its counts. "Not measured" means there was nothing to count (0 of 0), never 0%.
+The period is the last 7, 30 or 90 days; an item counts when its date (merged, created, resolved, fired) falls inside it.
+
+### Quality
+
+| Measure | Definition | Target |
+|---|---|---|
+| `change_failure_rate` Change failure rate | (Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys), in the period. A hotfix has "hotfix" or "revert" in its title or branch. | under 10% |
+| `rework_rate` Rework rate | Bugs created ÷ PRs merged to the default branch, in the period. All priorities. | under 30% |
+| `pr_review_rate` PR review rate | Merged PRs with at least one review by someone other than the author ÷ merged PRs. | over 95% |
+| `pr_review_comment_rate` PR review comment rate | Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs. | over 50% |
+| `time_to_restore` Time to restore (median) | Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor). | under 24 hours |
+| `bug_lead_time` Bug lead time (median) | Median days from bug created to resolved, bugs resolved in the period. | under 14 days |
+| `bug_fix_find` Bug fix vs find rate | Bugs resolved in the period ÷ bugs created in the period. Above 100% means the backlog of bugs is shrinking. | over 80% |
+| `bug_workload` Bug workload | Bugs resolved ÷ all work items resolved (sub-tasks excluded), in the period. By count, not points. | under 20% |
+| `revert_ratio` Code revert ratio | Merged revert PRs (GitHub's revert button: title "Revert …" or branch revert-N-…) ÷ merged PRs. | under 5% |
+
+### Predictability
+
+| Measure | Definition | Target |
+|---|---|---|
+| `sprint_completion` Sprint completion | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | over 80% |
+| `scope_added` Scope added mid-sprint | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | under 15% |
+| `use_of_branches` Use of branches | Non-merge commits on the default branch that arrived through a merged PR ÷ all non-merge commits on the default branch, in the period. GitHub links each commit to its PR, whatever the merge strategy. | over 95% |
+| `merged_with_pr` Merged branches with PR | PRs merged to the default branch ÷ (those PRs + plain git merges on the default branch with no PR), in the period. | over 95% |
+| `prs_traceable` PRs traceable to a ticket | Merged PRs whose title, branch or body contains a ticket key of the team's Jira project ÷ merged PRs. | over 90% |
+| `tickets_estimated` Estimates on tickets | Work items closed in the period that have story points ÷ work items closed (sub-tasks excluded). | over 90% |
+| `tickets_in_sprint` Tickets in sprints | Work items closed in the period that were ever in a sprint ÷ work items closed (sub-tasks excluded). | over 80% |
+| `tickets_in_epic` Tickets in epics | Work items closed in the period that belong to an epic ÷ work items closed (sub-tasks and bugs excluded: bugs are often not feature work). | over 80% |
+| `epics_with_due_date` Due dates on epics | Epics closed in the period that had a due date ÷ epics closed. | over 80% |
+
+### Efficiency
+
+| Measure | Definition | Target |
+|---|---|---|
+| `pr_lead_time` PR lead time (median) | Median days from PR opened to merged, PRs merged in the period. | under 2.5 days |
+| `pickup_time` Time to first review (median) | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | under 1 days |
+| `review_time` Review to merge (median) | Median days from first review to merge, PRs merged in the period. | under 1.5 days |
+| `pr_size` PR size (median) | Median lines changed (additions + deletions) per PR merged in the period. | under 400 |
+| `cycle_time` Cycle time (median) | Median days from moving to In Progress to resolved, sprint tickets resolved in the period. | under 5 days |
+
+Change failure rate: `CFR_SOURCE=hotfix` (default) or `bugs`. Significant priorities: `JIRA_SIGNIFICANT_PRIORITIES`.
+14-day churn is not measured: it needs line-level history the GitHub API does not provide.
+
+## Current sprint
+
+- Working days: days from sprint start to end not in `WEEKEND`. Left = total - elapsed (elapsed counts days started before now).
+- Committed: points of items in the sprint before it started. Scope: points of every item in the sprint now. Done: points of items resolved by now.
+- Outlook: projected = done ÷ working days elapsed × working days in the sprint. On track if projected ≥ scope, at risk if ≥ 80% of scope, otherwise off track.
+- Burndown: remaining = scope that day - done by that day, per working day. Ideal falls evenly from committed to 0. Jira does not report items removed from a sprint, so scope only rises.
+- Bug trend: bugs in the team's Jira project created and resolved each working day of the sprint.
+
+
 ## Cost to build a feature
 
 An estimate, not accounting. Rates: RATE_FTE_DAY, RATE_CONTRACTOR_DAY for names in CONTRACTORS, RATE_OVERRIDES per person.

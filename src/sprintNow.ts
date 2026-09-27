@@ -47,6 +47,19 @@ export function currentSprint(board: string, named: boolean, now = Date.now()) {
   const cycle = done.filter((i) => i.inProgressSince)
     .map((i) => ({ key: i.key, summary: i.summary, points: i.points, days: Math.round(((Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY) * 10) / 10 }))
     .sort((a, b) => b.days - a.days);
+  // Per working day of the sprint so far: bugs created and resolved in the team's project (sprint or not),
+  // and the average cycle time of sprint items resolved that day.
+  const bugsAll = store.projects().filter((p) => p.board === board).flatMap((p) => p.items).filter((i) => /^bug$/i.test(i.type));
+  const sprintDays = burndown.filter((b) => Date.parse(b.day) <= today).map((b) => b.day);
+  const bugTrend = sprintDays.map((day) => ({ day, created: bugsAll.filter((i) => i.created.slice(0, 10) === day).length, resolved: bugsAll.filter((i) => i.resolved?.slice(0, 10) === day).length }));
+  const cycleByDay = sprintDays.map((day) => {
+    const xs = cycle.filter((c) => done.find((d) => d.key === c.key)!.resolved!.slice(0, 10) === day).map((c) => c.days);
+    return { day, avg: xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null, n: xs.length };
+  });
+  // Status columns in workflow order (to do, in progress, done), each split into bugs and other work.
+  const order = { todo: 0, inprogress: 1, done: 2 } as const;
+  const statusType = [...new Map(items.map((i) => [i.status, i.statusCategory])).entries()].sort((a, b) => order[a[1]] - order[b[1]])
+    .map(([status]) => ({ status, bugs: items.filter((i) => i.status === status && /^bug$/i.test(i.type)).length, other: items.filter((i) => i.status === status && !/^bug$/i.test(i.type)).length }));
   const velocity = sprints.filter((s) => s.state === 'closed').slice(-6).map((s) => {
     const c = work(s).filter((i) => i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= s.start));
     return { sprint: s.name, committed: pts(c), completed: pts(c.filter((i) => i.statusCategory === 'done')) };
@@ -59,7 +72,7 @@ export function currentSprint(board: string, named: boolean, now = Date.now()) {
     unestimated: items.filter((i) => i.points == null).length,
     items: { total: items.length, done: done.length },
     outlook,
-    burndown, byStatus,
+    burndown, byStatus, statusType, bugTrend, cycleByDay,
     bugs: { total: bugs.length, resolved: bugs.filter((b) => b.statusCategory === 'done').length },
     inProgress, cycle, velocity,
   };

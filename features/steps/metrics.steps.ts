@@ -29,3 +29,11 @@ Then(/^a (\w+) of ([\d.]+) is DORA "(\w+)"$/, async function (metric: string, va
   const { doraTier } = await import('../../src/metrics.js');
   assert.equal(doraTier(metric, Number(value)), tier);
 });
+
+Then('METRICS.md defines every report measure', async function () {
+  const { readFileSync } = await import('node:fs');
+  const { TARGETS } = await import('../../src/reports.js');
+  const doc = readFileSync('METRICS.md', 'utf8');
+  const missing = Object.keys(TARGETS).filter((id) => !doc.includes(`\`${id}\``));
+  assert.deepEqual(missing, [], 'measures missing from METRICS.md');
+});
