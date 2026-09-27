@@ -61,6 +61,89 @@ function trendline(xs, w = 96, h = 32) {
     <circle cx="${x(xs.length - 1)}" cy="${y(xs[xs.length - 1])}" r="3" fill="var(--ink)" stroke="var(--panel)" stroke-width="1.5"/></svg>`;
 }
 
+// DORA: one row per metric, like a DevOps wall board. What it is and how it is measured, the headline for the
+// period with the change on the previous one, and a daily chart with a 7 day average. Filters scope all four rows.
+let DORA = { team: 'all', days: 30 };
+const CHARTS = new Map(); // chart id -> series, for the hover readout
+const shortDay = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const niceMax = (v) => { if (v <= 0) return 1; const p = 10 ** Math.floor(Math.log10(v)); const n = v / p; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p; };
+const fmtNum = (v) => (v == null ? '·' : Number.isInteger(v) ? v.toLocaleString() : v.toFixed(1));
+
+function doraChart(m) {
+  const id = 'c' + m.id, W = 640, H = 170, L = 34, R = 8, T = 10, B = 22, n = m.series.length;
+  CHARTS.set(id, m);
+  const vals = m.series.flatMap((p) => [p.value, p.avg]).filter((v) => v != null);
+  // Counts get whole-number gridlines: an even top, so the middle line is whole too.
+  let max = niceMax(Math.max(0, ...vals)); if (m.chart === 'bar' && max % 2) max += 1;
+  const y = (v) => T + (H - T - B) * (1 - v / max), slot = (W - L - R) / n;
+  const bw = Math.max(1, Math.min(24, slot - 2)), cx = (i) => L + i * slot + slot / 2;
+  const grid = [0, max / 2, max].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ax" text-anchor="end">${esc(fmtNum(v))}</text>`).join('');
+  const bars = m.chart === 'bar' ? m.series.map((p, i) => {
+    if (!p.value) return '';
+    const h = (H - T - B) - (y(p.value) - T), x = cx(i) - bw / 2, top = y(p.value), r = Math.min(4, bw / 2, h);
+    return `<path class="bar" d="M${x},${H - B}V${top + r}Q${x},${top} ${x + r},${top}H${x + bw - r}Q${x + bw},${top} ${x + bw},${top + r}V${H - B}Z"/>`;
+  }).join('') : '';
+  const path = (key) => { let d = '', pen = false; m.series.forEach((p, i) => { if (p[key] == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${cx(i)},${y(p[key])}`; pen = true; }); return d; };
+  // Line series: each day's value as a dot (days with no data are simply absent), the 7 day average as the line.
+  const daily = m.chart === 'line' ? m.series.map((p, i) => (p.value == null ? '' : `<circle class="dot" cx="${cx(i)}" cy="${y(p.value)}" r="3.5"/>`)).join('') : '';
+  const ticks = [0, Math.floor((n - 1) / 2), n - 1].map((i) => `<text x="${cx(i)}" y="${H - 6}" class="ax" text-anchor="${i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}">${esc(shortDay(m.series[i].day))}</text>`).join('');
+  const hits = m.series.map((_, i) => `<rect class="hit" data-chart="${id}" data-i="${i}" x="${L + i * slot}" y="${T}" width="${slot}" height="${H - T - B}" tabindex="-1"/>`).join('');
+  const key = m.chart === 'bar' ? `<span class="k"><i class="sw"></i>${esc(m.seriesLabel)}, per day</span>` : `<span class="k"><i class="dt"></i>${esc(m.seriesLabel)}</span>`;
+  return `<div class="legend2">${key}<span class="k"><i class="ln"></i>7 day average</span></div>
+    <div class="chartwrap"><svg viewBox="0 0 ${W} ${H}" class="dchart" role="img" aria-label="${esc(m.seriesLabel)} per day, ${esc(shortDay(m.series[0].day))} to ${esc(shortDay(m.series[n - 1].day))}">
+      ${grid}${bars}${daily}<path class="avg" d="${path('avg')}"/><line class="xhair" id="x${id}" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>${ticks}${hits}</svg></div>
+    <details class="tbl"><summary>Table</summary><table class="t"><tr><th>Day</th><th class="num">${esc(m.seriesUnit)}</th><th class="num">7 day average</th></tr>
+      ${m.series.filter((p) => p.value != null).map((p) => `<tr><td>${esc(shortDay(p.day))}</td><td class="num">${esc(fmtNum(p.value))}</td><td class="num">${esc(fmtNum(p.avg))}</td></tr>`).join('')}</table></details>`;
+}
+
+function doraRow(m, days) {
+  const delta = m.previous == null ? `<span class="muted">No earlier ${days} days to compare</span>`
+    : m.better == null ? `<span class="muted">Same as the previous ${days} days</span>`
+    : `<span class="${m.better ? 'up' : 'down'}">${m.better ? '▲ Better' : '▼ Worse'}</span> <span class="muted">than ${esc(fmtNum(m.previous))}${m.unit === '%' ? '%' : ''} the previous ${days} days</span>`;
+  return `<section class="drow">
+    <div class="dinfo"><h3>${esc(m.title)} ${m.tier ? `<span class="tierchip ${TIER_CLS[m.tier]}">DORA ${esc(m.tier)}</span>` : ''}</h3>
+      <p>${esc(m.how)}</p><p class="muted">${esc(m.why)}</p></div>
+    <div class="dnum"><div class="big">${esc(fmtNum(m.value))}${m.unit === '%' && m.value != null ? '<small>%</small>' : ''}</div>
+      <div class="unit">${m.unit === '%' ? esc(m.note) : `${esc(m.unit)}${m.note ? ` · ${esc(m.note)}` : ''}`}</div><div class="delta">${delta}</div></div>
+    <div class="dchartcell">${doraChart(m)}</div>
+  </section>`;
+}
+
+async function renderDora() {
+  const box = $('#dora'); if (!box) return;
+  box.classList.add('loading'); // keep the frame while refetching
+  const d = await api(`/dora?team=${encodeURIComponent(DORA.team)}&days=${DORA.days}`);
+  if (!d.metrics) { box.innerHTML = `<p class="note">${esc(d.error ?? 'No data')}</p>`; return; }
+  CHARTS.clear();
+  box.innerHTML = `<p class="note">${esc(shortDay(d.from))} to ${esc(shortDay(d.to))}${d.team === 'all' ? `, all ${esc(d.boards.length)} teams together` : ''}.</p>${d.metrics.map((m) => doraRow(m, d.days)).join('')}`;
+  box.classList.remove('loading');
+}
+
+// Hover readout for every DORA chart: value first, then the average; text only, never HTML.
+function showTip(hit, evt) {
+  const m = CHARTS.get(hit.dataset.chart), i = Number(hit.dataset.i), p = m.series[i], tip = $('#tip');
+  const svg = hit.ownerSVGElement, x = Number(hit.getAttribute('x')) + Number(hit.getAttribute('width')) / 2;
+  const xh = svg.querySelector('.xhair'); xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('visibility', 'visible');
+  tip.replaceChildren();
+  const strong = document.createElement('b'); strong.textContent = `${fmtNum(p.value)} ${p.value === 1 ? m.seriesUnit.replace(/s$/, '') : m.seriesUnit}`;
+  const avg = document.createElement('div'); avg.textContent = `7 day average ${fmtNum(p.avg)}`;
+  const day = document.createElement('div'); day.className = 'muted'; day.textContent = shortDay(p.day);
+  tip.append(strong, avg, day);
+  const r = svg.getBoundingClientRect();
+  tip.style.left = `${Math.min(window.innerWidth - 180, r.left + (x / 640) * r.width + 12)}px`;
+  tip.style.top = `${(evt?.clientY ?? r.top + 20) + window.scrollY - 10}px`;
+  tip.hidden = false;
+}
+document.addEventListener('pointerover', (e) => { const h = e.target.closest?.('rect.hit'); if (h) showTip(h, e); });
+document.addEventListener('pointerout', (e) => {
+  const h = e.target.closest?.('rect.hit'); if (!h) return;
+  $('#tip').hidden = true; h.ownerSVGElement.querySelector('.xhair')?.setAttribute('visibility', 'hidden');
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'dteam') { DORA.team = e.target.value; renderDora(); }
+  if (e.target.id === 'ddays') { DORA.days = Number(e.target.value); renderDora(); }
+});
+
 async function overview() {
   $('#crumbs').innerHTML = '';
   const d = await api('/dashboard');
@@ -78,6 +161,13 @@ async function overview() {
       ${d.cost ? tile('On features', `${esc(d.cost.onFeaturesPct)}%`, `of ${money(d.cost.teamCost, cur)} team cost`) : ''}
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
+
+    <div class="filters" role="group" aria-label="DORA filters">
+      <label>Team <select id="dteam"><option value="all">All teams</option>${d.teams.map((t) => `<option value="${esc(t.board)}"${DORA.team === t.board ? ' selected' : ''}>${esc(t.board)}</option>`).join('')}</select></label>
+      <label>Period <select id="ddays">${[7, 30, 90].map((n) => `<option value="${n}"${DORA.days === n ? ' selected' : ''}>Last ${n} days</option>`).join('')}</select></label>
+    </div>
+    <h2>DORA metrics</h2>
+    <div id="dora"></div>
 
     <h2>Teams at a glance</h2>
     <div class="card scrollx"><table class="t dash">
@@ -102,6 +192,7 @@ async function overview() {
       <tr><th class="num">Gain</th><th>Team</th><th>Check</th><th>Area</th></tr>
       ${d.attention.map((g) => `<tr class="row" data-go="${esc(g.board)}"><td class="num"><b>+${esc(g.gain)}</b></td><td>${esc(g.board)}</td><td>${esc(g.title)}</td><td>${esc(g.area)}</td></tr>`).join('')}
     </table><p class="note">Points each check would add to its area score if it went green, across all teams.</p></div>` : ''}`;
+  renderDora();
 }
 
 const finding = (board, f) => `

@@ -184,6 +184,7 @@ export interface AzureSnapshot {
     availability: number;      // % of availability test results passed, last 30 days
     incidents30d: number;      // sev0 to sev2 alerts fired
     medianRestoreMin: number | null; // DORA 4: alert fired to resolved
+    incidents?: { firedAt: string; resolvedAt: string | null; severity: string }[]; // last 90 days, for the time to restore trend
   } | null;
   cost: {
     cloudMonthAed: number;     // last full month, cloud only, for the team's resource group

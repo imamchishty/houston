@@ -186,6 +186,7 @@ Tokens are team level only (no people view, no names) unless the token name is i
 
 | Endpoint | Returns |
 |---|---|
+| `GET /api/dora?team=all&days=30` | The four DORA metrics: headline, previous period, tier, explanation, daily series with 7 day average |
 | `GET /api/dashboard` | The home page: counts by band, data freshness, every team at a glance, biggest gains across teams |
 | `GET /api/teams` | Every team: latest score, RAG, 6 sprint trend, top 3 gaps |
 | `GET /api/teams/:board` | Latest scorecard plus history for one team |

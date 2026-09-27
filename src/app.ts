@@ -9,6 +9,7 @@ import { buildInfo } from './version.js';
 import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
+import { doraSeries, PERIODS } from './dora.js';
 import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
 import { costRates, claudeReport } from './claude.js';
@@ -333,6 +334,14 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
 
   // The home page: every team's status, what needs attention, and whether the data is fresh. Team level only.
   app.get('/api/dashboard', async () => dashboard());
+
+  // The four DORA metrics: headline, change on the previous period, DORA tier, and a daily series. One team or all.
+  app.get<{ Querystring: { team?: string; days?: string } }>('/api/dora', async (req, reply) => {
+    const team = req.query.team ?? 'all', days = Number(req.query.days ?? 30);
+    if (!(PERIODS as readonly number[]).includes(days)) return reply.code(400).send({ error: `days must be one of ${PERIODS.join(', ')}` });
+    if (team !== 'all' && !store.scorecards().some((c) => c.board === team)) return reply.code(404).send({ error: 'No such team' });
+    return doraSeries(team, days as (typeof PERIODS)[number]);
+  });
 
   // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.
   app.get<{ Params: { board: string } }>('/api/teams/:board/summary', async (req, reply) => {
