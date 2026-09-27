@@ -1,0 +1,18 @@
+# Quickest way to run on any VM inside the network: docker compose -f deploy/docker-compose.yml up -d
+services:
+  houston:
+    build: ..
+    ports: ["4000:4000"]
+    env_file: ../.env
+    environment: { HOUSTON_DATA_DIR: /data }
+    volumes: [houston-data:/data]
+    restart: unless-stopped
+  nightly:
+    build: ..
+    env_file: ../.env
+    environment: { HOUSTON_DATA_DIR: /data }
+    volumes: [houston-data:/data]
+    entrypoint: ["sh", "-c", "while true; do tsx src/cli.ts; sleep 86400; done"]
+    restart: unless-stopped
+volumes:
+  houston-data:

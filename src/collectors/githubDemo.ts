@@ -1,0 +1,62 @@
+import type { CiRun, Deploy, GithubSnapshot, PullRequest } from '../types.js';
+
+function rng(seed: number) { let s = seed; return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296); }
+const day = 86_400_000, hour = 3_600_000;
+
+// Ossi cast: 6 engineers plus a tech lead (Karim) who only reviews and an architect (Dinesh) with no activity.
+const ossi = [
+  { name: 'Aisha', lane: 'backend', prs: 22, speed: 1 }, { name: 'Rahul', lane: 'backend', prs: 20, speed: 1.2 },
+  { name: 'Omar', lane: 'backend', prs: 14, speed: 1.8 }, { name: 'Priya', lane: 'frontend', prs: 18, speed: 1 },
+  { name: 'Tom', lane: 'frontend', prs: 12, speed: 2 }, { name: 'Fatima', lane: 'frontend', prs: 24, speed: 0.9 },
+  { name: 'Karim', lane: 'backend', prs: 1, speed: 1 }, { name: 'Dinesh', lane: 'backend', prs: 0, speed: 1 },
+];
+const plat = [
+  { name: 'Lena', lane: 'backend', prs: 28, speed: 0.8 }, { name: 'Yusuf', lane: 'infra', prs: 26, speed: 0.9 },
+  { name: 'Mei', lane: 'frontend', prs: 24, speed: 0.9 }, { name: 'Sam', lane: 'backend', prs: 25, speed: 1 },
+];
+
+function snapshot(board: string, people: typeof ossi, weak: boolean, seed: number): GithubSnapshot {
+  const r = rng(seed);
+  const until = Date.now(), since = until - 90 * day;
+  const prs: PullRequest[] = []; let n = 100;
+  const reviewers = weak ? ['Karim', 'Karim', 'Karim', 'Aisha'] : people.map((p) => p.name);
+  for (const p of people) for (let i = 0; i < p.prs; i++) {
+    const created = since + r() * 88 * day;
+    const size = weak ? 60 + Math.floor(r() * 900) : 40 + Math.floor(r() * 300);
+    const pickupH = (weak ? 6 + r() * 60 : 1 + r() * 10) * p.speed;
+    const reviewH = (weak ? 8 + r() * 70 : 2 + r() * 14);
+    const merged = r() < (weak ? 0.8 : 0.95);
+    const stale = !merged && r() < 0.6;
+    const first = created + pickupH * hour;
+    const mergedAt = merged ? first + reviewH * hour : null;
+    const crossLane = r() < (weak ? 0.06 : 0.35);
+    const areas = crossLane ? ['frontend', 'backend'] : [p.lane];
+    if (r() < 0.3) areas.push('tests');
+    const noReview = weak && r() < 0.18;
+    const rev = noReview ? [] : [reviewers[Math.floor(r() * reviewers.length)]].filter((x) => x !== p.name);
+    prs.push({
+      repo: `m42/${board.toLowerCase()}-${p.lane === 'frontend' ? 'web' : 'api'}`, number: n++, title: `${p.lane} change ${i}`, author: p.name,
+      createdAt: new Date(created).toISOString(),
+      firstReviewAt: noReview ? null : new Date(first).toISOString(),
+      approvedAt: mergedAt ? new Date(mergedAt - hour).toISOString() : null,
+      mergedAt: mergedAt ? new Date(mergedAt).toISOString() : null,
+      closedAt: mergedAt ? new Date(mergedAt).toISOString() : stale ? null : new Date(first + day).toISOString(),
+      additions: Math.round(size * 0.7), deletions: Math.round(size * 0.3), changedFiles: 1 + Math.floor(size / 80),
+      reviewers: rev, reviewCount: rev.length ? 1 + Math.floor(r() * 3) : 0,
+      jiraKeys: r() < (weak ? 0.55 : 0.92) ? [`${board}-${1000 + Math.floor(r() * 400)}`] : [],
+      areas, isHotfix: r() < (weak ? 0.12 : 0.03), draft: false,
+    });
+  }
+  const ci: CiRun[] = []; const deploys: Deploy[] = [];
+  for (let t = since; t < until; t += (weak ? 0.5 : 0.2) * day) {
+    ci.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), conclusion: r() < (weak ? 0.68 : 0.94) ? 'success' : 'failure', durationMin: Math.round(weak ? 25 + r() * 30 : 8 + r() * 8) });
+  }
+  for (let t = since; t < until; t += (weak ? 9 : 0.7) * day) {
+    deploys.push({ repo: `m42/${board.toLowerCase()}-api`, at: new Date(t).toISOString(), ref: 'sha', success: r() < (weak ? 0.75 : 0.96) });
+  }
+  return { board, since: new Date(since).toISOString(), until: new Date(until).toISOString(), repos: [`m42/${board.toLowerCase()}-api`, `m42/${board.toLowerCase()}-web`], prs, deploys, ci };
+}
+
+export function demoGithub(): GithubSnapshot[] {
+  return [snapshot('OSSI', ossi, true, 7), snapshot('PLAT', plat, false, 11)];
+}

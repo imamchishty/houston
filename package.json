@@ -1,0 +1,26 @@
+{
+  "name": "houston",
+  "version": "0.1.0",
+  "description": "Houston: engineering health checks. Phase 1: Jira sprint delivery and hygiene.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "collect": "tsx src/cli.ts collect",
+    "score": "tsx src/cli.ts score",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "tsx src/rules/engine.test.ts",
+    "check": "tsx src/check.ts"
+  },
+  "dependencies": {
+    "@fastify/static": "^8.0.0",
+    "dotenv": "^18.0.4",
+    "fastify": "^5.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
