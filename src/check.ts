@@ -1,5 +1,7 @@
 // npm run check: tests every configured connection and prints what Houston can see. Run this before the first collect.
 import { config, configProblems } from './config.js';
+import { applySavedTeams } from './admin/teamSetup.js';
+applySavedTeams();
 
 const ok = (m: string) => console.log(`  ok   ${m}`);
 const bad = (m: string) => console.log(`  FAIL ${m}`);

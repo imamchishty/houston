@@ -21,6 +21,9 @@ exists az group show -n "$RG" || az group create -n "$RG" -l "$LOC" -o none
 exists az acr show -n "$ACR" -g "$RG" || az acr create -n "$ACR" -g "$RG" --sku Basic --admin-enabled false -o none
 # Tag with the commit so every deploy is traceable. .dockerignore keeps .env out of the upload.
 TAG=$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M)
+# Test this exact code and ship the report in the image (the admin page shows it). A failing test stops the deploy.
+# HOUSTON_SKIP_REPORT=1 skips it: only for the deploy script's own test, which runs this script against a fake az.
+if [ "${HOUSTON_SKIP_REPORT:-}" != 1 ]; then npm run report || { echo "Tests failed: not deploying. See reports/test-report.json" >&2; exit 1; }; fi
 IMAGE="$ACR.azurecr.io/houston:$TAG"
 az acr build -r "$ACR" -t "houston:$TAG" -o none \
   --build-arg BUILD_NUMBER="$TAG" --build-arg GIT_SHA="$(git rev-parse HEAD 2>/dev/null)" --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
@@ -36,7 +39,7 @@ az containerapp env storage set -n "$ENV" -g "$RG" --storage-name data --azure-f
 
 # Secrets and settings come from .env. Put real values there first. Never commit it.
 # Container Apps secret names allow only lowercase letters, digits and hyphens, so JIRA_API_TOKEN is stored as jira-api-token.
-SECRET_KEYS="JIRA_API_TOKEN GITHUB_TOKEN SONAR_TOKEN TESTMO_TOKEN HOUSTON_PASSWORD AZURE_CLIENT_SECRET TEAMS_WEBHOOK HOUSTON_API_TOKENS"
+SECRET_KEYS="JIRA_API_TOKEN GITHUB_TOKEN SONAR_TOKEN TESTMO_TOKEN HOUSTON_PASSWORD HOUSTON_ADMIN_PASSWORD AZURE_CLIENT_SECRET TEAMS_WEBHOOK HOUSTON_API_TOKENS"
 # Value of one key: last definition wins, inline "  # comment" and surrounding quotes removed.
 # A key missing from .env is just blank: grep finding nothing must not stop the script (set -e, pipefail).
 envval() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^"(.*)"$/\1/'; }

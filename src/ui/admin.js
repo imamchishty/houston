@@ -1,0 +1,149 @@
+// ---------- Admin ----------
+// Test report for this build, connection health, team setup and the change log. Signs in with the admin account
+// (the browser asks the first time an admin request is made). Token values are never shown or entered here.
+
+const ADMIN_TABS = [['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['log', 'Change log']];
+const adminApi = async (p, opts) => {
+  const r = await fetch('/api/admin' + p, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(body.error ?? `HTTP ${r.status}`), { status: r.status, body });
+  return body;
+};
+// A JSON content type only when there is a body: Fastify refuses an empty JSON body.
+const adminSend = (method, p, body) => adminApi(p, { method, headers: { 'X-Requested-With': 'houston', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body) });
+const ADMIN = { filter: 'all', q: '', editing: null };
+const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '·');
+const okChip = (ok, yes = 'Works', no = 'Failing', none = 'Not set') => ok === true ? `<span class="st green"><i aria-hidden="true">✓</i>${esc(yes)}</span>`
+  : ok === false ? `<span class="st red"><i aria-hidden="true">▲</i>${esc(no)}</span>` : `<span class="st none"><i aria-hidden="true">·</i>${esc(none)}</span>`;
+
+async function adminPage(tab = 'tests') {
+  $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">Admin</a>`;
+  let st;
+  try { st = await adminApi('/status'); }
+  catch (e) {
+    $('#main').innerHTML = `<h2 class="big">Admin</h2><div class="card"><p>${esc(e.status === 401 ? 'Admin sign-in required. Reload the page to sign in with the admin account.' : e.message)}</p></div>`;
+    return;
+  }
+  $('#main').innerHTML = `<div class="rephead"><div><h2 class="big">Admin</h2><p class="muted">Signed in as ${esc(st.user)} · ${esc(st.teams)} teams, ${esc(st.savedTeams)} set up here · ${esc(st.mode)} mode</p></div></div>
+    ${st.weakPassword ? `<div class="card warnbox"><span class="st amber"><i aria-hidden="true">●</i>Weak admin password</span> Fine for trying Houston locally. Outside demo mode the admin section stays off until HOUSTON_ADMIN_PASSWORD is at least 14 characters and not a common password.</div>` : ''}
+    <div class="tabs">${ADMIN_TABS.map(([k, l]) => `<a href="#_admin/${k}" class="${k === tab ? 'on' : ''}">${esc(l)}</a>`).join('')}</div>
+    <div id="admin-body"><p class="muted">Loading…</p></div>`;
+  const body = $('#admin-body');
+  try { body.innerHTML = await ({ tests: adminTests, connections: adminConnections, teams: adminTeams, log: adminLog }[tab] ?? adminTests)(); }
+  catch (e) { body.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+  window.scrollTo(0, 0);
+}
+
+// Tests: what was proven for this build.
+async function adminTests() {
+  const r = await adminApi('/tests');
+  if (!r.available) return `<div class="card"><p>${esc(r.message)}</p></div>`;
+  const b = r.bdd, v = r.audit.vulnerabilities ?? {};
+  const q = ADMIN.q.toLowerCase();
+  const features = r.featureList.map((f) => ({ ...f, scenarios: f.scenarios.filter((s) => (ADMIN.filter === 'all' || s.status !== 'passed') && (!q || `${f.name} ${s.name} ${s.steps.join(' ')}`.toLowerCase().includes(q))) }))
+    .filter((f) => f.scenarios.length);
+  const chip = (s) => okChip(s === 'passed' ? true : s === 'failed' ? false : null, 'Passed', 'Failed', 'Skipped');
+  return `${r.sameBuild ? '' : `<div class="card warnbox"><span class="st amber"><i aria-hidden="true">●</i>Different build</span> This report is from ${esc(r.build.commit ?? 'an unknown commit')}${r.build.dirty ? ' with uncommitted changes' : ''}, built ${esc(when(r.build.builtAt))}. Houston is running ${esc(r.running.commit ?? 'an unknown commit')}.</div>`}
+    <div class="tiles">
+      <div class="tile"><div class="k">BDD scenarios</div><div class="v">${esc(b.passed)}<small> of ${esc(b.scenarios)}</small></div><div class="s">${okChip(b.ok, 'All passed', `${b.failed} failed`)} · ${esc(b.features)} features</div></div>
+      <div class="tile"><div class="k">Unit tests</div><div class="v">${r.unit.ok ? 'Pass' : 'Fail'}</div><div class="s">${okChip(r.unit.ok, 'Passed', 'Failed')}</div></div>
+      <div class="tile"><div class="k">npm audit</div><div class="v">${esc((v.critical ?? 0) + (v.high ?? 0))}<small> critical or high</small></div><div class="s">${okChip(r.audit.ok, 'Clean', 'Findings')} · ${esc(v.moderate ?? 0)} moderate, ${esc(v.low ?? 0)} low</div></div>
+      <div class="tile"><div class="k">Build</div><div class="v">${esc(r.build.build ?? 'local')}</div><div class="s">${esc(r.build.commit ?? '')} · tested ${esc(when(r.generatedAt))}</div></div>
+    </div>
+    <div class="filters" role="group" aria-label="Filter scenarios">
+      <label>Show <select data-admin="filter"><option value="all"${ADMIN.filter === 'all' ? ' selected' : ''}>All scenarios</option><option value="failed"${ADMIN.filter === 'failed' ? ' selected' : ''}>Failed or skipped only</option></select></label>
+      <label>Search <input type="search" data-admin="q" value="${esc(ADMIN.q)}" placeholder="feature, scenario or step"></label>
+    </div>
+    ${features.length ? features.map((f) => {
+      const failed = f.scenarios.filter((s) => s.status !== 'passed').length;
+      return `<details class="card feat"${failed || q ? ' open' : ''}><summary><b>${esc(f.name)}</b> <span class="muted">${esc(f.scenarios.length)} scenarios${failed ? ` · ${esc(failed)} not passing` : ''} · ${esc(f.file)}</span></summary>
+        ${f.description ? `<p class="muted">${esc(f.description)}</p>` : ''}
+        ${f.scenarios.map((s) => `<details class="scen"><summary>${chip(s.status)} ${esc(s.name)} <span class="muted">${esc(s.ms)} ms</span></summary>
+          <ol class="steps">${s.steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>${s.error ? `<pre class="err">${esc(s.error)}</pre>` : ''}</details>`).join('')}
+      </details>`;
+    }).join('') : '<p class="empty">No scenarios match.</p>'}
+    <p class="note">Written by <code>npm run report</code> when the image is built, and shipped inside it. The live service never runs tests.</p>`;
+}
+
+// Connections: does each one work, when does its token expire, what permission is missing. Never the token.
+async function adminConnections() {
+  const r = await adminApi('/connections');
+  return `<div class="card"><p>Tokens stay in Key Vault (locally, in <code>.env</code>) and are never shown or entered here. To replace one, update the secret and restart Houston, then check again.</p>
+    <p><button class="btn" data-admin="check">Check connections now</button> <span class="muted">${r.checkedAt ? `Last checked ${esc(when(r.checkedAt))}` : 'Not checked since Houston started'}</span></p></div>
+    ${r.checks.length ? `<div class="card scrollx"><table class="t sortable"><thead><tr><th>Source</th><th>Status</th><th>What Houston found</th><th>Token expires</th><th>Missing permissions</th></tr></thead><tbody>
+      ${r.checks.map((c) => `<tr><td><b>${esc(c.source)}</b></td><td data-sort="${c.ok === false ? 0 : c.ok == null ? 1 : 2}">${okChip(c.ok, 'Works', 'Failing', c.configured ? 'Not tested' : 'Not set')}</td>
+        <td>${esc(c.detail)}</td><td>${c.expires ? esc(new Date(c.expires).toLocaleDateString()) : '<span class="muted">·</span>'}</td><td>${c.missing?.length ? esc(c.missing.join(', ')) : '<span class="muted">·</span>'}</td></tr>`).join('')}
+    </tbody></table></div>` : ''}`;
+}
+
+// Teams: every team and where its setup comes from; add or change one, test it, save it.
+async function adminTeams() {
+  const teams = await adminApi('/teams');
+  const t = ADMIN.editing;
+  const src = { admin: 'Admin page', env: '.env', demo: 'Demo data' };
+  return `<div class="card scrollx"><table class="t sortable"><thead><tr><th>Team</th><th>Set up in</th><th>Jira</th><th>Repos</th><th>SonarQube</th><th>Testmo</th><th>Azure</th><th>People</th><th>Changed</th><th></th></tr></thead><tbody>
+    ${teams.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(src[x.source])}</td><td>${x.jiraBoardId ? `${esc(x.jiraProject)} · board ${esc(x.jiraBoardId)}` : '<span class="muted">·</span>'}</td>
+      <td class="num">${esc(x.repos.length)}</td><td>${esc(x.sonarProject || '·')}</td><td>${esc(x.testmoProject || '·')}</td><td>${esc(x.resourceGroup || '·')}</td><td class="num">${esc(x.roster.length)}</td>
+      <td>${x.updatedAt ? `${esc(when(x.updatedAt))} by ${esc(x.updatedBy)}` : '<span class="muted">·</span>'}</td>
+      <td>${x.source === 'demo' ? '' : `<button class="btn small" data-admin="edit" data-team="${esc(x.name)}">Edit</button>`}</td></tr>`).join('')}
+  </tbody></table><p><button class="btn" data-admin="new">Add a team</button></p>
+  <p class="note">A team saved here replaces the .env team of the same name. Its data is collected on the next nightly run, or press Refresh now.</p></div>
+  ${t ? teamForm(t, teams.find((x) => x.name === t.name)?.source) : ''}`;
+}
+function teamForm(t, source) {
+  const f = (k, label, v, hint = '', type = 'text') => `<label class="fld"><span>${esc(label)}</span><input type="${type}" name="${k}" value="${esc(v ?? '')}" autocomplete="off">${hint ? `<small class="muted">${esc(hint)}</small>` : ''}</label>`;
+  const a = (k, label, v, hint) => `<label class="fld"><span>${esc(label)}</span><textarea name="${k}" rows="4">${esc((v ?? []).join('\n'))}</textarea><small class="muted">${esc(hint)}</small></label>`;
+  return `<form class="card teamform" id="teamform" autocomplete="off"><h3>${t.isNew ? 'Add a team' : `Change ${esc(t.name)}`}</h3>
+    <div class="grid2">
+      ${f('name', 'Team name', t.name, 'As Houston shows it, e.g. OSSI. Letters, digits, - and _.')}
+      ${f('jiraProject', 'Jira project key', t.jiraProject, 'e.g. OSS')}
+      ${f('jiraBoardId', 'Jira board id', t.jiraBoardId || '', 'The number in the board URL: …/boards/123', 'number')}
+      ${f('sonarProject', 'SonarQube project key', t.sonarProject, 'Optional')}
+      ${f('testmoProject', 'Testmo project id', t.testmoProject, 'Optional, a number')}
+      ${f('resourceGroup', 'Azure resource group', t.resourceGroup, 'Optional: cloud cost and production data')}
+      ${f('appInsights', 'Application Insights app id', t.appInsights, 'Optional: requests, errors, availability')}
+    </div>
+    <div class="grid3">
+      ${a('repos', 'GitHub repos', t.repos, 'One per line, owner/name')}
+      ${a('confluenceSpaces', 'Confluence spaces', t.confluenceSpaces, 'One space key per line')}
+      ${a('roster', 'People on the team', t.roster, 'One name per line, as Jira and GitHub know them')}
+    </div>
+    <div id="teamresult"></div>
+    <p><button type="button" class="btn" data-admin="test">Test connection</button> <button type="button" class="btn primary" data-admin="save">Save</button>
+      ${source === 'admin' ? `<button type="button" class="btn danger" data-admin="delete" data-team="${esc(t.name)}">Remove</button>` : ''} <button type="button" class="btn" data-admin="cancel">Cancel</button></p>
+  </form>`;
+}
+const formTeam = () => {
+  const fd = new FormData($('#teamform'));
+  return Object.fromEntries(['name', 'jiraProject', 'jiraBoardId', 'sonarProject', 'testmoProject', 'resourceGroup', 'appInsights', 'repos', 'confluenceSpaces', 'roster'].map((k) => [k, String(fd.get(k) ?? '')]));
+};
+const showChecks = (checks) => `<div class="scrollx"><table class="t"><tr><th>Check</th><th>Result</th><th>Found</th></tr>${checks.map((c) => `<tr><td>${esc(c.source)}</td><td>${okChip(c.ok, 'Works', 'Failing', 'Not set')}</td><td>${esc(c.detail)}</td></tr>`).join('')}</table></div>`;
+const showProblems = (e) => `<div class="warnbox"><b>${esc(e.message)}</b><ul>${(e.body?.problems ?? []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
+
+// Change log: what admins changed.
+async function adminLog() {
+  const rows = await adminApi('/log');
+  return rows.length ? `<div class="card scrollx"><table class="t sortable"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td data-sort="${esc(r.at)}">${esc(when(r.at))}</td><td>${esc(r.user)}</td><td>${esc(r.action)}</td><td>${esc(r.detail?.name ?? (Array.isArray(r.detail) ? r.detail.map((c) => `${c.source}: ${c.ok === true ? 'works' : c.ok === false ? 'failing' : 'not set'}`).join(', ') : ''))}</td></tr>`).join('')}
+  </tbody></table></div>` : '<p class="empty">No admin changes yet.</p>';
+}
+
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest?.('[data-admin]'); if (!el || el.tagName === 'SELECT' || el.tagName === 'INPUT') return;
+  const act = el.dataset.admin, out = () => $('#teamresult');
+  try {
+    if (act === 'check') { el.disabled = true; el.textContent = 'Checking…'; await adminSend('POST', '/connections/check'); return adminPage('connections'); }
+    if (act === 'new') { ADMIN.editing = { isNew: true, repos: [], confluenceSpaces: [], roster: [] }; await adminPage('teams'); return $('#teamform')?.scrollIntoView(); }
+    if (act === 'edit') { ADMIN.editing = (await adminApi('/teams')).find((x) => x.name === el.dataset.team) ?? null; await adminPage('teams'); return $('#teamform')?.scrollIntoView(); }
+    if (act === 'cancel') { ADMIN.editing = null; return adminPage('teams'); }
+    if (act === 'test') { out().innerHTML = '<p class="muted">Testing…</p>'; out().innerHTML = showChecks((await adminSend('POST', '/teams/test', formTeam())).checks); return; }
+    if (act === 'save') { await adminSend('POST', '/teams', formTeam()); ADMIN.editing = null; await adminPage('teams'); return; }
+    if (act === 'delete') { if (!confirm(`Remove ${el.dataset.team} from the admin setup? If .env also defines it, that version comes back.`)) return; await adminSend('DELETE', `/teams/${encodeURIComponent(el.dataset.team)}`); ADMIN.editing = null; return adminPage('teams'); }
+  } catch (err) { if (out()) out().innerHTML = err.body?.problems ? showProblems(err) : `<div class="warnbox">${esc(err.message)}</div>`; else alert(err.message); }
+});
+document.addEventListener('change', (e) => { if (e.target.dataset?.admin === 'filter') { ADMIN.filter = e.target.value; adminPage('tests'); } });
+document.addEventListener('input', (e) => {
+  if (e.target.dataset?.admin !== 'q') return;
+  ADMIN.q = e.target.value; clearTimeout(ADMIN.t);
+  ADMIN.t = setTimeout(async () => { const pos = e.target.selectionStart; await adminPage('tests'); const i = $('input[data-admin="q"]'); i?.focus(); i?.setSelectionRange(pos, pos); }, 250);
+});

@@ -38,25 +38,46 @@ import { incidentLog } from './incidents.js';
 import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { Action } from './types.js';
+import { allTeams, applySavedTeams, deleteTeam, normalise, problems, saveTeam, savedTeams } from './admin/teamSetup.js';
+import { checkConnections, testTeam, type Check } from './admin/connections.js';
+import { testReport } from './admin/testReport.js';
+import { adminLog, logAdmin } from './store/history.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 // People sign in with basic auth. Machines (the IDP, Backstage, reporting) use read-only API tokens:
 // HOUSTON_API_TOKENS=backstage:<token>,reporting:<token>. A token is team level only, unless its name is a people viewer.
-export interface AuthOptions { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[] }
+export interface AuthOptions { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[]; admin?: { user: string; pass: string } }
 export const parseTokens = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter((x) => x.includes(':'))
   .map((x) => { const i = x.indexOf(':'); return { name: x.slice(0, i).trim(), token: x.slice(i + 1).trim() }; });
 export const authFromEnv = (): AuthOptions => ({
   user: process.env.HOUSTON_USER ?? '', pass: process.env.HOUSTON_PASSWORD ?? '',
   viewers: (process.env.HOUSTON_PEOPLE_VIEWERS ?? '').split(',').map((x) => x.trim()).filter(Boolean),
   tokens: parseTokens(process.env.HOUSTON_API_TOKENS),
+  admin: { user: process.env.HOUSTON_ADMIN_USER ?? '', pass: process.env.HOUSTON_ADMIN_PASSWORD ?? '' },
 });
+
+// The admin account. Its password is never in the code: HOUSTON_ADMIN_USER and HOUSTON_ADMIN_PASSWORD, from .env
+// locally and Key Vault when live. A weak password is allowed in demo mode (with a warning on the admin page) and
+// turns the admin section off anywhere else; the rest of Houston keeps working.
+const COMMON = new Set(['password', 'password1', 'password123', 'admin', 'admin123', 'admin1234', 'admin12345', 'administrator', 'changeme', 'letmein', 'welcome', 'welcome1', 'qwerty', 'qwerty123', '123456', '12345678', '123456789', 'houston', 'houston123', 'p@ssw0rd', 'passw0rd']);
+export function weakPassword(user: string, pass: string) {
+  const p = pass.toLowerCase();
+  return pass.length < 14 || COMMON.has(p) || (!!user && p.includes(user.toLowerCase())) || /^(.)\1+$/.test(pass) || new Set(pass).size < 6;
+}
+export function adminState(a: AuthOptions['admin']): { enabled: boolean; weak: boolean; reason: string } {
+  if (!a?.user || !a.pass) return { enabled: false, weak: false, reason: 'The admin section is off: HOUSTON_ADMIN_USER and HOUSTON_ADMIN_PASSWORD are not set.' };
+  const weak = weakPassword(a.user, a.pass);
+  if (weak && config.mode !== 'demo') return { enabled: false, weak, reason: 'The admin section is off: HOUSTON_ADMIN_PASSWORD is too weak for live use. Use at least 14 characters, not a common password and not containing the user name.' };
+  return { enabled: true, weak, reason: '' };
+}
 
 // The whole HTTP app, without listening. index.ts serves it; the BDD suite drives it with inject().
 // Throttles and lockouts live inside, so every instance starts clean.
 export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // Small bodies only: the one POST with a body is an action log entry.
   const app = Fastify({ logger: opts.logger ?? true, bodyLimit: 16 * 1024 });
+  applySavedTeams(); // teams set up in the admin page
   // Every API route, so the OpenAPI document can be checked against what is really served.
   const routes: string[] = [];
   app.addHook('onRoute', (r) => { if (r.url.startsWith('/api/')) for (const m of [r.method].flat()) if (m !== 'HEAD') routes.push(`${m} ${r.url}`); });
@@ -105,6 +126,21 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     // State changing requests must come from Houston's own page or a script, not a cross-site form.
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.headers['x-requested-with'] !== 'houston')
       return reply.code(403).send({ error: 'Missing X-Requested-With: houston header' });
+    // The admin section: always its own sign-in, even when the rest of Houston is open (demo mode without a password).
+    if ((req.routeOptions.url ?? '').startsWith('/api/admin/')) {
+      const st = adminState(auth.admin);
+      if (!st.enabled) return reply.code(403).send({ error: st.reason });
+      if (locked(req.ip)) return reply.code(429).send({ error: 'Too many failed sign-ins, try again later' });
+      const h = req.headers.authorization ?? '';
+      const dec = /^Basic /i.test(h) ? Buffer.from(h.slice(6), 'base64').toString() : '', k = dec.indexOf(':');
+      if (k < 0 || !same(dec.slice(0, k), auth.admin!.user) || !same(dec.slice(k + 1), auth.admin!.pass)) {
+        if (h) failed(req.ip);
+        return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston admin"').send({ error: 'Admin sign-in required' });
+      }
+      failures.delete(req.ip);
+      (req as any).houstonUser = auth.admin!.user; (req as any).houstonAdmin = true;
+      return;
+    }
     if (!auth.pass || req.routeOptions.url === '/api/health') return; // probes run without credentials
     if (locked(req.ip)) return reply.code(429).send({ error: 'Too many failed sign-ins, try again later' });
     const hdr = req.headers.authorization ?? '';
@@ -122,7 +158,8 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     const decoded = Buffer.from(hdr.replace(/^Basic /, ''), 'base64').toString();
     const i = decoded.indexOf(':');
     const u = decoded.slice(0, i), p = decoded.slice(i + 1); // passwords may contain ':'
-    if (i < 0 || !same(u, auth.user) || !same(p, auth.pass)) {
+    const isAdmin = i >= 0 && adminState(auth.admin).enabled && same(u, auth.admin!.user) && same(p, auth.admin!.pass);
+    if (i < 0 || (!isAdmin && (!same(u, auth.user) || !same(p, auth.pass)))) {
       if (hdr) failed(req.ip);
       return reply.code(401).header('WWW-Authenticate', 'Basic realm="Houston"').send('Sign in');
     }
@@ -417,6 +454,41 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // Which build is running: CI run number, commit, and when it was built. Shown in the UI footer.
   const build = buildInfo();
   app.get('/api/version', async () => build);
+
+  // ---------- Admin ----------
+  // Only the admin account reaches these (see the onRequest hook). Token values are never read out or accepted here:
+  // tokens stay in Key Vault, and the admin page shows only whether each connection works.
+  const who = (req: unknown) => (req as { houstonUser?: string }).houstonUser ?? 'admin';
+  let lastCheck: { checkedAt: string; checks: Check[] } | null = null;
+  app.get('/api/admin/status', async (req) => ({ user: who(req), weakPassword: adminState(auth.admin).weak, mode: config.mode, teams: allTeams().length, savedTeams: savedTeams().length }));
+  app.get('/api/admin/tests', async () => testReport());
+  app.get('/api/admin/connections', async () => lastCheck ?? { checkedAt: null, checks: [] });
+  app.post('/api/admin/connections/check', async (req) => {
+    lastCheck = { checkedAt: new Date().toISOString(), checks: await checkConnections() };
+    logAdmin(who(req), 'connections checked', lastCheck.checks.map((c) => ({ source: c.source, ok: c.ok })));
+    return lastCheck;
+  });
+  app.get('/api/admin/teams', async () => allTeams());
+  app.post('/api/admin/teams/test', async (req, reply) => {
+    const t = normalise(req.body), p = problems(t);
+    if (p.length) return reply.code(400).send({ error: 'Fix these first', problems: p });
+    return { checks: await testTeam(t) };
+  });
+  app.post('/api/admin/teams', async (req, reply) => {
+    const t = normalise(req.body), p = problems(t);
+    if (p.length) return reply.code(400).send({ error: 'Not saved', problems: p });
+    const before = allTeams().find((x) => x.name === t.name) ?? null;
+    const saved = saveTeam(t, who(req));
+    logAdmin(who(req), before ? 'team changed' : 'team added', { name: t.name, before: before && { ...before, source: undefined }, after: t });
+    return saved;
+  });
+  app.delete<{ Params: { name: string } }>('/api/admin/teams/:name', async (req, reply) => {
+    const before = savedTeams().find((x) => x.name === req.params.name);
+    if (!before || !deleteTeam(req.params.name)) return reply.code(404).send({ error: 'No team set up in the admin page with that name' });
+    logAdmin(who(req), 'team removed', { name: req.params.name, before });
+    return { removed: req.params.name, restoredFromEnv: allTeams().some((x) => x.name === req.params.name) };
+  });
+  app.get('/api/admin/log', async () => adminLog());
 
     return app;
 }

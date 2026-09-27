@@ -36,6 +36,8 @@ export const MIGRATIONS: string[] = [
   // 2: each completed calendar month's key measures, kept for good (raw data only reaches back JIRA_DAYS / GITHUB_DAYS)
   `CREATE TABLE IF NOT EXISTS month_values (month TEXT NOT NULL, board TEXT NOT NULL, metric TEXT NOT NULL, value REAL,
      num REAL, den REAL, recorded TEXT NOT NULL, PRIMARY KEY (month, board, metric));`,
+  // 3: what admins changed, and who, kept for good
+  `CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);`,
 ];
 
 export const schemaVersion = () => (open().prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
@@ -154,4 +156,13 @@ export function recordMonth(month: string, board: string, values: { metric: stri
 export function storedMonth(month: string, board: string): Map<string, { value: number | null; num: number | null; den: number | null }> {
   const rows = open().prepare('SELECT metric, value, num, den FROM month_values WHERE month = ? AND board = ?').all(month, board) as { metric: string; value: number | null; num: number | null; den: number | null }[];
   return new Map(rows.map((r) => [r.metric, { value: r.value, num: r.num, den: r.den }]));
+}
+
+// Admin change log. detail is JSON: what changed, never a secret (the admin page cannot set any).
+export function logAdmin(user: string, action: string, detail: unknown) {
+  open().prepare('INSERT INTO admin_log (at, user, action, detail) VALUES (?, ?, ?, ?)').run(new Date().toISOString(), user, action, JSON.stringify(detail ?? null));
+}
+export function adminLog(limit = 200): { at: string; user: string; action: string; detail: unknown }[] {
+  return (open().prepare('SELECT at, user, action, detail FROM admin_log ORDER BY id DESC LIMIT ?').all(limit) as { at: string; user: string; action: string; detail: string }[])
+    .map((r) => ({ ...r, detail: JSON.parse(r.detail) }));
 }

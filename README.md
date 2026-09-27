@@ -145,6 +145,13 @@ After 10 failed sign-ins from one address it answers 429 for 15 minutes. Serve i
 the per person endpoints to named users; everyone else gets team level only. Recommendations name people only
 for those viewers; everyone else, the digest and Teams posts get a count ("2 people, names in the people view").
 
+`HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD` turn on the admin section (Admin in the header): the test report
+shipped with this build, connection health (works or not, token expiry, missing permissions; never token values),
+team setup with a Test connection button, and a log of every admin change. It always asks for the admin sign-in,
+even when the rest of Houston is open. A weak admin password works in demo mode only; anywhere else the admin
+section stays off until the password is at least 14 characters and not a common one. Teams saved there live in
+`<data>/team-setup.json` and replace the `.env` team of the same name.
+
 ## Security
 
 - `npm audit` clean. CI fails on any high or critical advisory.

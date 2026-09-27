@@ -16,6 +16,11 @@ jobs:
       - run: npm test
       - name: BDD
         run: npm run bdd
+      # The same report the admin page shows, kept with the run
+      - name: Test report
+        run: npm run report -- --existing
+      - uses: actions/upload-artifact@v4
+        with: { name: test-report, path: reports/test-report.json }
       # Stamps build-info.json with this run's number, commit and time: the footer shows "build <run number>".
       - run: npm run build
       - run: bash -n deploy/azure.sh

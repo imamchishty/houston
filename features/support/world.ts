@@ -32,7 +32,7 @@ BeforeAll(async () => {
 
 export class HoustonWorld extends World {
   app?: ReturnType<Houston['buildApp']>;
-  auth: { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[] } = { user: '', pass: '', viewers: [] };
+  auth: { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[]; admin?: { user: string; pass: string } } = { user: '', pass: '', viewers: [] };
   res?: { statusCode: number; headers: Record<string, unknown>; body: string };
   webhook?: { server: Server; url: string; cards: any[] };
   notified?: Awaited<ReturnType<Houston['notifyAll']>>;
@@ -40,7 +40,7 @@ export class HoustonWorld extends World {
   start() { this.app = houston.buildApp({ auth: { ...this.auth }, logger: false }); }
   get pkgVersion() { return JSON.parse(readFileSync('package.json', 'utf8')).version as string; }
 
-  async request(method: 'GET' | 'POST', url: string, o: { user?: string; pass?: string; headers?: Record<string, string>; body?: string } = {}) {
+  async request(method: 'GET' | 'POST' | 'DELETE', url: string, o: { user?: string; pass?: string; headers?: Record<string, string>; body?: string } = {}) {
     if (!this.app) this.start();
     const headers: Record<string, string> = { ...(o.headers ?? {}) };
     if (o.user !== undefined) headers.authorization = 'Basic ' + Buffer.from(`${o.user}:${o.pass}`).toString('base64');

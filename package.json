@@ -13,7 +13,8 @@
     "test": "NODE_OPTIONS='--disable-warning=ExperimentalWarning' tsx src/rules/engine.test.ts && NODE_OPTIONS='--disable-warning=ExperimentalWarning' tsx src/recommend.test.ts",
     "check": "tsx src/check.ts",
     "bdd": "node scripts/stamp.mjs && NODE_OPTIONS='--import tsx --disable-warning=ExperimentalWarning' cucumber-js",
-    "test:deploy": "bash deploy/test-azure.sh"
+    "test:deploy": "bash deploy/test-azure.sh",
+    "report": "node scripts/test-report.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.5",

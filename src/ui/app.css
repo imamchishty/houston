@@ -257,3 +257,20 @@ table.sortable thead th:hover, table.sortable thead th:focus-visible { color:var
 table.sortable thead th::after { content:' ↕'; color:var(--muted); opacity:.5; font-size:11px; }
 table.sortable thead th[aria-sort="ascending"]::after { content:' ▲'; opacity:1; }
 table.sortable thead th[aria-sort="descending"]::after { content:' ▼'; opacity:1; }
+
+/* Admin */
+.btn { color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:7px 14px; font:inherit; font-size:14px; cursor:pointer; }
+.btn:hover { background:var(--soft); } .btn:disabled { opacity:.6; cursor:default; }
+.btn.small { padding:3px 10px; font-size:13px; } .btn.primary { border-color:var(--link); color:var(--link); } .btn.danger { border-color:var(--red); color:var(--red); }
+.warnbox { border-left:4px solid var(--amber); margin:12px 0; } .warnbox ul { margin:6px 0 0 18px; padding:0; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin:12px 0; }
+.feat { margin:10px 0; } .feat > summary, .scen > summary { cursor:pointer; list-style-position:outside; }
+.scen { margin:6px 0 6px 16px; } .scen > summary { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; }
+.steps { margin:6px 0 8px 22px; padding:0; color:var(--muted); font-size:14px; } .steps li { margin:2px 0; }
+pre.err { white-space:pre-wrap; background:var(--red-bg); color:var(--ink); padding:8px 10px; border-radius:6px; font-size:13px; overflow-x:auto; }
+.teamform .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px 16px; }
+.teamform .grid3 { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px 16px; margin-top:12px; }
+.fld { display:flex; flex-direction:column; gap:4px; } .fld span { font-size:13px; color:var(--muted); font-weight:600; }
+.fld input, .fld textarea, .filters input { font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:7px 9px; }
+.fld textarea { resize:vertical; font-family:ui-monospace, Menlo, monospace; font-size:13px; }
+.fld input:focus, .fld textarea:focus, .filters input:focus { outline:2px solid var(--link); outline-offset:1px; }

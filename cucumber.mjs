@@ -2,6 +2,7 @@
 export default {
   paths: ['features/**/*.feature'],
   import: ['features/support/**/*.ts', 'features/steps/**/*.ts'],
-  format: ['progress', 'summary'],
+  // reports/cucumber.json feeds the test report on the admin page (npm run report)
+  format: ['progress', 'summary', 'json:reports/cucumber.json'],
   strict: true,
 };

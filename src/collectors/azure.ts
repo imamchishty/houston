@@ -5,7 +5,7 @@ import type { AzureSnapshot, Epic } from '../types.js';
 const kqlString = (s: string) => s.replace(/[\\"]/g, (c) => '\\' + c);
 
 // Client credentials token for a given scope. Reader roles only; Houston never writes to Azure.
-async function token(scope: string): Promise<string> {
+export async function token(scope: string): Promise<string> {
   const { tenant, client, secret } = config.azure;
   const res = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
     method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

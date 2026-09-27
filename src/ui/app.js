@@ -40,6 +40,8 @@ async function route() {
   CHARTS.clear(); $('#tip').hidden = true; // hover readouts belong to the page being left
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
+  const adm = location.hash.match(/^#_admin(?:\/(tests|connections|teams|log))?$/);
+  if (adm) return adminPage(adm[1] ?? 'tests');
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
   const rep = location.hash.match(/^#_(dora|flow|quality|security|planning)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());

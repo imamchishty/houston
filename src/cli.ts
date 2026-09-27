@@ -1,7 +1,9 @@
 import { collect, score, run } from './pipeline.js';
 import { notifyAll } from './teams.js';
 import { assertConfig } from './config.js';
+import { applySavedTeams } from './admin/teamSetup.js';
 
+applySavedTeams(); // teams set up in the admin page, over the .env ones
 assertConfig();
 
 const cmd = process.argv[2];

@@ -17,6 +17,8 @@ ENV NODE_ENV=production PORT=4000 HOUSTON_DATA_DIR=/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/build-info.json ./
+# The test report for this code (npm run report, run by deploy/azure.sh before the build), for the admin page
+COPY reports ./reports
 COPY package.json ./
 RUN mkdir -p /data && chown node:node /data
 USER node

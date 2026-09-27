@@ -5,6 +5,12 @@
 const board = { name: 'board', in: 'path', required: true, description: 'Team (Jira board) name, e.g. OSSI', schema: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_-]{0,31}$' } };
 const json = (description: string, schema: object = { type: 'object' }) => ({ description, content: { 'application/json': { schema } } });
 const notFound = { 404: json('No data for this team') };
+const adminOnly = [{ admin: [] }];
+const adminResponses = (what: string) => ({ 200: json(what), 401: json('Admin sign-in required'), 403: json('Admin section off: no admin account, or a weak password outside demo mode') });
+const TeamInput = { type: 'object', required: ['name', 'jiraBoardId', 'jiraProject'], properties: {
+  name: { type: 'string' }, jiraBoardId: { type: 'integer' }, jiraProject: { type: 'string' }, repos: { type: 'array', items: { type: 'string' } },
+  sonarProject: { type: 'string' }, testmoProject: { type: 'string' }, resourceGroup: { type: 'string' }, appInsights: { type: 'string' },
+  confluenceSpaces: { type: 'array', items: { type: 'string' } }, roster: { type: 'array', items: { type: 'string' } } } };
 const peopleOnly = 'Per person data. Needs a people viewer (HOUSTON_PEOPLE_VIEWERS); others get 403.';
 
 const Rag = { type: 'string', enum: ['green', 'amber', 'red'] };
@@ -43,6 +49,7 @@ export const openapi = (version: string) => ({
   components: {
     securitySchemes: {
       basic: { type: 'http', scheme: 'basic', description: 'HOUSTON_USER and HOUSTON_PASSWORD' },
+      admin: { type: 'http', scheme: 'basic', description: 'HOUSTON_ADMIN_USER and HOUSTON_ADMIN_PASSWORD. Only for /api/admin/*; API tokens are refused there.' },
       bearer: { type: 'http', scheme: 'bearer', description: 'Read-only API token from HOUSTON_API_TOKENS. Team level only unless the token name is a people viewer.' },
     },
     schemas: { Finding, Summary, Rag, Band },
@@ -90,6 +97,17 @@ export const openapi = (version: string) => ({
     '/api/refresh': { post: { summary: 'Collect and score now. One at a time, at most every 5 minutes', responses: { 200: json('Scored'), 409: json('Already running'), 429: json('Too soon') } } },
     '/api/health': { get: { summary: 'Liveness. No sign in needed', security: [], responses: { 200: json('OK', { type: 'object', properties: { ok: { type: 'boolean' } } }) } } },
     '/api/version': { get: { summary: 'Build number, commit and build time', responses: { 200: json('Version') } } },
+    '/api/admin/status': { get: { summary: 'Admin: who is signed in, and whether the admin password is weak (allowed in demo mode only)', security: adminOnly, responses: adminResponses('Status') } },
+    '/api/admin/tests': { get: { summary: 'Admin: the test report shipped with this build (BDD scenarios by feature, unit tests, npm audit), and whether it matches the running build', security: adminOnly, responses: adminResponses('Test report') } },
+    '/api/admin/connections': { get: { summary: 'Admin: the last connection check (never token values)', security: adminOnly, responses: adminResponses('Connection checks') } },
+    '/api/admin/connections/check': { post: { summary: 'Admin: check every connection now: works or not, token expiry, missing permissions', security: adminOnly, responses: adminResponses('Connection checks') } },
+    '/api/admin/teams': {
+      get: { summary: 'Admin: every team and its setup, and whether it comes from the admin page, .env or demo data', security: adminOnly, responses: adminResponses('Teams') },
+      post: { summary: 'Admin: add or change a team. Checked with the same rules as .env; logged', security: adminOnly, requestBody: { required: true, content: { 'application/json': { schema: TeamInput } } }, responses: { ...adminResponses('Saved team'), 400: json('Problems with the setup') } },
+    },
+    '/api/admin/teams/test': { post: { summary: 'Admin: test a team setup before saving: one read-only call per source, saying what was found', security: adminOnly, requestBody: { required: true, content: { 'application/json': { schema: TeamInput } } }, responses: { ...adminResponses('Checks'), 400: json('Problems with the setup') } } },
+    '/api/admin/teams/{name}': { delete: { summary: 'Admin: remove a team set up in the admin page (a .env team of the same name comes back); logged', security: adminOnly, parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }], responses: { ...adminResponses('Removed'), 404: json('Not set up in the admin page') } } },
+    '/api/admin/log': { get: { summary: 'Admin: what admins changed, who and when', security: adminOnly, responses: adminResponses('Change log') } },
     '/api/openapi.json': { get: { summary: 'This document', responses: { 200: json('OpenAPI document') } } },
   },
 });

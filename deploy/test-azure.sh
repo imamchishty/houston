@@ -33,7 +33,7 @@ git init -q && git -c user.email=ci@test -c user.name=ci commit -q --allow-empty
 printf 'HOUSTON_MODE=jira\nJIRA_API_TOKEN=token\nHOUSTON_PASSWORD="two words"\nGITHUB_TOKEN=   # blank\nCONFLUENCE_ADR_MARKERS=adr,architecture decision\n' > .env
 
 fail() { echo "FAIL: $*"; exit 1; }
-run() { : > "$T/state/log"; PATH="$T/bin:$PATH" AZ_STATE="$T/state" RG=rg-test bash "$ROOT/deploy/azure.sh" > "$T/out" 2>&1 || { cat "$T/out"; fail "azure.sh exited non-zero on run $1"; }; cp "$T/state/log" "$T/log$1"; }
+run() { : > "$T/state/log"; PATH="$T/bin:$PATH" AZ_STATE="$T/state" RG=rg-test HOUSTON_SKIP_REPORT=1 bash "$ROOT/deploy/azure.sh" > "$T/out" 2>&1 || { cat "$T/out"; fail "azure.sh exited non-zero on run $1"; }; cp "$T/state/log" "$T/log$1"; }
 count() { grep -cE -- "$1" "$2" || true; }
 
 run 1
