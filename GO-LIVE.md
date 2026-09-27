@@ -45,6 +45,19 @@ With `TEAMS_WEBHOOK` and `HOUSTON_URL` set, the headline is posted to Teams at 0
 - Turn on Azure Backup for that file share, daily, 30 days. Houston also keeps 30 daily copies of its history in /data/backups.
 - If Backstage will call Houston, create an API token (`openssl rand -hex 32`) and set `HOUSTON_API_TOKENS=backstage:<token>`.
 
+## Deploying a new version
+
+Run the same `./deploy/azure.sh` with the same `RG`. It finds the existing registry, storage account and share (their
+names come from the subscription and resource group), updates the app and both jobs to the new image, and keeps the share
+mounted at `/data` on all three. Nothing is created twice and no data moves. CI checks this on every push (`npm run test:deploy`).
+
+If the new version changes the history schema, it saves `backups/history-before-schema-N-<date>.db` first, then upgrades.
+To roll back, deploy the previous commit. If the newer version had upgraded the schema, the older one will refuse to start
+the history and say so: restore the `history-before-schema` copy over `history.db`, then deploy the older version.
+
+The only ways to lose history: deleting the storage account or the share, or running with a different `RG`.
+Azure Backup on the share covers the first.
+
 ## Rules for the first month
 
 1. Thresholds frozen after the Tuesday check. Change them once, in a month, with the lead.

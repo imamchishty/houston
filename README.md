@@ -90,6 +90,9 @@ area scores, every metric value, every sprint ever scored (Jira only returns the
 - After each snapshot a consistent copy goes to `backups/history-YYYY-MM-DD.db`; the last `HOUSTON_BACKUP_DAYS` (30) are kept.
 - Keep the data folder on persistent storage (the compose volume, the Azure Files share) and turn on backup for that share,
   so a copy lives outside the app. To restore, stop Houston and copy a backup over `history.db`.
+- New versions keep the data: `deploy/azure.sh` reuses the same share on every run and mounts it on the app and both jobs.
+  Schema changes are numbered steps in `src/store/history.ts` (`MIGRATIONS`): add a step, never edit one that shipped.
+  A copy is saved before any step runs, and an older version refuses a newer database rather than writing to it.
 - On a network share only one process should write at a time; the nightly job does the writing.
   If Houston becomes a shared service, move to Postgres (the queries in `src/store/history.ts` are plain SQL).
 

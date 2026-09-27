@@ -18,25 +18,55 @@ export interface AreaScore { area: string; score: number; rag: Rag }
 let db: DatabaseSync | null = null;
 const file = () => join(config.dataDir, 'history.db');
 
+// Schema changes are numbered steps, applied once each, in order, recorded in PRAGMA user_version.
+// Never edit a step that has shipped: add a new one. Before any step runs on an existing database, a copy is saved,
+// and an older Houston refuses a newer database instead of writing to a schema it does not know.
+export const MIGRATIONS: string[] = [
+  // 1: first schema
+  `CREATE TABLE IF NOT EXISTS area_scores (day TEXT NOT NULL, board TEXT NOT NULL, area TEXT NOT NULL, score REAL NOT NULL, rag TEXT NOT NULL,
+     PRIMARY KEY (day, board, area));
+   CREATE TABLE IF NOT EXISTS metric_values (day TEXT NOT NULL, board TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, rag TEXT NOT NULL,
+     PRIMARY KEY (day, board, metric));
+   CREATE TABLE IF NOT EXISTS sprint_scorecards (board TEXT NOT NULL, sprint_id INTEGER NOT NULL, sprint_name TEXT NOT NULL, sprint_end TEXT NOT NULL,
+     score REAL NOT NULL, rag TEXT NOT NULL, card TEXT NOT NULL, updated TEXT NOT NULL, PRIMARY KEY (board, sprint_id));
+   CREATE TABLE IF NOT EXISTS team_costs (day TEXT NOT NULL, board TEXT NOT NULL, currency TEXT NOT NULL, team_cost REAL NOT NULL, on_features REAL NOT NULL,
+     no_feature REAL NOT NULL, not_on_tickets REAL NOT NULL, cost_per_point REAL, PRIMARY KEY (day, board));
+   CREATE TABLE IF NOT EXISTS feature_costs (day TEXT NOT NULL, board TEXT NOT NULL, feature TEXT NOT NULL, status TEXT NOT NULL, spent REAL NOT NULL,
+     fte REAL NOT NULL, contractor REAL NOT NULL, to_complete REAL NOT NULL, total REAL NOT NULL, PRIMARY KEY (day, board, feature));`,
+];
+
+export const schemaVersion = () => (open().prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+
+function migrate(d: DatabaseSync) {
+  const current = (d.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+  if (current > MIGRATIONS.length)
+    throw new Error(`history.db is schema ${current}, this Houston knows ${MIGRATIONS.length}. Deploy the newer version or restore a backup; not writing to it.`);
+  if (current === MIGRATIONS.length) return;
+  const hasData = (d.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'").get() as { n: number }).n > 0;
+  if (hasData) {
+    const dir = join(config.dataDir, 'backups');
+    mkdirSync(dir, { recursive: true });
+    const copy = join(dir, `history-before-schema-${MIGRATIONS.length}-${new Date().toISOString().slice(0, 10)}.db`);
+    if (!existsSync(copy)) d.prepare('VACUUM INTO ?').run(copy);
+  }
+  for (let v = current; v < MIGRATIONS.length; v++) {
+    d.exec('BEGIN IMMEDIATE');
+    try { d.exec(MIGRATIONS[v]); d.exec(`PRAGMA user_version = ${v + 1}`); d.exec('COMMIT'); }
+    catch (e) { d.exec('ROLLBACK'); throw e; }
+  }
+}
+
 function open(): DatabaseSync {
   if (db) return db;
   mkdirSync(config.dataDir, { recursive: true });
-  db = new DatabaseSync(file());
-  db.exec(`
+  const d = new DatabaseSync(file());
+  d.exec(`
     PRAGMA journal_mode = DELETE;
     PRAGMA synchronous = FULL;
     PRAGMA busy_timeout = 10000;
-    CREATE TABLE IF NOT EXISTS area_scores (day TEXT NOT NULL, board TEXT NOT NULL, area TEXT NOT NULL, score REAL NOT NULL, rag TEXT NOT NULL,
-      PRIMARY KEY (day, board, area));
-    CREATE TABLE IF NOT EXISTS metric_values (day TEXT NOT NULL, board TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, rag TEXT NOT NULL,
-      PRIMARY KEY (day, board, metric));
-    CREATE TABLE IF NOT EXISTS sprint_scorecards (board TEXT NOT NULL, sprint_id INTEGER NOT NULL, sprint_name TEXT NOT NULL, sprint_end TEXT NOT NULL,
-      score REAL NOT NULL, rag TEXT NOT NULL, card TEXT NOT NULL, updated TEXT NOT NULL, PRIMARY KEY (board, sprint_id));
-    CREATE TABLE IF NOT EXISTS team_costs (day TEXT NOT NULL, board TEXT NOT NULL, currency TEXT NOT NULL, team_cost REAL NOT NULL, on_features REAL NOT NULL,
-      no_feature REAL NOT NULL, not_on_tickets REAL NOT NULL, cost_per_point REAL, PRIMARY KEY (day, board));
-    CREATE TABLE IF NOT EXISTS feature_costs (day TEXT NOT NULL, board TEXT NOT NULL, feature TEXT NOT NULL, status TEXT NOT NULL, spent REAL NOT NULL,
-      fte REAL NOT NULL, contractor REAL NOT NULL, to_complete REAL NOT NULL, total REAL NOT NULL, PRIMARY KEY (day, board, feature));
   `);
+  try { migrate(d); } catch (e) { d.close(); throw e; }
+  db = d;
   return db;
 }
 

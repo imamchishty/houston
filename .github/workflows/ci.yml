@@ -19,5 +19,7 @@ jobs:
       # Stamps build-info.json with this run's number, commit and time: the footer shows "build <run number>".
       - run: npm run build
       - run: bash -n deploy/azure.sh
+      - name: Redeploy keeps the data (fake az)
+        run: pip install --quiet pyyaml && npm run test:deploy
       - name: Build stamp
         run: cat build-info.json
