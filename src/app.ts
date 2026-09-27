@@ -9,6 +9,7 @@ import { buildInfo } from './version.js';
 import { boardData } from './board.js';
 import { teamSummary } from './summary.js';
 import { dashboard } from './dashboard.js';
+import { dataQuality } from './dataQuality.js';
 import { doraSeries, PERIODS } from './dora.js';
 import { slice, quality, predictability, efficiency, perTeam, flatMeasures, type Period } from './reports.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
@@ -336,6 +337,9 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
 
   // The home page: every team's status, what needs attention, and whether the data is fresh. Team level only.
   app.get('/api/dashboard', async () => dashboard());
+
+  // Checks on the collected data for setups that would make a correct formula give a wrong number.
+  app.get('/api/data-quality', async () => dataQuality());
 
   // The four DORA metrics: headline, change on the previous period, DORA tier, and a daily series. One team or all.
   app.get<{ Querystring: { team?: string; days?: string } }>('/api/dora', async (req, reply) => {

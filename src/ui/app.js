@@ -49,6 +49,7 @@ window.addEventListener('hashchange', route); route();
 async function route() {
   await metricsReady;
   if (location.hash === '#_metrics') return metricsPage();
+  if (location.hash === '#_data') return dataPage();
   const rep = location.hash.match(/^#_(quality|predictability|efficiency)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
@@ -167,7 +168,8 @@ document.addEventListener('change', (e) => {
 
 async function overview() {
   $('#crumbs').innerHTML = '';
-  const d = await api('/dashboard');
+  const [d, dq] = await Promise.all([api('/dashboard'), api('/data-quality').catch(() => [])]);
+  const dqBad = dq.filter((x) => x.status !== 'ok');
   if (!d.teams?.length) return $('#main').innerHTML = '<p class="empty">No data yet. Fill .env and press Refresh now.</p>';
   const c = d.counts, cur = d.cost?.currency;
   const tile = (label, value, sub, kind) => `<div class="tile ${kind ?? ''}"><div class="k">${esc(label)}</div><div class="v">${value}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
@@ -178,7 +180,7 @@ async function overview() {
       ${tile('Watch', `<i class="ic amber" aria-hidden="true">●</i>${esc(c.Watch ?? 0)}`, 'score 50 to 74')}
       ${tile('Needs attention', `<i class="ic red" aria-hidden="true">▲</i>${esc(c['Needs attention'] ?? 0)}`, 'score below 50')}
       ${tile('Data', d.data.stale ? '<i class="ic red" aria-hidden="true">▲</i>Stale' : '<i class="ic green" aria-hidden="true">✓</i>Fresh',
-        `Updated ${esc(ago(d.data.ageHours))}${d.data.stale ? '. The nightly run has been missed' : ''}`, d.data.stale ? 'warn' : '')}
+        `Updated ${esc(ago(d.data.ageHours))}${d.data.stale ? '. The nightly run has been missed' : ''}. <a href="#_data">${dqBad.length ? `${esc(dqBad.length)} data check${dqBad.length === 1 ? '' : 's'} to look at` : 'All data checks pass'}</a>`, d.data.stale || dq.some((x) => x.status === 'fail') ? 'warn' : '')}
       ${d.cost ? tile('On features', `${esc(d.cost.onFeaturesPct)}%`, `of ${money(d.cost.teamCost, cur)} team cost`) : ''}
       ${d.claudeAdoptionPct != null ? tile('Claude adoption', `${esc(d.claudeAdoptionPct)}%`, 'using Claude Code, last 30 days') : ''}
     </div>
@@ -426,3 +428,16 @@ fetch('/api/version').then((r) => r.ok ? r.json() : null).then((v) => {
   $('#version').textContent = parts.join(' · ');
   if (v.builtAt) $('#version').title = `Built ${v.builtAt}`;
 }).catch(() => {});
+
+// Data checks: the ways a correct formula could still give a wrong number on this data, and what each affects.
+async function dataPage() {
+  $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">Data checks</a>`;
+  const dq = await api('/data-quality');
+  const icon = { ok: ['green', '✓', 'OK'], warn: ['amber', '●', 'Check'], fail: ['red', '▲', 'Wrong'] };
+  $('#main').innerHTML = `<h2 class="big">Data checks</h2>
+    <p class="muted">Every measure is only as right as the data behind it. These checks look at what the last collect found: a field id that matches nothing, a deploy workflow with no runs, bots doing the reviewing. Fix anything marked Wrong or Check, then collect again.</p>
+    <div class="card scrollx"><table class="t"><tr><th>Status</th><th>Source</th><th>Check</th><th>Finding</th><th>Affects</th></tr>
+    ${dq.map((c) => `<tr><td><span class="st ${icon[c.status][0]}"><i aria-hidden="true">${icon[c.status][1]}</i>${icon[c.status][2]}</span></td><td>${esc(c.area)}</td><td>${esc(c.check)}</td><td>${esc(c.detail)}</td><td class="muted">${esc(c.affects.join(', '))}</td></tr>`).join('')}
+    </table></div>`;
+  window.scrollTo(0, 0);
+}

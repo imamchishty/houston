@@ -2,6 +2,7 @@ import { store } from './store/index.js';
 import { median } from './cycle.js';
 import { doraTier, metricById } from './metrics.js';
 import type { GithubSnapshot } from './types.js';
+import { leadTimes } from './rules/flowRules.js';
 
 // The four DORA metrics as a headline number and a daily series, for one team or all of them, over 7, 30 or 90 days.
 // Same definitions as the flow and production rules (METRICS.md), so the dashboard and the findings always agree.
@@ -32,14 +33,8 @@ function withAverage(days: string[], byDay: Map<string, number>, fill: boolean):
 }
 const r1 = (x: number | null) => (x == null ? null : Math.round(x * 10) / 10);
 
-// Lead time items for one snapshot: PR opened to the next successful deploy after merge, in days, keyed by merge day.
-function leadItems(g: GithubSnapshot) {
-  const deploys = g.deploys.filter((d) => d.success).map((d) => d.at).sort();
-  return g.prs.filter((p) => p.mergedAt && !p.draft).flatMap((p) => {
-    const d = deploys.find((x) => x >= p.mergedAt!);
-    return d ? [{ merged: Date.parse(p.mergedAt!), days: (Date.parse(d) - Date.parse(p.createdAt)) / DAY }] : [];
-  });
-}
+// Lead time items for one snapshot, by the same rule as the flow finding (its own repo's deploys).
+const leadItems = (g: GithubSnapshot) => leadTimes(g.prs.filter((p) => p.mergedAt && !p.draft), g.deploys);
 
 export function doraSeries(team: string, days: (typeof PERIODS)[number], now = Date.now()) {
   const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team];

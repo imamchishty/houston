@@ -119,3 +119,12 @@ else {
 }
 console.log(`\nRoster: ${config.roster.map((r) => `${r.name} (${r.people.length})`).join(', ') || 'none'}`);
 console.log('If anything says FAIL, fix it before npm run collect.');
+
+// Data quality: needs collected data. Run npm run collect first, then npm run check again.
+const { dataQuality } = await import('./dataQuality.js');
+const dq = dataQuality();
+if (!dq.length) console.log('\nData quality: nothing collected yet. Run npm run collect, then npm run check again.');
+else {
+  console.log('\nData quality (from the last collect)');
+  for (const c of dq) (c.status === 'ok' ? ok : c.status === 'fail' ? bad : (m: string) => console.log(`  WARN ${m}`))(`${c.area}: ${c.check}. ${c.detail}${c.status !== 'ok' && c.affects.length ? ` Affects: ${c.affects.join(', ')}.` : ''}`);
+}

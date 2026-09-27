@@ -5,6 +5,11 @@ export const cycleDays = (i: Issue) =>
     ? (new Date(i.resolved).getTime() - new Date(i.inProgressSince).getTime()) / 86_400_000
     : null;
 
+// Done in this sprint: resolved by the sprint's end. Jira lists a ticket in every sprint it was in and gives its
+// status now, so a ticket left unfinished at sprint close and finished later must not count as done in the old one.
+export const doneInSprint = (i: Issue, s: Pick<Sprint, 'end'>) =>
+  i.statusCategory === 'done' && !!i.resolved && Date.parse(i.resolved) <= Date.parse(s.end);
+
 export const sizeBucket = (points: number | null) => (points == null ? 'unsized' : String(points));
 
 export function median(xs: number[]) {

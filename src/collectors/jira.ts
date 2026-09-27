@@ -31,8 +31,10 @@ function hasAC(fields: any): boolean {
   return AC_PATTERNS.some((p) => p.test(text));
 }
 
-// From the changelog: when the issue entered this sprint, and when it last moved into In Progress.
-function fromChangelog(changelog: any, sprintId: number) {
+// From the changelog: when the issue entered this sprint, and when work on it FIRST started. Started means a move
+// into any status Jira classes as "In Progress" (status category), whatever the team calls it ("In Development",
+// "Doing"). Earliest wins, whatever order Jira returns the history in, so a reopened ticket keeps its real start.
+export function fromChangelog(changelog: any, sprintId: number, categories: Map<string, string>) {
   let addedToSprintAt: string | null = null;
   let inProgressSince: string | null = null;
   for (const h of changelog?.histories ?? []) {
@@ -40,12 +42,38 @@ function fromChangelog(changelog: any, sprintId: number) {
       if (it.field === 'Sprint' && String(it.to ?? '').split(',').map((x: string) => x.trim()).includes(String(sprintId))) {
         if (!addedToSprintAt || h.created < addedToSprintAt) addedToSprintAt = h.created;
       }
-      if (it.field === 'status' && /in progress/i.test(it.toString ?? '')) {
-        inProgressSince = h.created;
+      if (it.field === 'status') {
+        const cat = categories.get(String(it.to ?? ''));
+        const started = cat ? cat === 'indeterminate' : /in progress/i.test(it.toString ?? ''); // name only if the status is unknown
+        if (started && (!inProgressSince || h.created < inProgressSince)) inProgressSince = h.created;
       }
     }
   }
   return { addedToSprintAt, inProgressSince };
+}
+
+// Every status's category (new / indeterminate / done), once per run.
+let statusCategories: Map<string, string> | null = null;
+async function categories() {
+  if (!statusCategories) {
+    const list = await jira<any[]>('/rest/api/2/status').catch(() => []);
+    statusCategories = new Map(list.map((s) => [String(s.id), String(s.statusCategory?.key ?? '')]));
+  }
+  return statusCategories;
+}
+
+// Search results embed at most 100 changelog entries. A long-lived ticket's history is fetched in full.
+async function fullChangelog(key: string, embedded: any) {
+  if (!embedded || (embedded.total ?? 0) <= (embedded.histories?.length ?? 0)) return embedded;
+  const histories: any[] = [];
+  for (let startAt = 0; ;) {
+    const page = await jira<any>(`/rest/api/2/issue/${encodeURIComponent(key)}/changelog?startAt=${startAt}&maxResults=100`)
+      .catch(() => null);
+    if (!page) return embedded; // Data Center before 8.x has no changelog endpoint: keep what was embedded
+    histories.push(...(page.values ?? []));
+    startAt += page.values?.length ?? 0;
+    if (!page.values?.length || page.isLast || startAt >= (page.total ?? 0)) return { ...embedded, histories };
+  }
 }
 
 async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[]> {
@@ -57,7 +85,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
     const page = await jira<any>(`/rest/agile/1.0/sprint/${sprintId}/issue?startAt=${startAt}&maxResults=100&expand=changelog&fields=${fields}`);
     for (const r of page.issues) {
       const f = r.fields;
-      const cl = fromChangelog(r.changelog, sprintId);
+      const cl = fromChangelog(await fullChangelog(r.key, r.changelog), sprintId, await categories());
       out.push({
         key: r.key,
         summary: f.summary,

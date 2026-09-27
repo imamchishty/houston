@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
-import { median } from './cycle.js';
+import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, PullRequest, Sprint, WorkItem } from './types.js';
 
 // Quality, Predictability and Efficiency: every measure with the counts behind it, its target and whether it is met.
@@ -20,7 +20,9 @@ export interface Measure {
   target: Target | null; met: boolean | null;
   how: string;                   // the exact definition, as shown to people
   failing?: string[];            // items that did not pass (tickets, PRs, commits), for drill-down
+  smallSample?: boolean;         // too few items to trust the value: under 10 for a rate, under 5 for a median
 }
+export const MIN_RATE_SAMPLE = 10, MIN_MEDIAN_SAMPLE = 5;
 
 // Targets from the reference dashboards. One place, so every page shows the same target.
 export const TARGETS: Record<string, Target> = {
@@ -38,11 +40,11 @@ const round1 = (x: number) => Math.round(x * 10) / 10;
 const metTarget = (v: number | null, t: Target | null) => (v == null || !t ? null : t.op === '<' ? v < t.value : v > t.value);
 const rate = (id: string, title: string, num: number, den: number, how: string, labels: [string, string], failing?: string[]): Measure => {
   const value = den ? round1((100 * num) / den) : null, target = TARGETS[id] ?? null;
-  return { id, title, value, unit: '%', num, den, numLabel: labels[0], denLabel: labels[1], target, met: metTarget(value, target), how, failing };
+  return { id, title, value, unit: '%', num, den, numLabel: labels[0], denLabel: labels[1], target, met: metTarget(value, target), how, failing, smallSample: den > 0 && den < MIN_RATE_SAMPLE };
 };
 const med = (id: string, title: string, xs: number[], unit: 'days' | 'hours', how: string, denLabel: string): Measure => {
   const value = xs.length ? round1(median(xs)) : null, target = TARGETS[id] ?? null;
-  return { id, title, value, unit, num: null, den: xs.length, denLabel, target, met: metTarget(value, target), how };
+  return { id, title, value, unit, num: null, den: xs.length, denLabel, target, met: metTarget(value, target), how, smallSample: xs.length > 0 && xs.length < MIN_MEDIAN_SAMPLE };
 };
 
 // Everything one slice needs: one team or all, over [from, to).
@@ -136,7 +138,7 @@ export function predictability(s: Slice) {
   const closedSprints = s.sprints.filter((sp) => sp.state === 'closed' && inWin(s, sp.end));
   const completion = closedSprints.flatMap((sp) => {
     const committed = sp.issues.filter((i) => i.type !== 'Sub-task' && i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= sp.start));
-    const planned = committed.reduce((t, i) => t + i.points!, 0), done = committed.filter((i) => i.statusCategory === 'done').reduce((t, i) => t + i.points!, 0);
+    const planned = committed.reduce((t, i) => t + i.points!, 0), done = committed.filter((i) => doneInSprint(i, sp)).reduce((t, i) => t + i.points!, 0);
     return planned ? [{ sprint: sp.name, board: sp.board, planned, done, pct: (100 * done) / planned }] : [];
   });
   const added = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task'));
@@ -189,7 +191,7 @@ export function efficiency(s: Slice) {
         med('pr_lead_time', 'PR lead time (median)', merged.map((p) => hrs(p.createdAt, p.mergedAt!) / 24), 'days', 'Median days from PR opened to merged, PRs merged in the period.', 'merged PRs'),
         med('pickup_time', 'Time to first review (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.createdAt, p.firstReviewAt!) / 24), 'days', 'Median days from PR opened to the first review or review comment by someone else, PRs merged in the period.', 'reviewed PRs'),
         med('review_time', 'Review to merge (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.firstReviewAt!, p.mergedAt!) / 24), 'days', 'Median days from first review to merge, PRs merged in the period.', 'reviewed PRs'),
-        (() => { const xs = merged.map((p) => p.additions + p.deletions); const v = xs.length ? Math.round(median(xs)) : null; return { id: 'pr_size', title: 'PR size (median)', value: v, unit: 'count' as const, num: null, den: xs.length, denLabel: 'merged PRs', target: TARGETS.pr_size, met: metTarget(v, TARGETS.pr_size), how: 'Median lines changed (additions + deletions) per PR merged in the period.' }; })(),
+        (() => { const xs = merged.map((p) => p.additions + p.deletions); const v = xs.length ? Math.round(median(xs)) : null; return { id: 'pr_size', title: 'PR size (median)', value: v, unit: 'count' as const, num: null, den: xs.length, denLabel: 'merged PRs', target: TARGETS.pr_size, met: metTarget(v, TARGETS.pr_size), how: 'Median lines changed (additions + deletions) per PR merged in the period.', smallSample: xs.length > 0 && xs.length < MIN_MEDIAN_SAMPLE }; })(),
       ] },
       { id: 'ticket_flow', title: 'Ticket flow', question: 'Once work starts, how long until it is done?', measures: [
         med('cycle_time', 'Cycle time (median)', uniq.map((i) => (Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY), 'days', 'Median days from moving to In Progress to resolved, sprint tickets resolved in the period.', 'tickets'),

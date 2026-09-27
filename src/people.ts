@@ -1,4 +1,4 @@
-import { cycleDays, learnBaseline, median, overBand } from './cycle.js';
+import { cycleDays, doneInSprint, learnBaseline, median, overBand } from './cycle.js';
 import type { Sprint } from './types.js';
 
 export interface PersonStats {
@@ -32,7 +32,7 @@ export function peopleStats(sprints: Sprint[]): PersonStats[] {
   for (const s of sprints) for (const i of s.issues) {
     if (!i.assignee || i.type === 'Sub-task') continue;
     const p = get(i.assignee);
-    if (i.statusCategory === 'done') {
+    if (doneInSprint(i, s)) { // once, in the sprint it was finished in
       p.ticketsDone++;
       p.pointsDone += i.points ?? 0;
       const d = cycleDays(i);

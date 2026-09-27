@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { workingDays } from './cost.js';
+import { doneInSprint } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
 
 // The sprint in progress for each team: time and points left, whether it will make it, and what is in flight.
@@ -62,7 +63,7 @@ export function currentSprint(board: string, named: boolean, now = Date.now()) {
     .map(([status]) => ({ status, bugs: items.filter((i) => i.status === status && /^bug$/i.test(i.type)).length, other: items.filter((i) => i.status === status && !/^bug$/i.test(i.type)).length }));
   const velocity = sprints.filter((s) => s.state === 'closed').slice(-6).map((s) => {
     const c = work(s).filter((i) => i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= s.start));
-    return { sprint: s.name, committed: pts(c), completed: pts(c.filter((i) => i.statusCategory === 'done')) };
+    return { sprint: s.name, committed: pts(c), completed: pts(c.filter((i) => doneInSprint(i, s))) };
   });
 
   return {

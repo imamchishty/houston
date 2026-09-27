@@ -11,7 +11,7 @@ export async function collectEpics(board: string): Promise<Epic[]> {
     if (!ISSUE_KEY.test(e.key)) continue; // keys go back into JQL below
     let started: string | null = null;
     for (const h of e.changelog?.histories ?? []) for (const it of h.items ?? []) {
-      if (it.field === 'status' && /in progress/i.test(it.toString ?? '') && !started) started = h.created;
+      if (it.field === 'status' && /in progress/i.test(it.toString ?? '') && (!started || h.created < started)) started = h.created; // earliest
     }
     // Children counted exactly, from the issues themselves (the v3 search returns no totals).
     const kids = await searchAll(`"Epic Link" = ${e.key} OR parent = ${e.key}`, ['status']);

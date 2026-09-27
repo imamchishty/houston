@@ -3,6 +3,11 @@
 Every number Houston shows is computed from these formulas and nothing else. If a number looks wrong,
 check the formula here, then the raw records at `/api/teams/<board>/evidence/<ruleId>`, then the mapping in `.env`.
 
+Reviews: only a person other than the author counts. Bots (GitHub type Bot, logins ending [bot], GITHUB_BOTS) are left out of every review measure.
+Work start: the first move into any status Jira classes as In Progress (status category), whatever its name. The full ticket history is read, not only the last 100 changes.
+Small samples: a rate from fewer than 10 items, or a median from fewer than 5, is marked "Small sample".
+Data checks: `npm run check` after a collect, and the Data checks page, flag setups that would make a correct formula give a wrong number.
+
 Conventions. "Work item" means any Jira issue in the sprint except sub-tasks. "Committed" means in the sprint
 before its start date, from the issue changelog. "Cycle time" is first move to In Progress until resolution date.
 "Median" is used everywhere instead of average because one huge outlier should not move the team number.
@@ -13,7 +18,7 @@ RAG thresholds are inclusive at the boundary.
 
 | Rule | Formula | Amber | Red |
 |---|---|---|---|
-| commit_completion | points done ÷ points committed, committed = estimated items in sprint before start | below 80% | below 60% |
+| commit_completion | points done by the sprint's end ÷ points committed, committed = estimated items in sprint before start. A ticket finished after the sprint closed is not done in that sprint | below 80% | below 60% |
 | carry_over | items whose sprint history includes an earlier sprint ÷ work items | 20% | 40% |
 | scope_added_mid_sprint | items whose Sprint field was set after sprint start ÷ work items | 15% | 30% |
 | no_estimate | work items with empty story points ÷ work items | 10% | 25% |
@@ -40,7 +45,7 @@ Window: last GITHUB_DAYS (default 90). "Merged PR" excludes drafts. Reviews and 
 | lane_crossing | merged PRs touching both a frontend and a backend path ÷ merged PRs touching either, paths from GITHUB_LANES | below 25% | below 10% |
 | ci_red_rate | failed CI runs ÷ (success + failure), workflows not matching the deploy name | 10% | 25% |
 | deploy_frequency | successful runs of the deploy workflow ÷ weeks in window | below 1/week | below 1/month |
-| lead_time | median of (first successful deploy after merge − PR created), days | 7 | 30 |
+| lead_time | median of (first successful deploy of the PR's own repo after merge − PR created), days. A repo with no deploys of its own falls back to the team's deploys | 7 | 30 |
 | change_failure | (hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys). Hotfix = title or branch contains "hotfix" or "revert" | 15% | 30% |
 
 Time to restore (DORA 4) is not computed until incident data is connected.

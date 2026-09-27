@@ -128,7 +128,7 @@ const catalogue: MetricInfo[] = [
     'Successful runs of the production deploy workflow (GITHUB_DEPLOY_WORKFLOW) ÷ weeks in the window.', undefined, DORA.deploy_frequency),
   W('Flow & DORA', 'lead_time', 'Lead time for changes (DORA)',
     'One of the four DORA measures: how long a change takes to reach users. It is what the business feels as speed.',
-    'Median time from PR opened to the first successful production deploy after it merged, in days.', undefined, DORA.lead_time),
+    'Median days from PR opened to the first successful production deploy of its own repo after it merged. A repo with no deploy workflow of its own falls back to the team\'s deploys. PRs never deployed are left out.', undefined, DORA.lead_time),
   W('Flow & DORA', 'change_failure', 'Change failure rate (DORA)',
     'One of the four DORA measures: how often a change breaks production. Speed only counts if it holds.',
     '(Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys). A hotfix has "hotfix" or "revert" in its title or branch.', undefined, DORA.change_failure),

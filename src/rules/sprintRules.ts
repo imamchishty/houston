@@ -1,6 +1,6 @@
 import type { Issue, Sprint } from '../types.js';
 import type { RuleDef } from './engine.js';
-import { cycleDays, overBand, sizeBucket } from '../cycle.js';
+import { cycleDays, doneInSprint, overBand, sizeBucket } from '../cycle.js';
 
 const pct = (n: number, d: number) => (d === 0 ? 0 : (n / d) * 100);
 const keys = (issues: Issue[]) => issues.map((i) => i.key);
@@ -18,7 +18,7 @@ export const rules: RuleDef[] = [
       const c = committed(s).filter((i) => i.points != null);
       if (!c.length) return null;
       const planned = c.reduce((t, i) => t + (i.points ?? 0), 0);
-      const done = c.filter((i) => i.statusCategory === 'done').reduce((t, i) => t + (i.points ?? 0), 0);
+      const done = c.filter((i) => doneInSprint(i, s)).reduce((t, i) => t + (i.points ?? 0), 0);
       const value = pct(done, planned);
       return {
         value,
@@ -26,7 +26,7 @@ export const rules: RuleDef[] = [
         action: value < 80
           ? 'Commit to less. Cap the next sprint at the average points actually finished over the last three sprints.'
           : 'Keep commitment at this level.',
-        evidence: keys(c.filter((i) => i.statusCategory !== 'done')),
+        evidence: keys(c.filter((i) => !doneInSprint(i, s))),
       };
     },
   },

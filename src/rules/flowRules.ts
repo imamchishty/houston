@@ -7,6 +7,20 @@ const merged = (s: GithubSnapshot) => s.prs.filter((p) => p.mergedAt && !p.draft
 const ref = (p: PullRequest) => `${p.repo.split('/')[1]}#${p.number}`;
 const days = (s: GithubSnapshot) => Math.max(1, (new Date(s.until).getTime() - new Date(s.since).getTime()) / 86_400_000);
 
+// Lead time per merged PR: opened to the first successful deploy after merge, of the PR's own repo. A repo with no
+// deploys of its own (deployed from another repo) falls back to the team's deploys. PRs never deployed are left out.
+export function leadTimes(prs: PullRequest[], deploys: GithubSnapshot['deploys']) {
+  const ok = deploys.filter((d) => d.success);
+  const byRepo = new Map<string, string[]>();
+  for (const d of ok) byRepo.set(d.repo, [...(byRepo.get(d.repo) ?? []), d.at]);
+  for (const v of byRepo.values()) v.sort();
+  const any = ok.map((d) => d.at).sort();
+  return prs.filter((p) => p.mergedAt).flatMap((p) => {
+    const d = (byRepo.get(p.repo) ?? any).find((x) => x >= p.mergedAt!);
+    return d ? [{ merged: Date.parse(p.mergedAt!), days: h(p.createdAt, d) / 24 }] : [];
+  });
+}
+
 interface FRule {
   id: string; title: string; unit: Finding['unit']; amber: number; red: number; direction: 'high_bad' | 'low_bad'; weight: number;
   evaluate: (s: GithubSnapshot) => { value: number; message: string; action: string; evidence: string[] } | null;
@@ -97,10 +111,8 @@ export const flowRules: FRule[] = [
     } },
   { id: 'lead_time', title: 'Lead time for changes (DORA)', unit: 'days', amber: 7, red: 30, direction: 'high_bad', weight: 10,
     evaluate(s) {
-      // PR created to next successful deploy after merge
-      const deploys = s.deploys.filter((d) => d.success).map((d) => d.at).sort();
-      const xs: number[] = [];
-      for (const p of merged(s)) { const d = deploys.find((x) => x >= p.mergedAt!); if (d) xs.push(h(p.createdAt, d) / 24); }
+      // PR created to the next successful deploy of its own repo after merge
+      const xs = leadTimes(merged(s), s.deploys).map((l) => l.days);
       if (xs.length < 5) return null;
       const m = median(xs);
       return { value: Math.round(m * 10) / 10, message: `Median ${m.toFixed(1)} days from PR opened to running in production. DORA: elite under a day, high a day to a week, low over a month.`,

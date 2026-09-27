@@ -52,6 +52,8 @@ export const config = {
     days: Number(process.env.GITHUB_DAYS ?? 90),
     lanes: lanes(process.env.GITHUB_LANES),
     deployWorkflow: process.env.GITHUB_DEPLOY_WORKFLOW ?? 'deploy',
+    // Service accounts that GitHub does not mark as bots, whose reviews and comments are not a person's review
+    bots: (process.env.GITHUB_BOTS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
   },
   sonar: { url: process.env.SONAR_URL ?? '', token: process.env.SONAR_TOKEN ?? '', projects: pairs(process.env.SONAR_PROJECTS) },
   testmo: { url: process.env.TESTMO_URL ?? '', token: process.env.TESTMO_TOKEN ?? '', projects: pairs(process.env.TESTMO_PROJECTS) },

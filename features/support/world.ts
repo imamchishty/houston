@@ -65,5 +65,6 @@ After(async function (this: HoustonWorld) {
   await this.app?.close();
   if (this.webhook) await new Promise((ok) => this.webhook!.server.close(ok));
   houston.config.teamsWebhook = '';
+  houston.config.github.bots = [];
   houston.config.publicUrl = '';
 });

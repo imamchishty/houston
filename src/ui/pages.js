@@ -22,7 +22,7 @@ function measureTile(m, opts = {}) {
     <div class="mt">${esc(m.title)}</div>
     <div class="mv">${m.value == null ? '<span class="muted">·</span>' : `${esc(chartFmt(m.value))}<small>${esc(unitOf(m))}</small>`}</div>
     <div class="ms">${countsText(m)}</div>
-    <div class="mg">${metChip(m)} <span class="muted">${esc(targetText(m.target, m))}</span></div>
+    <div class="mg">${metChip(m)} <span class="muted">${esc(targetText(m.target, m))}</span>${m.smallSample ? '<span class="st amber" title="Too few items to trust this value: under 10 for a rate, under 5 for a median"><i aria-hidden="true">●</i>Small sample</span>' : ''}</div>
     ${about}${failing}
   </div>`;
 }

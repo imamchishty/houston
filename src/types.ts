@@ -110,6 +110,7 @@ export interface PullRequest {
   baseBranch?: string;            // branch it merges into
   reviewComments?: number;        // review comments and non-empty review bodies by someone other than the author
   isRevert?: boolean;             // GitHub revert PR ('Revert "..."' title or revert-NNN branch)
+  botReviews?: number;            // reviews and comments by bots, left out of every review measure (for the data check)
 }
 
 export interface Deploy {

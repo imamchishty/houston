@@ -27,6 +27,13 @@ async function all<T>(path: string, limit = 1000): Promise<T[]> {
 // owner/name with each part URL encoded, so a repo value cannot change the API path.
 const repoPath = (repo: string) => repo.split('/').map(encodeURIComponent).join('/');
 
+export const isBot = (u: { login?: string; type?: string } | null | undefined) =>
+  !!u && (u.type === 'Bot' || /\[bot\]$/i.test(u.login ?? '') || config.github.bots.includes((u.login ?? '').toLowerCase()));
+
+// A review or comment counts as someone else's review: a person (not a bot) who is not the PR's author.
+export const isPersonReview = (x: { user?: { login?: string; type?: string } | null }, authorLogin: string) =>
+  !!x.user?.login && x.user.login.toLowerCase() !== authorLogin.toLowerCase() && !isBot(x.user);
+
 const JIRA_KEY = /\b[A-Z][A-Z0-9]+-\d+\b/g;
 
 export function laneFor(path: string): string {
@@ -50,7 +57,10 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
       all<any>(`/repos/${repoPath(repo)}/pulls/${p.number}/files`, 300),
     ]);
     const author = canonical(p.user?.login) ?? 'unknown';
-    const others = (x: any) => x.user?.login && x.user.login !== author;
+    // A review counts only from another person: compare raw logins (PEOPLE maps logins to names, so the author's
+    // mapped name never equals a raw login), and leave out bots (GitHub type Bot, "[bot]" logins, GITHUB_BOTS).
+    const authorLogin = String(p.user?.login ?? '').toLowerCase();
+    const others = (x: any) => isPersonReview(x, authorLogin);
     const firstReview = [...reviews.filter(others).map((r: any) => r.submitted_at), ...comments.filter(others).map((c: any) => c.created_at)].sort()[0] ?? null;
     const approved = reviews.filter((r: any) => r.state === 'APPROVED' && others(r)).map((r: any) => r.submitted_at).sort()[0] ?? null;
     const text = `${p.title} ${p.head?.ref ?? ''} ${p.body ?? ''}`;
@@ -59,7 +69,7 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
       createdAt: p.created_at, firstReviewAt: firstReview, approvedAt: approved,
       mergedAt: p.merged_at ?? null, closedAt: p.closed_at ?? null,
       additions: detail.additions ?? 0, deletions: detail.deletions ?? 0, changedFiles: detail.changed_files ?? 0,
-      reviewers: [...new Set(reviews.filter(others).map((r: any) => canonical(r.user.login) as string))],
+      reviewers: [...new Set(reviews.filter(others).map((r: any) => canonical(r.user.login) as string))], // people only, no bots
       reviewCount: reviews.filter(others).length,
       jiraKeys: [...new Set(text.match(JIRA_KEY) ?? [])],
       areas: [...new Set(files.map((f: any) => laneFor(f.filename)))],
@@ -70,6 +80,7 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
       reviewComments: comments.filter(others).length + reviews.filter((x: any) => others(x) && String(x.body ?? '').trim()).length,
       // GitHub's own revert button makes 'Revert "<title>"' on a revert-<n>-<branch> branch.
       isRevert: /^revert\b/i.test(p.title ?? '') || /^revert-\d+/i.test(p.head?.ref ?? ''),
+      botReviews: [...reviews, ...comments].filter((x: any) => isBot(x.user)).length,
     });
   }
   return out;
