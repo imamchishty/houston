@@ -29,8 +29,17 @@ function chartTable(labels, series, xLabel) {
     ${labels.map((l, i) => `<tr><td>${esc(xLabel ? xLabel(l) : l)}</td>${series.map((s) => `<td class="num">${esc(chartFmt(s.values[i]))}</td>`).join('')}</tr>`).join('')}</table></details>`;
 }
 
-function registerTip(id, labels, series, unit, xLabel) {
-  CHARTS.set(id, { tip: (i) => ({ title: xLabel ? xLabel(labels[i]) : String(labels[i]), rows: series.map((s) => ({ name: s.name, value: `${chartFmt(s.values[i])}${unit ? ' ' + unit : ''}`, color: SERIES_VAR[s.key], line: s.kind !== 'bar' })) }) });
+// Stacked bars also show each part's share of the bar and a total row. detail(i) can add a line under the title
+// (for example how many items the bar is built from) and extra rows.
+function registerTip(id, labels, series, unit, xLabel, { stacked = false, detail } = {}) {
+  const u = unit ? ' ' + unit : '';
+  CHARTS.set(id, { tip: (i) => {
+    const total = series.reduce((t, s) => t + (s.values[i] ?? 0), 0), extra = detail?.(i) ?? {};
+    const rows = series.map((s) => ({ name: s.name, value: `${chartFmt(s.values[i])}${u}${stacked && total ? ` · ${Math.round((100 * (s.values[i] ?? 0)) / total)}%` : ''}`, color: SERIES_VAR[s.key], line: s.kind !== 'bar' }));
+    if (stacked) rows.push({ name: 'Total', value: `${chartFmt(total)}${u}`, color: 'transparent', line: false });
+    const title = (xLabel ? xLabel(labels[i]) : String(labels[i])) + (extra.subtitle ? ` · ${extra.subtitle}` : '');
+    return { title, rows: [...rows, ...(extra.rows ?? []).map((r) => ({ color: 'transparent', line: false, ...r }))] };
+  } });
 }
 
 // Lines: gaps where a value is missing; an optional wash under the first series; dashed for reference lines.
@@ -51,7 +60,7 @@ function lineChart(id, { labels, series, unit = '', H = 200, W = 640, xLabel, wh
 
 // Bars: grouped side by side (committed vs completed) or stacked (bugs on other work). 4px rounded data end,
 // square at the baseline, at most 24px wide, a 2px surface gap between neighbours.
-function barChart(id, { labels, series, unit = '', H = 200, W = 640, stacked = false, xLabel }) {
+function barChart(id, { labels, series, unit = '', H = 200, W = 640, stacked = false, xLabel, detail }) {
   const totals = labels.map((_, i) => series.reduce((t, s) => t + (s.values[i] ?? 0), 0));
   const max = stacked ? Math.max(0, ...totals) : Math.max(0, ...series.flatMap((s) => s.values.map((v) => v ?? 0)));
   const f = chartFrame(id, { labels, max, W, H, xLabel, whole: true });
@@ -73,6 +82,6 @@ function barChart(id, { labels, series, unit = '', H = 200, W = 640, stacked = f
       return `<path d="${rect(left, top, bottom, bw, k === topK)}" class="barm k-${s.key}"/>`;
     }).join('');
   }).join('');
-  registerTip(id, labels, series.map((s) => ({ ...s, kind: 'bar' })), unit, xLabel);
+  registerTip(id, labels, series.map((s) => ({ ...s, kind: 'bar' })), unit, xLabel, { stacked, detail });
   return `${chartLegend(series, 'bar')}<svg viewBox="0 0 ${W} ${H}" class="dchart" role="img" aria-label="${esc(series.map((s) => s.name).join(', '))}">${f.grid}${marks}${f.xhair}${f.ticks}${f.hits}</svg>${chartTable(labels, series, xLabel)}`;
 }

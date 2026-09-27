@@ -37,6 +37,7 @@ window.addEventListener('hashchange', route); route();
 
 async function route() {
   await metricsReady;
+  CHARTS.clear(); $('#tip').hidden = true; // hover readouts belong to the page being left
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
@@ -120,7 +121,6 @@ async function renderDora() {
   box.classList.add('loading'); // keep the frame while refetching
   const d = await api(`/dora?team=${encodeURIComponent(DORA.team)}&days=${DORA.days}`);
   if (!d.metrics) { box.innerHTML = `<p class="note">${esc(d.error ?? 'No data')}</p>`; return; }
-  CHARTS.clear();
   box.innerHTML = `<p class="note">${esc(shortDay(d.from))} to ${esc(shortDay(d.to))}${d.team === 'all' ? `, all ${esc(d.boards.length)} teams together` : ''}.</p>${d.metrics.map((m) => doraRow(m, d.days)).join('')}`;
   box.classList.remove('loading');
 }
