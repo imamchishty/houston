@@ -1,4 +1,4 @@
-  /* Dark by default. Every colour is a token; light is the same tokens with other values.
+  /* One dark theme. Every colour is a token.
      Contrast on the dark panel: ink 14:1, muted 6.9:1, series 6.2:1, status colours 5.8:1 and above. */
   :root {
     color-scheme: dark;
@@ -7,14 +7,6 @@
     --amber-text:#E3B341; --green-bg:rgba(63,191,132,.12); --amber-bg:rgba(227,179,65,.12); --red-bg:rgba(240,112,94,.13);
     --shadow:rgba(0,0,0,.35);
     --s1:#3987e5; --s2:#d95926; /* two-series pair, validated on this surface: CVD ΔE 26.8, contrast >= 3:1 */
-  }
-  :root[data-theme="light"] {
-    color-scheme: light;
-    --bg:#F3F5F8; --panel:#FFFFFF; --ink:#141B2D; --muted:#5F6B82; --line:#E1E5EC; --soft:#F7F8FB;
-    --green:#1F8A5B; --amber:#B8860B; --red:#C0392B; --link:#2B5FAE; --series:#2B5FAE;
-    --amber-text:var(--amber-text); --green-bg:#E7F5EE; --amber-bg:#FBF3DC; --red-bg:#FBE9E7;
-    --shadow:rgba(20,27,45,.12);
-    --s1:#2a78d6; --s2:#eb6834;
   }
   * { box-sizing:border-box; }
   html { scroll-behavior:smooth; }
@@ -165,9 +157,6 @@ details.tbl table { margin-top:6px; }
 svg.dchart .dot { fill:var(--series); stroke:var(--panel); stroke-width:1.5; }
 .legend2 .dt { width:8px; height:8px; border-radius:50%; background:var(--series); display:inline-block; }
 
-/* Theme switch */
-.themebtn { font:inherit; font-size:13px; color:var(--muted); background:none; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
-.themebtn:hover { color:var(--ink); }
 /* Chart series colours by class (no inline styles under the CSP) */
 .k-s1 { --c:var(--s1); } .k-s2 { --c:var(--s2); } .k-series { --c:var(--series); } .k-ink { --c:var(--ink); } .k-muted { --c:var(--muted); }
 svg.dchart .ln2 { fill:none; stroke:var(--c); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }

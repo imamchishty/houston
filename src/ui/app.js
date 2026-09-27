@@ -1,15 +1,4 @@
 const $ = (s) => document.querySelector(s);
-// Theme: dark unless this viewer chose light. Remembered in this browser only; the page works without storage.
-const THEME_KEY = 'houston-theme';
-function setTheme(t) {
-  if (t === 'light') document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
-  const b = document.getElementById('theme'); if (b) b.textContent = t === 'light' ? 'Dark theme' : 'Light theme';
-}
-try { setTheme(localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'); } catch { setTheme('dark'); }
-document.getElementById('theme')?.addEventListener('click', () => {
-  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-  setTheme(next); try { localStorage.setItem(THEME_KEY, next); } catch { /* private window: still switches for this visit */ }
-});
 // Every value from the API goes through esc(), including ones that look internal. Safe in text and quoted attributes.
 const esc = (s) => String(s ?? '').replace(/[&<>"'`]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;' }[c]));
 const cls = (s) => String(s ?? '').replace(/[^a-z0-9_-]/gi, ''); // class names: letters, digits, dash only
