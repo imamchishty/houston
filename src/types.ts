@@ -141,7 +141,21 @@ export interface GithubSnapshot {
   ci: CiRun[];
   defaultBranches?: Record<string, string>;   // repo -> default branch
   mainCommits?: MainCommit[];                  // commits on the default branch in the window
+  security?: { alerts: SecurityAlert[]; coverage: Record<string, ScanCoverage> };
 }
+
+// A GitHub security alert: a vulnerable dependency (Dependabot), a leaked secret (secret scanning) or a flaw in the
+// team's own code (code scanning). Never the secret itself: only its type, where, and when.
+export type Severity = 'critical' | 'high' | 'medium' | 'low';
+export interface SecurityAlert {
+  repo: string; kind: 'dependency' | 'secret' | 'code'; number: number;
+  severity: Severity;             // leaked secrets are always critical
+  title: string;                  // package and advisory, rule, or secret type
+  state: 'open' | 'fixed' | 'dismissed';
+  createdAt: string; closedAt: string | null;   // fixed or dismissed at
+}
+// Whether each scanner is turned on for a repo. null: Houston could not tell (usually a missing token permission).
+export interface ScanCoverage { dependency: boolean | null; secret: boolean | null; code: boolean | null }
 
 // A commit on a repo's default branch. viaPr: GitHub associates it with a merged pull request
 // (true for merge, squash and rebase merges alike); false means it was pushed or merged without a PR.

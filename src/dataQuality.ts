@@ -52,6 +52,12 @@ export function dataQuality(): DataCheck[] {
 
   for (const g of store.github()) {
     const t = `GitHub ${g.board}`;
+    if (g.security) {
+      const cov = Object.entries(g.security.coverage), unknown = cov.filter(([, c]) => c.dependency == null || c.secret == null || c.code == null).map(([r]) => r);
+      add(t, 'Security alerts readable', !cov.length ? 'warn' : unknown.length ? 'warn' : 'ok',
+        !cov.length ? 'No security data yet: runs after the next collection.' : unknown.length ? `Could not read some security alerts for ${unknown.join(', ')}. Give the GitHub token read access to Dependabot alerts, code scanning alerts and secret scanning alerts.` : `Alerts read for ${cov.length} repos.`,
+        unknown.length || !cov.length ? ['Security'] : []);
+    }
     const merged = g.prs.filter((p) => p.mergedAt && !p.draft);
     add(t, 'Pull requests collected', merged.length ? 'ok' : 'fail', merged.length ? `${merged.length} merged PRs in ${config.github.days} days.` : 'No merged PRs. Check GITHUB_REPOS and the token\'s access.', ['all GitHub measures']);
     const okDeploys = g.deploys.filter((d) => d.success).length;

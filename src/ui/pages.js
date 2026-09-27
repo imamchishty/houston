@@ -33,11 +33,12 @@ function measureTile(m, opts = {}) {
 }
 
 // ---------- Report pages: Quality, Predictability, Efficiency ----------
-// The four areas. Every number lives in exactly one of them.
+// The areas. Every number lives in exactly one of them.
 const REPORTS = {
   dora: { title: 'DORA', intro: 'How fast and how safely change reaches users: deployment frequency, lead time, change failure rate and time to restore, and where lead time goes.' },
   flow: { title: 'Flow', intro: 'How much work flows and where it waits: the Flow Framework (velocity, time, efficiency, load, distribution), bottlenecks, cycle time and pull request flow.' },
   quality: { title: 'Quality', intro: 'Bugs and the code itself: how many bugs each change brings, how many reach customers, what stops them, code quality from SonarQube and tests, and how fast bugs are fixed.' },
+  security: { title: 'Security', intro: 'Whether serious security issues are fixed within their deadline, what is exposed right now, and whether every repo is actually scanned: vulnerable dependencies, leaked secrets and flaws in the team\'s own code.' },
   planning: { title: 'Planning', intro: 'Whether the team delivers what it plans, how much unplanned work arrives, and whether work is set up so plans can be trusted.' },
 };
 const FILT = { team: 'all', days: 30 };
@@ -77,9 +78,9 @@ async function reportPage(name, teams) {
     </section>`).join('')}
     ${name === 'dora' ? '<h2>Day by day</h2><div id="dora"></div>' : ''}
     <h2>By team</h2>
-    <div class="card scrollx"><table class="t dash"><tr><th>Team</th>${all.map((m) => `<th title="${esc(m.title)}">${esc(m.title)}</th>`).join('')}</tr>
-      ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}"><td><b>${esc(t.board)}</b></td>${t.measures.map((m) => `<td title="${esc(m.title)}: ${esc(countsText(m).replace(/<[^>]+>/g, ''))}">${m.value == null ? '<span class="st none">·</span>' : `<span class="st ${m.met == null ? 'none' : m.met ? 'green' : 'red'}"><i aria-hidden="true">${m.met == null ? '' : m.met ? '✓' : '▲'}</i>${esc(chartFmt(m.value))}${esc(unitOf(m))}</span>`}</td>`).join('')}</tr>`).join('')}
-    </table><p class="note">✓ target met · ▲ target missed · hover a cell for the counts. Click a team for its detail.</p></div>`;
+    <div class="card scrollx"><table class="t dash sortable"><thead><tr><th>Team</th>${all.map((m) => `<th title="${esc(m.title)}">${esc(m.title)}</th>`).join('')}</tr></thead><tbody>
+      ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}"><td><b>${esc(t.board)}</b></td>${t.measures.map((m) => `<td data-sort="${m.value == null ? '' : esc(m.value)}" title="${esc(m.title)}: ${esc(countsText(m).replace(/<[^>]+>/g, ''))}">${m.value == null ? '<span class="st none">·</span>' : `<span class="st ${m.met == null ? 'none' : m.met ? 'green' : 'red'}"><i aria-hidden="true">${m.met == null ? '' : m.met ? '✓' : '▲'}</i>${esc(chartFmt(m.value))}${esc(unitOf(m))}</span>`}</td>`).join('')}</tr>`).join('')}
+    </tbody></table><p class="note">✓ target met · ▲ target missed · hover a cell for the counts. Click a column heading to sort, or a team for its detail.</p></div>`;
   if (name === 'dora') { DORA.team = FILT.team; DORA.days = FILT.days; renderDora(); }
   window.scrollTo(0, 0);
 }

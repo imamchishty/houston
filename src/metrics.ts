@@ -7,7 +7,7 @@ import { docsRules } from './rules/docsRules.js';
 // finding and on the Metrics page. The formulas match METRICS.md; thresholds come from the rule definitions
 // where they are exported, so the explanation cannot drift from what is scored.
 
-export type Area = 'DORA' | 'Flow' | 'Planning' | 'Quality' | 'Features' | 'Production' | 'Docs' | 'Claude' | 'Scores';
+export type Area = 'DORA' | 'Flow' | 'Planning' | 'Quality' | 'Security' | 'Features' | 'Production' | 'Docs' | 'Claude' | 'Scores';
 export interface DoraBand { tier: 'Elite' | 'High' | 'Medium' | 'Low'; test: string; min?: number; max?: number }
 export interface MetricInfo { id: string; area: Area; name: string; why: string; how: string; thresholds?: string; dora?: DoraBand[] }
 
@@ -137,9 +137,6 @@ const catalogue: MetricInfo[] = [
   W('Quality', 'new_code_coverage', 'Test coverage on new code',
     'Whether the code being written now is tested. It is the one coverage number a team can control, and a headcount gate condition.',
     'SonarQube coverage on new code, for the new code period set in SonarQube.'),
-  W('Quality', 'vulnerabilities', 'Open vulnerabilities',
-    'In a regulated healthcare environment an open vulnerability is a compliance exposure, not a backlog item.',
-    'SonarQube vulnerability count.'),
   W('Quality', 'sonar_bugs', 'SonarQube bugs',
     'Static analysis bugs are defects found before users find them. Cheap to fix now, expensive later.',
     'SonarQube bug count.'),
@@ -155,6 +152,32 @@ const catalogue: MetricInfo[] = [
   W('Quality', 'automation_share', 'Share of tests automated',
     'Manual regression is what makes releases slow. Automating it shortens every release after.',
     'Automated tests ÷ (automated + manual test cases) in Testmo.'),
+
+  // Security
+  W('Security', 'security_on_time', 'Critical and high fixed on time',
+    'The question auditors ask: when a serious vulnerability is found, is it fixed within the agreed time? A backlog of known, unfixed issues is the exposure attackers use.',
+    'Critical and high GitHub alerts (Dependabot, code scanning, secret scanning) fixed within SECURITY_DEADLINE_DAYS, judged once when fixed or when the deadline passes. Still open at the deadline is late even if dismissed later.'),
+  W('Security', 'security_fix_critical', 'Time to fix, critical',
+    'How long the most serious issues stay exploitable.', 'Median days from a critical alert opening to it being fixed (a leaked secret: revoked).'),
+  W('Security', 'security_fix_high', 'Time to fix, high',
+    'How long high severity issues stay exploitable.', 'Median days from a high alert opening to it being fixed.'),
+  W('Security', 'security_overdue', 'Security alerts overdue',
+    'Each one is a known issue past the agreed fix date: the first list to work through.', 'Open alerts past their deadline, any severity with a deadline, listed with their age.'),
+  W('Security', 'security_open_critical_high', 'Open critical and high alerts',
+    'Current exposure, including issues still within their deadline.', 'Open critical and high alerts at the end of the period.'),
+  W('Security', 'secrets_open', 'Leaked secrets not yet revoked',
+    'A leaked key is usable by anyone who has seen the code until it is revoked. Removing it from the code is not enough.', 'Open secret scanning alerts. Houston stores the secret type only, never the secret.'),
+  W('Security', 'security_dismissed', 'Alerts dismissed instead of fixed',
+    'Dismissing is sometimes right (false positive, test data) but it must be visible, or it becomes a way to hide issues.', 'Alerts dismissed in the period, including auto-dismissed dependency alerts.'),
+  W('Security', 'scan_dependency', 'Dependency scanning turned on',
+    'A repo with scanning off shows no alerts, so it looks safe when it is not.', 'Team repos with Dependabot alerts enabled.'),
+  W('Security', 'scan_secret', 'Secret scanning turned on',
+    'Without it a committed password goes unnoticed.', 'Team repos with secret scanning enabled.'),
+  W('Security', 'scan_code', 'Code scanning turned on',
+    'Finds injection, cross-site scripting and similar flaws in the team\'s own code.', 'Team repos with code scanning results (GitHub Advanced Security).'),
+  W('Security', 'vulnerabilities', 'SonarQube vulnerabilities',
+    'In a regulated healthcare environment an open vulnerability is a compliance exposure, not a backlog item.',
+    'SonarQube vulnerability count.'),
 
   // Features
   W('Features', 'feature_lead_time', 'Feature lead time',

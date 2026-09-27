@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
-import type { Epic, GithubSnapshot, PullRequest, Sprint, WorkItem } from './types.js';
+import type { Epic, GithubSnapshot, PullRequest, ScanCoverage, SecurityAlert, Sprint, WorkItem } from './types.js';
 import { hoursExcludingWeekends, weekOf } from './time.js';
 import { flow } from './flow.js';
 import { leadTimes } from './leadtime.js';
@@ -40,6 +40,8 @@ export const TARGETS: Record<string, Target> = {
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
   pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
+  scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
 };
 
 const round1 = (x: number) => Math.round(x * 10) / 10;
@@ -62,6 +64,7 @@ export interface Slice {
   projectKeys: string[];
   defaultBranches: Record<string, string>;
   quality: import('./types.js').QualitySnapshot[];
+  security: { alerts: SecurityAlert[]; coverage: Record<string, ScanCoverage> };
 }
 
 export const slice = (team: string, days: Period, now = Date.now()): Slice => sliceRange(team, now - days * DAY, now);
@@ -80,6 +83,7 @@ export function sliceRange(team: string, from: number, to: number): Slice {
     projectKeys: store.projects().filter((p) => boards.includes(p.board)).map((p) => p.project),
     defaultBranches: Object.assign({}, ...gh.map((g) => g.defaultBranches ?? {})),
     quality: store.quality().filter((q) => boards.includes(q.board)),
+    security: { alerts: gh.flatMap((g) => g.security?.alerts ?? []), coverage: Object.assign({}, ...gh.map((g) => g.security?.coverage ?? {})) },
   };
 }
 
@@ -352,10 +356,9 @@ function codeQuality(s: Slice) {
   const one = (id: string, title: string, value: number | null, unit: Measure['unit'], target: Target | null, how: string, den: number): Measure =>
     ({ id, title, value, unit, num: null, den, denLabel: den === 1 ? 'team' : 'teams', target, met: metTarget(value, target), how });
   const passing = sonar.filter((x) => x.qualityGate === 'OK').length;
-  return { id: 'code_quality', title: 'Code quality', question: 'Is the code the team writes now tested, safe and passing its own gate?', measures: [
+  return { id: 'code_quality', title: 'Code quality', question: 'Is the code the team writes now tested and passing its own gate?', measures: [
     rate('quality_gate_pass', 'Quality gate passing', passing, sonar.length, 'Teams whose SonarQube quality gate passes, latest scan.', ['passing', 'teams']),
     one('new_code_coverage', 'Coverage on new code', med2(sonar.map((x) => x.newCoverage).filter((v): v is number => v != null)), '%', TARGETS.new_code_coverage, 'SonarQube coverage on new code, latest scan (the median team when several).', sonar.length),
-    one('vulnerabilities', 'Open vulnerabilities', sonar.length ? sonar.reduce((t, x) => t + x.vulnerabilities, 0) : null, 'count', TARGETS.vulnerabilities, 'SonarQube open vulnerabilities, latest scan, all teams together.', sonar.length),
     one('test_pass_rate', 'Automated test pass rate', med2(testmo.map((x) => x.lastRunPassRate)), '%', TARGETS.test_pass_rate, 'Tests passed ÷ tests run over the last 30 days of Testmo automation runs (the median team when several).', testmo.length),
   ], note: 'From the latest SonarQube scan and Testmo runs, not the selected period.' };
 }
@@ -385,5 +388,76 @@ export function dora(s: Slice) {
     ], stages: f.stages },
   ] };
 }
+// ---------- Security ----------
+// GitHub security alerts: vulnerable dependencies (Dependabot), leaked secrets (secret scanning) and flaws in the team's
+// own code (code scanning), plus SonarQube vulnerabilities. Deadlines by severity from SECURITY_DEADLINE_DAYS.
+//
+// On time: each critical or high alert is judged once, at whichever comes first: it being closed, or its deadline
+// passing. Fixed by the deadline is on time; still open at the deadline is late, whatever happens after, so dismissing
+// an overdue alert cannot improve the rate. Dismissed before the deadline is left out of the rate and listed.
+const deadlineDays = (a: SecurityAlert) => config.github.securityDeadlines[a.severity];
+const dueAt = (a: SecurityAlert) => { const d = deadlineDays(a); return d == null ? null : Date.parse(a.createdAt) + d * DAY; };
+const openAt = (a: SecurityAlert, t: number) => Date.parse(a.createdAt) < t && (!a.closedAt || Date.parse(a.closedAt) >= t);
+const KIND = { dependency: 'dependency', secret: 'leaked secret', code: 'code' } as const;
+const aref = (a: SecurityAlert, extra = '') => `${a.repo.split('/')[1] ?? a.repo}: ${a.title} (${a.severity} ${KIND[a.kind]}${extra})`;
+
+export function security(s: Slice) {
+  const A = s.security.alerts, serious = A.filter((a) => a.severity === 'critical' || a.severity === 'high');
+  const judged: { a: SecurityAlert; onTime: boolean }[] = [], dismissedEarly: SecurityAlert[] = [];
+  for (const a of serious) {
+    const due = dueAt(a); if (due == null) continue;
+    const closed = a.closedAt ? Date.parse(a.closedAt) : null;
+    const at = closed != null && closed <= due ? closed : due;
+    if (at < s.from || at >= s.to) continue;
+    if (closed != null && closed <= due && a.state === 'dismissed') { dismissedEarly.push(a); continue; }
+    judged.push({ a, onTime: closed != null && closed <= due });
+  }
+  const onTime = rate('security_on_time', 'Critical and high fixed on time', judged.filter((x) => x.onTime).length, judged.length,
+    `Critical and high alerts fixed within their deadline (critical ${config.github.securityDeadlines.critical ?? '·'} days, high ${config.github.securityDeadlines.high ?? '·'} days). Each alert is judged once, when it is fixed or when its deadline passes, whichever is first, in the period. Still open at the deadline counts as late even if dismissed later. Dismissed before the deadline is left out and listed separately.`,
+    ['on time', 'alerts due or closed'], judged.filter((x) => !x.onTime).map((x) => aref(x.a)));
+  const fixDays = (sv: 'critical' | 'high') => A.filter((a) => a.severity === sv && a.state === 'fixed' && inWin(s, a.closedAt)).map((a) => (Date.parse(a.closedAt!) - Date.parse(a.createdAt)) / DAY);
+  const fixMed = (sv: 'critical' | 'high') => { const d = config.github.securityDeadlines[sv]; const m = med(`security_fix_${sv}`, `Time to fix, ${sv} (median)`, fixDays(sv), 'days', `Median days from a ${sv} alert being opened to it being fixed (for a leaked secret: revoked), alerts fixed in the period.`, 'fixed alerts');
+    const target: Target | null = d ? { op: '<', value: d } : null; return { ...m, target, met: metTarget(m.value, target) }; };
+
+  const now = s.to;
+  const overdue = A.filter((a) => openAt(a, now) && (dueAt(a) ?? Infinity) < now);
+  const count = (id: string, title: string, xs: SecurityAlert[], how: string, withAge = false): Measure => {
+    const target = TARGETS[id] ?? null;
+    return { id, title, value: xs.length, unit: 'count', num: null, den: null, target, met: metTarget(xs.length, target), how,
+      failing: xs.map((a) => aref(a, withAge ? `, ${Math.floor((now - Date.parse(a.createdAt)) / DAY)} days old` : '')) };
+  };
+  const openCH = A.filter((a) => openAt(a, now) && (a.severity === 'critical' || a.severity === 'high'));
+  const secrets = A.filter((a) => a.kind === 'secret' && openAt(a, now));
+  const dismissed = A.filter((a) => a.state === 'dismissed' && inWin(s, a.closedAt));
+  const sonar = s.quality.map((q) => q.sonar).filter((x): x is NonNullable<typeof x> => !!x);
+  const sonarVulns: Measure = { id: 'vulnerabilities', title: 'SonarQube vulnerabilities', value: sonar.length ? sonar.reduce((t, x) => t + x.vulnerabilities, 0) : null, unit: 'count',
+    num: null, den: sonar.length, denLabel: sonar.length === 1 ? 'team' : 'teams', target: TARGETS.vulnerabilities, met: null, how: 'SonarQube open vulnerabilities, latest scan, all teams together (not the selected period).' };
+  sonarVulns.met = metTarget(sonarVulns.value, sonarVulns.target);
+
+  const repos = Object.entries(s.security.coverage);
+  const cov = (k: keyof ScanCoverage, id: string, title: string, what: string): Measure => {
+    const known = repos.filter(([, c]) => c[k] != null), off = known.filter(([, c]) => c[k] === false).map(([r]) => r);
+    const unknown = repos.length - known.length;
+    return { ...rate(id, title, known.length - off.length, known.length, `Team repos with ${what} turned on. A repo with scanning off shows no alerts, so it looks safe when it is not.`, ['repos on', 'repos'], off),
+      smallSample: false, note: unknown ? `${unknown} repos could not be checked: the GitHub token needs read access to ${what}.` : undefined };
+  };
+
+  return { groups: [
+    { id: 'fix_on_time', title: 'Fixed on time', question: 'Are serious security issues fixed within their deadline?', measures: [onTime, fixMed('critical'), fixMed('high')] },
+    { id: 'exposure', title: 'Open now', question: 'What is exposed right now?', measures: [
+      count('security_overdue', 'Overdue now', overdue, 'Open alerts past their deadline at the end of the period, any severity with a deadline. Each is listed with its age.', true),
+      count('security_open_critical_high', 'Open critical and high', openCH, 'Open critical and high alerts at the end of the period, within their deadline or not.'),
+      count('secrets_open', 'Leaked secrets not yet revoked', secrets, 'Secrets (passwords, keys, tokens) found in code and not yet revoked, at the end of the period. Houston stores only the secret type, never the secret.'),
+      sonarVulns,
+      { ...count('security_dismissed', 'Dismissed instead of fixed', dismissed, 'Alerts dismissed in the period (false positive, won\'t fix, used in tests, or auto-dismissed). Shown so dismissals are seen, not hidden.'), target: null, met: null },
+    ] },
+    { id: 'scan_coverage', title: 'Scanning turned on', question: 'Is every repo actually being scanned?', measures: [
+      cov('dependency', 'scan_dependency', 'Dependency scanning', 'Dependabot alerts'),
+      cov('secret', 'scan_secret', 'Secret scanning', 'secret scanning'),
+      cov('code', 'scan_code', 'Code scanning', 'code scanning'),
+    ], note: 'As GitHub reports it today, not for the selected period.' },
+  ] };
+}
+
 // Report names as the pages show them.
-export const REPORTS = { dora, flow: efficiency, quality, planning: predictability } as const;
+export const REPORTS = { dora, flow: efficiency, quality, planning: predictability, security } as const;

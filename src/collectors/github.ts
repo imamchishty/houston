@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest } from '../types.js';
+import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest, ScanCoverage, SecurityAlert, Severity } from '../types.js';
 import { store } from '../store/index.js';
 import { canonical } from '../identity.js';
 
@@ -88,6 +88,59 @@ async function pullRequests(repo: string, since: string): Promise<PullRequest[]>
   return out;
 }
 
+// ---------- Security alerts ----------
+// The alert endpoints page with cursors (Link header), not page numbers. Only "next" links on the same API host are
+// followed. A 404, or a 403 saying the feature is off, means the scanner is not enabled: that is data, not an error.
+// Any other 403 is recorded as "unknown" (usually a token without the alert permissions) and the run carries on.
+type Listed<T> = { enabled: true; items: T[] } | { enabled: false | null; items: [] };
+async function alerts<T>(path: string, limit = 5000): Promise<Listed<T>> {
+  const items: T[] = [];
+  let url: string | null = `${config.github.api}${path}${path.includes('?') ? '&' : '?'}per_page=100`;
+  while (url && items.length < limit) {
+    const res: Response = await fetch(url, { headers: { Authorization: `Bearer ${config.github.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' } });
+    if (res.status === 404) return { enabled: false, items: [] };
+    if (res.status === 403) { const t = await res.text(); return { enabled: /disabled|not enabled|advanced security|no analysis/i.test(t) ? false : null, items: [] }; }
+    if (!res.ok) throw new Error(`GitHub ${res.status} on ${path}: ${await res.text()}`);
+    items.push(...((await res.json()) as T[]));
+    const next: string | null = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get('link') ?? '')?.[1] ?? null;
+    url = next && next.startsWith(`${config.github.api}/`) ? next : null;
+  }
+  return { enabled: true, items };
+}
+const sev = (x: string | null | undefined): Severity | null => (x === 'critical' || x === 'high' || x === 'medium' || x === 'low' ? x : x === 'moderate' ? 'medium' : null);
+
+export async function security(repo: string): Promise<{ alerts: SecurityAlert[]; coverage: ScanCoverage }> {
+  const r = repoPath(repo);
+  const [dep, code, sec] = await Promise.all([
+    alerts<any>(`/repos/${r}/dependabot/alerts`),
+    alerts<any>(`/repos/${r}/code-scanning/alerts`),
+    // hide_secret: GitHub leaves the secret value out of the response. Houston never reads or stores it either way.
+    alerts<any>(`/repos/${r}/secret-scanning/alerts?hide_secret=true`),
+  ]);
+  const out: SecurityAlert[] = [];
+  for (const a of dep.items) {
+    const severity = sev(a.security_advisory?.severity ?? a.security_vulnerability?.severity); if (!severity) continue;
+    const state = a.state === 'fixed' ? 'fixed' : a.state === 'open' ? 'open' : 'dismissed';
+    out.push({ repo, kind: 'dependency', number: a.number, severity, state, createdAt: a.created_at,
+      closedAt: state === 'open' ? null : a.fixed_at ?? a.dismissed_at ?? a.auto_dismissed_at ?? a.updated_at ?? null,
+      title: `${a.security_vulnerability?.package?.name ?? a.dependency?.package?.name ?? 'package'}: ${a.security_advisory?.summary ?? a.security_advisory?.ghsa_id ?? 'advisory'}`.slice(0, 200) });
+  }
+  for (const a of code.items) {
+    // Security findings only: code scanning also reports style and correctness notes, which have no security severity.
+    const severity = sev(a.rule?.security_severity_level); if (!severity) continue;
+    const state = a.state === 'fixed' ? 'fixed' : a.state === 'open' ? 'open' : 'dismissed';
+    out.push({ repo, kind: 'code', number: a.number, severity, state, createdAt: a.created_at,
+      closedAt: state === 'open' ? null : a.fixed_at ?? a.dismissed_at ?? a.updated_at ?? null, title: String(a.rule?.description ?? a.rule?.id ?? 'rule').slice(0, 200) });
+  }
+  for (const a of sec.items) {
+    // A leaked secret is fixed only when it is revoked; any other resolution (false positive, used in tests, won't fix) is a dismissal.
+    const state = a.state === 'open' ? 'open' : a.resolution === 'revoked' ? 'fixed' : 'dismissed';
+    out.push({ repo, kind: 'secret', number: a.number, severity: 'critical', state, createdAt: a.created_at,
+      closedAt: state === 'open' ? null : a.resolved_at ?? a.updated_at ?? null, title: String(a.secret_type_display_name ?? a.secret_type ?? 'secret').slice(0, 200) });
+  }
+  return { alerts: out, coverage: { dependency: dep.enabled, code: code.enabled, secret: sec.enabled } };
+}
+
 async function runs(repo: string, since: string): Promise<{ ci: CiRun[]; deploys: Deploy[] }> {
   const list = await all<any>(`/repos/${repoPath(repo)}/actions/runs?created=>=${since.slice(0, 10)}`, 1000);
   const ci: CiRun[] = [];
@@ -125,7 +178,7 @@ export async function collectGithub(): Promise<GithubSnapshot[]> {
   const since = new Date(until.getTime() - config.github.days * 86_400_000).toISOString();
   const out: GithubSnapshot[] = [];
   for (const b of config.github.repos) {
-    const snap: GithubSnapshot = { board: b.name, since, until: until.toISOString(), repos: b.repos, prs: [], deploys: [], ci: [], defaultBranches: {}, mainCommits: [] };
+    const snap: GithubSnapshot = { board: b.name, since, until: until.toISOString(), repos: b.repos, prs: [], deploys: [], ci: [], defaultBranches: {}, mainCommits: [], security: { alerts: [], coverage: {} } };
     const known = new Map((store.github().find((g) => g.board === b.name)?.mainCommits ?? []).map((c) => [c.sha, c.viaPr] as const));
     for (const repo of b.repos) {
       const branch = (await gh<any>(`/repos/${repoPath(repo)}`)).default_branch ?? 'main';
@@ -135,6 +188,8 @@ export async function collectGithub(): Promise<GithubSnapshot[]> {
       const r = await runs(repo, since);
       snap.ci.push(...r.ci);
       snap.deploys.push(...r.deploys);
+      const sec = await security(repo);
+      snap.security!.alerts.push(...sec.alerts); snap.security!.coverage[repo] = sec.coverage;
     }
     out.push(snap);
   }

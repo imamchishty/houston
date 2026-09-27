@@ -62,6 +62,9 @@ export const config = {
     deployWorkflow: process.env.GITHUB_DEPLOY_WORKFLOW ?? 'deploy',
     // Service accounts that GitHub does not mark as bots, whose reviews and comments are not a person's review
     bots: (process.env.GITHUB_BOTS ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+    // Days to fix a security alert, by severity. A severity left out (low by default) has no deadline.
+    securityDeadlines: Object.fromEntries((process.env.SECURITY_DEADLINE_DAYS ?? 'critical:7,high:30,medium:90').split(',').filter(Boolean)
+      .map((x) => { const [k, v] = x.split(':'); return [k.trim().toLowerCase(), Number(v)] as const; }).filter(([, v]) => Number.isFinite(v) && v > 0)) as Partial<Record<'critical' | 'high' | 'medium' | 'low', number>>,
   },
   sonar: { url: process.env.SONAR_URL ?? '', token: process.env.SONAR_TOKEN ?? '', projects: pairs(process.env.SONAR_PROJECTS) },
   testmo: { url: process.env.TESTMO_URL ?? '', token: process.env.TESTMO_TOKEN ?? '', projects: pairs(process.env.TESTMO_PROJECTS) },

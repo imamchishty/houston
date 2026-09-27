@@ -12,7 +12,7 @@ const blank = (v: string | undefined) => !v || !v.trim();
 After(function () { delete process.env.CFR_SOURCE; });
 
 Given('a reporting period from {word} to {word}', function (from: string, to: string) {
-  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], projectKeys: [], defaultBranches: {} };
+  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], security: { alerts: [], coverage: {} }, projectKeys: [], defaultBranches: {} };
   measures = [];
 });
 Given("the team's Jira project is {string} and repos merge into {string}", function (key: string, branch: string) {
@@ -115,3 +115,15 @@ Then('the flow distribution is {int} features, {int} defects, {int} risks and {i
 Then(/^flow_velocity is ([\d.]+) items a week from (\d+) done$/, function (v: string, n: string) {
   const x = m('flow_velocity'); assert.deepEqual({ value: x.value, num: x.num }, { value: Number(v), num: Number(n) });
 });
+
+// Security alerts: opened and closed as dates, state open / fixed / dismissed.
+Given('these security alerts:', function (t: DataTable) {
+  s.security.alerts = t.hashes().map((r, k) => ({ repo: `org/${r.repo || 'repo'}`, kind: (r.kind || 'dependency') as 'dependency', number: k + 1, severity: r.severity as 'high',
+    title: r.title, state: r.state as 'open', createdAt: iso(r.opened), closedAt: blank(r.closed) ? null : iso(r.closed) }));
+});
+Given('scanning is turned on like this:', function (t: DataTable) {
+  const v = (x: string) => (x === 'on' ? true : x === 'off' ? false : null);
+  s.security.coverage = Object.fromEntries(t.hashes().map((r) => [`org/${r.repo}`, { dependency: v(r.dependency), secret: v(r.secret), code: v(r.code) }]));
+});
+Then(/^(\w+) counts (\d+)$/, function (id: string, n: string) { assert.equal(m(id).value, Number(n), id); });
+Then(/^(\w+) shows these, one per line:$/, function (id: string, t: DataTable) { assert.deepEqual(m(id).failing, t.raw().map((r) => r[0].trim())); });

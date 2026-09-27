@@ -1,4 +1,4 @@
-import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest } from '../types.js';
+import type { CiRun, Deploy, GithubSnapshot, MainCommit, PullRequest, SecurityAlert, Severity } from '../types.js';
 
 function rng(seed: number) { let s = seed; return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296); }
 const day = 86_400_000, hour = 3_600_000;
@@ -68,8 +68,25 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
   const mainCommits: MainCommit[] = prs.filter((p) => p.mergedAt).map((p) => ({ repo: p.repo, sha: `pr${p.number}`, at: p.mergedAt!, merge: false, viaPr: true }));
   for (let i = 0; i < (weak ? 34 : 3); i++) mainCommits.push({ repo: repos[i % 2], sha: `direct${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: false, viaPr: false });
   for (let i = 0; i < (weak ? 6 : 0); i++) mainCommits.push({ repo: repos[0], sha: `merge${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: true, viaPr: false });
+  // Security alerts over 120 days. The weak team fixes slowly, has code scanning off on its web repo and one leaked
+  // secret still open; the strong team fixes within days.
+  const alerts: SecurityAlert[] = []; let an = 1;
+  const PKGS = ['lodash', 'axios', 'jackson-databind', 'log4j-core', 'express', 'minimist', 'netty-codec', 'spring-web'];
+  for (let i = 0; i < (weak ? 34 : 14); i++) {
+    const repo = repos[i % 2], x = r(), severity: Severity = x < 0.12 ? 'critical' : x < 0.4 ? 'high' : x < 0.8 ? 'medium' : 'low';
+    const kind = i % 7 === 3 && !(weak && repo.endsWith('-web')) ? 'code' as const : 'dependency' as const;
+    const created = until - (4 + r() * 116) * day;
+    const fixDays = (weak ? 3 + r() * 60 : 0.5 + r() * 9) * (severity === 'low' ? 3 : 1);
+    const closed = created + fixDays * day;
+    const state = closed > until ? 'open' as const : r() < (weak ? 0.15 : 0.05) ? 'dismissed' as const : 'fixed' as const;
+    alerts.push({ repo, kind, number: an++, severity, state, createdAt: new Date(created).toISOString(), closedAt: state === 'open' ? null : new Date(closed).toISOString(),
+      title: kind === 'code' ? ['SQL injection', 'Cross-site scripting', 'Path traversal', 'Hard-coded credentials'][i % 4] : `${PKGS[i % PKGS.length]}: known vulnerability` });
+  }
+  const leakAt = until - (weak ? 12 : 40) * day;
+  alerts.push({ repo: repos[0], kind: 'secret', number: an++, severity: 'critical', state: weak ? 'open' : 'fixed', createdAt: new Date(leakAt).toISOString(), closedAt: weak ? null : new Date(leakAt + 0.2 * day).toISOString(), title: 'Azure Storage Account Access Key' });
+  const coverage = Object.fromEntries(repos.map((x) => [x, { dependency: true, secret: true, code: !(weak && x.endsWith('-web')) }]));
   return { board, since: new Date(since).toISOString(), until: new Date(until).toISOString(), repos, prs, deploys, ci,
-    defaultBranches: Object.fromEntries(repos.map((x) => [x, 'main'])), mainCommits };
+    defaultBranches: Object.fromEntries(repos.map((x) => [x, 'main'])), mainCommits, security: { alerts, coverage } };
 }
 
 export function demoGithub(): GithubSnapshot[] {

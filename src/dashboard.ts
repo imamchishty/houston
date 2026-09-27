@@ -45,6 +45,7 @@ export function dashboard(now = Date.now()) {
     { page: 'dora', title: 'DORA', question: 'How fast and how safely does change reach users?', ids: ['lead_time', 'change_failure_rate'] },
     { page: 'flow', title: 'Flow', question: 'How much work flows, and where does it wait?', ids: ['flow_efficiency', 'flow_time'] },
     { page: 'quality', title: 'Quality', question: 'Are bugs hurting customers, and is the code sound?', ids: ['bugs_per_change', 'defect_leakage'] },
+    { page: 'security', title: 'Security', question: 'Are serious security issues fixed in time?', ids: ['security_on_time', 'security_overdue'] },
     { page: 'planning', title: 'Planning', question: 'Does the team deliver what it plans?', ids: ['sprint_completion', 'unplanned_work'] },
   ] as const;
   const headlines = AREAS.map((h) => { const all = flatMeasures(REPORTS[h.page](s30));

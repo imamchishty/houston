@@ -40,7 +40,7 @@ async function route() {
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board).sort());
-  const rep = location.hash.match(/^#_(dora|flow|quality|planning)$/);
+  const rep = location.hash.match(/^#_(dora|flow|quality|security|planning)$/);
   if (rep) return reportPage(rep[1], (await api('/teams')).map((t) => t.board).sort());
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
@@ -238,13 +238,14 @@ const finding = (board, f) => `
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r, cost, hist, ai, cs] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null)]);
+  const [d, p, r, cost, hist, ai, cs, sec] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/claude').catch(() => null), api('/sprints/current?team=' + encodeURIComponent(board)).catch(() => null), api('/reports/security?team=' + encodeURIComponent(board) + '&days=90').catch(() => null)]);
+  if (!d?.latest) { $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a>`; $('#main').innerHTML = `<p class="empty">No team called ${esc(board)}.</p>`; return; }
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
   // Tabs in the same areas as the site: DORA, Flow, Quality, Planning, then cost, production, docs and people.
   const DORA_IDS = ['deploy_frequency', 'lead_time', 'change_failure'];
   const doraFindings = (flow?.findings ?? []).filter((f) => DORA_IDS.includes(f.ruleId)), flowFindings = (flow?.findings ?? []).filter((f) => !DORA_IDS.includes(f.ruleId));
-  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], doraFindings.length && ['dora', 'DORA'], flowFindings.length && ['flow', 'Flow'], quality && ['quality', 'Quality'], ['sprint', 'Planning'], features && ['features', 'Features & cost'], ops && ['prod', 'Production'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
+  const tabs = [['overview', 'Overview'], cs && !cs.error && ['now', 'Current sprint'], doraFindings.length && ['dora', 'DORA'], flowFindings.length && ['flow', 'Flow'], quality && ['quality', 'Quality'], sec?.groups && ['security', 'Security'], ['sprint', 'Planning'], features && ['features', 'Features & cost'], ops && ['prod', 'Production'], docs && ['docs', 'Docs'], ai?.configured && ['claude', 'Claude'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
   const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
   // What moves the scores: points each check would add to its area score if it went green, biggest first.
@@ -315,6 +316,7 @@ async function team(board, tab) {
     prod: () => `<h2>Production, Azure</h2>${ops.findings.map((f) => finding(board, f)).join('')}`,
     docs: () => `<h2>Documentation, Confluence</h2>${docs.findings.map((f) => finding(board, f)).join('')}`,
     now: () => sprintBoard(cs),
+    security: () => `<h2>Security, GitHub and SonarQube, last 90 days</h2>${sec.groups.map((g) => `<section class="group"><h3>${esc(g.title)}</h3><p class="muted">${esc(g.question)}</p><div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}</section>`).join('')}<p class="note"><a href="#_security">Security for all teams →</a></p>`,
     claude: () => claudeSection(ai),
     people: () => `
       <h2>Jira, last ${p.people[0]?.sprints ?? 0} sprints</h2>
@@ -434,14 +436,36 @@ fetch('/api/version').then((r) => r.ok ? r.json() : null).then((v) => {
 }).catch(() => {});
 
 // Data checks: the ways a correct formula could still give a wrong number on this data, and what each affects.
+// Sortable tables (class "sortable"): click or press Enter on a heading to sort by it, again to reverse. A cell sorts by
+// its data-sort value when it has one, then as a number when it reads as one, else as text. Empty cells stay last.
+function sortTable(th) {
+  const table = th.closest('table'), body = table.tBodies[0]; if (!body) return;
+  const col = [...th.parentNode.children].indexOf(th), dir = th.getAttribute('aria-sort') === 'ascending' ? -1 : 1;
+  table.querySelectorAll('thead th').forEach((h) => h.removeAttribute('aria-sort'));
+  th.setAttribute('aria-sort', dir === 1 ? 'ascending' : 'descending');
+  const key = (tr) => {
+    const c = tr.children[col]; const v = (c?.dataset.sort ?? c?.textContent ?? '').trim();
+    if (!v || v === '·') return null;
+    const n = Number(v.replace(/[,%]/g, '').replace(/\s*(days|hours|h|d)$/, ''));
+    return Number.isFinite(n) ? n : v.toLowerCase();
+  };
+  const rows = [...body.rows].map((tr) => [key(tr), tr]);
+  rows.sort(([a], [b]) => (a == null ? 1 : b == null ? -1 : (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))) * dir));
+  body.append(...rows.map(([, tr]) => tr));
+}
+document.addEventListener('click', (e) => { const th = e.target.closest?.('table.sortable thead th'); if (th) sortTable(th); });
+document.addEventListener('keydown', (e) => { const th = e.target.closest?.('table.sortable thead th'); if (th && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sortTable(th); } });
+new MutationObserver(() => document.querySelectorAll('table.sortable thead th:not([tabindex])').forEach((th) => { th.tabIndex = 0; th.setAttribute('role', 'columnheader'); }))
+  .observe(document.body, { childList: true, subtree: true });
+
 async function dataPage() {
   $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">Data checks</a>`;
   const dq = await api('/data-quality');
   const icon = { ok: ['green', '✓', 'OK'], warn: ['amber', '●', 'Check'], fail: ['red', '▲', 'Wrong'] };
   $('#main').innerHTML = `<h2 class="big">Data checks</h2>
     <p class="muted">Every measure is only as right as the data behind it. These checks look at what the last collect found: a field id that matches nothing, a deploy workflow with no runs, bots doing the reviewing. Fix anything marked Wrong or Check, then collect again.</p>
-    <div class="card scrollx"><table class="t"><tr><th>Status</th><th>Source</th><th>Check</th><th>Finding</th><th>Affects</th></tr>
-    ${dq.map((c) => `<tr><td><span class="st ${icon[c.status][0]}"><i aria-hidden="true">${icon[c.status][1]}</i>${icon[c.status][2]}</span></td><td>${esc(c.area)}</td><td>${esc(c.check)}</td><td>${esc(c.detail)}</td><td class="muted">${esc(c.affects.join(', '))}</td></tr>`).join('')}
-    </table></div>`;
+    <div class="card scrollx"><table class="t sortable"><thead><tr><th>Status</th><th>Source</th><th>Check</th><th>Finding</th><th>Affects</th></tr></thead><tbody>
+    ${dq.map((c) => `<tr><td data-sort="${{ fail: 0, warn: 1, ok: 2 }[c.status]}"><span class="st ${icon[c.status][0]}"><i aria-hidden="true">${icon[c.status][1]}</i>${icon[c.status][2]}</span></td><td>${esc(c.area)}</td><td>${esc(c.check)}</td><td>${esc(c.detail)}</td><td class="muted">${esc(c.affects.join(', '))}</td></tr>`).join('')}
+    </tbody></table><p class="note">Click a column heading to sort; click again to reverse.</p></div>`;
   window.scrollTo(0, 0);
 }

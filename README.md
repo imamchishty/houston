@@ -45,7 +45,7 @@ Schedule that command nightly (cron, Azure Container Apps job, or GitHub Actions
 
 ```
 GITHUB_API=https://github.m42.internal/api/v3    # GHES. For github.com: https://api.github.com
-GITHUB_TOKEN=...                                  # read only PAT: repo read, read:org
+GITHUB_TOKEN=...                                  # read only PAT: repo read, read:org, security_events (security alerts)
 GITHUB_REPOS=OSSI:m42/ossi-api|m42/ossi-web       # DisplayName:owner/repo|owner/repo
 GITHUB_DAYS=90
 GITHUB_LANES=frontend=web/,src/ui/;backend=api/,services/;infra=infra/,helm/;tests=test/,tests/;docs=docs/,*.md
