@@ -10,7 +10,7 @@ export function sprintInsights(history: Scorecard[]): Insight[] {
   if (history.length < 2) return out;
   const cur = history[history.length - 1], prev = history[history.length - 2];
   const d = cur.score - prev.score;
-  out.push({ kind: d > 0 ? 'better' : d < 0 ? 'worse' : 'good', text: d === 0 ? `Score unchanged at ${cur.score}.` : `Score ${d > 0 ? 'up' : 'down'} ${Math.abs(d)} to ${cur.score} since ${prev.sprintName}.` });
+  out.push({ kind: d > 0 ? 'better' : d < 0 ? 'worse' : 'good', text: d === 0 ? `Score unchanged at ${cur.score}.` : `Score ${d > 0 ? 'rose' : 'fell'} from ${prev.score} to ${cur.score} (${d > 0 ? '+' : ''}${d} points) since ${prev.sprintName}.` });
   const order: Record<Rag, number> = { red: 0, amber: 1, green: 2 };
   for (const f of cur.findings) {
     const p = prev.findings.find((x) => x.ruleId === f.ruleId);

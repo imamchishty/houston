@@ -1,4 +1,15 @@
 const $ = (s) => document.querySelector(s);
+// Theme: dark unless this viewer chose light. Remembered in this browser only; the page works without storage.
+const THEME_KEY = 'houston-theme';
+function setTheme(t) {
+  if (t === 'light') document.documentElement.dataset.theme = 'light'; else delete document.documentElement.dataset.theme;
+  const b = document.getElementById('theme'); if (b) b.textContent = t === 'light' ? 'Dark theme' : 'Light theme';
+}
+try { setTheme(localStorage.getItem(THEME_KEY) === 'light' ? 'light' : 'dark'); } catch { setTheme('dark'); }
+document.getElementById('theme')?.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  setTheme(next); try { localStorage.setItem(THEME_KEY, next); } catch { /* private window: still switches for this visit */ }
+});
 // Every value from the API goes through esc(), including ones that look internal. Safe in text and quoted attributes.
 const esc = (s) => String(s ?? '').replace(/[&<>"'`]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;' }[c]));
 const cls = (s) => String(s ?? '').replace(/[^a-z0-9_-]/gi, ''); // class names: letters, digits, dash only
@@ -26,8 +37,8 @@ function spark(points, w = 300, h = 44) {
   const y = (v) => h - 6 - (v / 100) * (h - 12);
   const path = points.map((p, i) => `${i ? 'L' : 'M'}${xs[i]},${y(p.score)}`).join(' ');
   return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
-    <line x1="8" x2="${w - 8}" y1="${y(75)}" y2="${y(75)}" stroke="#E1E5EC" stroke-dasharray="3 3"/>
-    <path d="${path}" fill="none" stroke="#141B2D" stroke-width="2" stroke-linejoin="round"/>
+    <line x1="8" x2="${w - 8}" y1="${y(75)}" y2="${y(75)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <path d="${path}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/>
     ${points.map((p, i) => `<circle cx="${xs[i]}" cy="${y(p.score)}" r="3.5" fill="var(--${cls(p.rag)})"><title>${esc(p.sprint)}: ${esc(p.score)}</title></circle>`).join('')}
   </svg>`;
 }
