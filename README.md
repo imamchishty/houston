@@ -81,6 +81,18 @@ Quality checks: quality gate, coverage (overall and on new code), vulnerabilitie
 Testmo pass rate, run frequency, automation share, and bugs raised during the sprint from Jira.
 Thresholds in `src/rules/qualityRules.ts`.
 
+## History and backups
+
+The JSON files in `HOUSTON_DATA_DIR` hold "now". `history.db` (SQLite, built into Node) keeps every day since go-live:
+area scores, every metric value, every sprint ever scored (Jira only returns the last `SPRINT_HISTORY`), and feature cost.
+
+- Each night's snapshot is one transaction: a crash loses that night's write, never earlier history. Re-running a day replaces it.
+- After each snapshot a consistent copy goes to `backups/history-YYYY-MM-DD.db`; the last `HOUSTON_BACKUP_DAYS` (30) are kept.
+- Keep the data folder on persistent storage (the compose volume, the Azure Files share) and turn on backup for that share,
+  so a copy lives outside the app. To restore, stop Houston and copy a backup over `history.db`.
+- On a network share only one process should write at a time; the nightly job does the writing.
+  If Houston becomes a shared service, move to Postgres (the queries in `src/store/history.ts` are plain SQL).
+
 ## Tests
 
 ```
@@ -150,10 +162,27 @@ docker run -p 4000:4000 -v houston-data:/data --env-file .env houston
 
 ## API
 
+Everything the page shows is available as JSON, and the contract is published at `GET /api/openapi.json` (OpenAPI 3.1).
+A BDD scenario fails if an endpoint is served but not documented, or documented but not served.
+
+Systems authenticate with a read-only bearer token from `HOUSTON_API_TOKENS`:
+
+```
+curl -H "Authorization: Bearer $TOKEN" https://houston.internal/api/teams/OSSI/summary
+```
+
+Tokens are team level only (no people view, no names) unless the token name is in `HOUSTON_PEOPLE_VIEWERS`, and cannot POST.
+`/api/teams/:board/summary` is sized for an IDP card: score and band, area scores, DORA tiers, the biggest gains, cost summary, links.
+
 | Endpoint | Returns |
 |---|---|
 | `GET /api/teams` | Every team: latest score, RAG, 6 sprint trend, top 3 gaps |
 | `GET /api/teams/:board` | Latest scorecard plus history for one team |
+| `GET /api/teams/:board/summary` | One card for the IDP: score, band, areas, DORA tiers, gains, cost |
+| `GET /api/teams/:board/costs` | Cost to build each feature, FTE and contractor, estimate to complete |
+| `GET /api/teams/:board/history` | Daily area scores, every sprint scored, cost over time |
+| `GET /api/metrics` | Why each metric matters and how it is calculated |
+| `GET /api/openapi.json` | The API contract |
 | `GET /api/teams/:board/digest.md` | Markdown retro digest, paste into Confluence. No names; people viewers can add `?named=1` |
 | `GET /api/teams/:board/people` | Per person: tickets and points done, median cycle time vs team, tickets over the size norm, stuck, carried over |
 | `GET /api/teams/:board/recommendations` | Ranked recommendations (pattern across findings, owner, steps) and the headcount gate |

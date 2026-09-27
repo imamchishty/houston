@@ -2,11 +2,6 @@ import type { Finding, Rag, Scorecard } from './types.js';
 
 export interface Insight { kind: 'better' | 'worse' | 'chronic' | 'new' | 'good'; text: string; ruleId?: string; }
 
-const improves = (f: Finding, prev: Finding) => {
-  // higher is better only for these
-  const higherBetter = ['commit_completion', 'sprint_goal', 'lane_crossing'].includes(f.ruleId);
-  return higherBetter ? f.value > prev.value : f.value < prev.value;
-};
 const fmt = (f: Finding) => (f.unit === '%' ? `${Math.round(f.value)}%` : f.unit === 'days' ? `${f.value}d` : String(f.value));
 
 // Reads the last sprints and says, in a few sentences, what changed and what is stuck.

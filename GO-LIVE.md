@@ -39,6 +39,12 @@ Show them the team page, not the people table.
 `/api/teams/OSSI/digest.md` into Confluence before the retro. Same list you saw Wednesday, without names.
 With `TEAMS_WEBHOOK` and `HOUSTON_URL` set, the headline is posted to Teams at 09:00 automatically (`npm run notify` to send it by hand).
 
+## Before go-live: storage
+
+- Data folder on persistent storage (azure.sh mounts an Azure Files share at /data).
+- Turn on Azure Backup for that file share, daily, 30 days. Houston also keeps 30 daily copies of its history in /data/backups.
+- If Backstage will call Houston, create an API token (`openssl rand -hex 32`) and set `HOUSTON_API_TOKENS=backstage:<token>`.
+
 ## Rules for the first month
 
 1. Thresholds frozen after the Tuesday check. Change them once, in a month, with the lead.

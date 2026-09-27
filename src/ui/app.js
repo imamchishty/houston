@@ -16,6 +16,8 @@ const about = (m) => !m ? '' : `
   <p><b>How it is calculated.</b> ${esc(m.how)}</p>
   ${m.thresholds ? `<p><b>Thresholds.</b> ${esc(m.thresholds)}</p>` : ''}
   ${m.dora ? `<table class="t mt"><tr><th>DORA tier</th><th>Range</th></tr>${m.dora.map((b) => `<tr><td>${esc(b.tier)}</td><td>${esc(b.test)}</td></tr>`).join('')}</table><p class="note">DORA State of DevOps research bands, approximate.</p>` : ''}`;
+// Plain-language band for a 0 to 100 score, same cut-offs as the colours.
+const bandOf = (n) => n >= 75 ? 'Healthy' : n >= 50 ? 'Watch' : 'Needs attention';
 const rag = (v, thr = [75, 50]) => v >= thr[0] ? 'green' : v >= thr[1] ? 'amber' : 'red';
 
 function spark(points, w = 300, h = 44) {
@@ -51,7 +53,7 @@ async function overview() {
     <h2>Teams</h2>
     <div class="grid">${teams.map((t) => `
       <div class="card team-card" data-go="${esc(t.board)}">
-        <div class="top"><span class="name">${esc(t.board)}</span>
+        <div class="top"><span class="name">${esc(t.board)} <span class="band ${rag(t.score)}">${bandOf(t.score)}</span></span>
           <span class="delta ${t.delta > 0 ? 'up' : t.delta < 0 ? 'down' : 'flat'}">${t.delta > 0 ? '▲' : t.delta < 0 ? '▼' : '•'} ${Math.abs(t.delta)} vs last sprint</span></div>
         <div class="scores">
           <span class="pill ${cls(t.rag)}"><b>${esc(t.score)}</b> sprint</span>
@@ -78,12 +80,27 @@ const finding = (board, f) => `
   </div>`;
 
 async function team(board, tab) {
-  const [d, p, r, cost] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null)]);
+  const [d, p, r, cost, hist] = await Promise.all([api('/teams/' + encodeURIComponent(board)), api('/teams/' + encodeURIComponent(board) + '/people').catch(() => ({ people: [], github: [], docs: [] })), api('/teams/' + encodeURIComponent(board) + '/recommendations'), api('/teams/' + encodeURIComponent(board) + '/costs').catch(() => null), api('/teams/' + encodeURIComponent(board) + '/history').catch(() => null)]);
   const { latest, history, quality, flow, docs, features, ops, actions, insights, heatmap, window: win, output, incidents } = d;
   const trend = [...history].sort((a, b) => a.sprintId - b.sprintId).map((c) => ({ sprint: c.sprintName, score: c.score, rag: c.rag }));
   const tabs = [['overview', 'Overview'], ['sprint', 'Sprint'], flow && ['flow', 'Flow & DORA'], quality && ['quality', 'Quality'], features && ['features', 'Features'], ops && ['prod', 'Production & cost'], docs && ['docs', 'Docs'], p.people?.length && ['people', 'People']].filter(Boolean);
   $('#crumbs').innerHTML = `<a href="#" data-go="">All teams</a><a class="on">${esc(board)}</a>`;
-  const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b>${esc(sub)}</span></div>`;
+  const big = (n, label, sub) => n == null ? '' : `<div class="bigscore"><span class="n ${rag(n)}">${esc(n)}</span><span class="l"><b>${esc(label)}</b><span class="band ${rag(n)}">${bandOf(n)}</span>${esc(sub)}</span></div>`;
+  // What moves the scores: points each check would add to its area score if it went green, biggest first.
+  const areas = [['Sprint process', latest], ['Flow & DORA', flow], ['Quality', quality], ['Features', features], ['Production & cost', ops], ['Docs', docs]].filter(([, a]) => a);
+  const gains = areas.flatMap(([name, a]) => {
+    const possible = a.findings.reduce((t, f) => t + (f.weight ?? 0), 0);
+    return possible ? a.findings.filter((f) => f.rag !== 'green' && f.weight).map((f) => ({ name, f, gain: Math.round((f.weight * (f.rag === 'amber' ? 0.5 : 1) / possible) * 100) })) : [];
+  }).sort((x, y) => y.gain - x.gain).slice(0, 6);
+  // History: sprint scores kept beyond Jira's window, and area scores by day.
+  const hsprints = (hist?.sprints ?? []).map((s) => ({ sprint: s.sprintName, score: s.score, rag: s.rag }));
+  const longTrend = hsprints.length > trend.length ? hsprints : trend;
+  const areaAt = (area, daysAgo) => {
+    const target = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+    const rows = (hist?.areas ?? []).filter((x) => x.area === area && x.day <= target);
+    return rows.length ? rows[rows.length - 1].score : null;
+  };
+  const AREA_NAMES = { sprint: 'Sprint process', flow: 'Flow & DORA', quality: 'Quality', features: 'Features', ops: 'Production & cost', docs: 'Docs' };
   const rec = (x, i) => { const a = (actions || []).filter((y) => y.recId === x.id).sort((y, z) => z.at.localeCompare(y.at))[0]; return `
     <div class="rec"><div class="row"><span class="title">${i + 1}. ${esc(x.title)}</span><span class="meta">${esc(x.owner)} · ${esc(x.horizon.toLowerCase())}</span></div>
       <p class="msg">${esc(x.why)}</p><ol>${x.what.map((w) => `<li>${esc(w)}</li>`).join('')}</ol>
@@ -99,11 +116,19 @@ async function team(board, tab) {
             ${big(latest.score, 'Sprint process', latest.sprintName)}${big(flow?.score, 'Flow & DORA', 'GitHub, 90 days')}${big(quality?.score, 'Quality', 'Sonar, Testmo, Jira')}
             ${big(features?.score, 'Features', 'Jira epics')}${big(ops?.score, 'Production & cost', 'Azure')}${big(docs?.score, 'Docs', 'Confluence')}
           </div>
-          ${spark(trend, 600, 60)}
-          <p class="note">Sprint score, ${esc(trend[0]?.sprint)} to ${esc(trend[trend.length - 1]?.sprint)}.</p>
+          ${spark(longTrend, 600, 60)}
+          <p class="note">Sprint score, ${esc(longTrend[0]?.sprint)} to ${esc(longTrend[longTrend.length - 1]?.sprint)}.</p>
         </div>
         <div class="card"><h2>Since last sprint</h2>${(insights || []).length ? insights.map((i) => `<div class="insight"><span class="dot ${i.kind}"></span><span>${esc(i.text)}</span></div>`).join('') : '<p class="note">Need two sprints for a comparison.</p>'}</div>
       </div>
+      ${gains.length ? `<h2>What moves the scores</h2>
+      <div class="card"><table class="t"><tr><th class="num">Gain</th><th>Check</th><th>Area</th><th class="num">Now</th></tr>
+        ${gains.map((g) => `<tr><td class="num"><b>+${esc(g.gain)}</b></td><td>${esc(g.f.title)}</td><td>${esc(g.name)}</td><td class="num">${esc(g.f.unit === '%' ? Math.round(g.f.value) + '%' : g.f.value)}</td></tr>`).join('')}</table>
+        <p class="note">Points each check would add to its area score if it went green. Start at the top.</p></div>` : ''}
+      ${hist?.firstDay ? `<h2>Over time</h2>
+      <div class="card"><table class="t"><tr><th>Area</th><th class="num">Now</th><th class="num">30 days ago</th><th class="num">90 days ago</th></tr>
+        ${Object.entries(AREA_NAMES).filter(([k]) => areaAt(k, 0) != null).map(([k, name]) => `<tr><td>${esc(name)}</td>${[0, 30, 90].map((d) => `<td class="num">${areaAt(k, d) == null ? '·' : `<span class="${rag(areaAt(k, d))}-text">${esc(Math.round(areaAt(k, d)))}</span>`}</td>`).join('')}</tr>`).join('')}</table>
+        <p class="note">History kept since ${esc(hist.firstDay)}. Earlier columns fill in as nightly runs add up.</p></div>` : ''}
       ${win ? `<h2>90 day window</h2>
       <div class="rec gate ${win.onTrack ? 'open' : ''}"><p class="msg">${esc(win.verdict)}</p>
         <table class="t mt"><tr><th>Target</th><th>Goal</th><th class="num">At start</th><th class="num">Now</th><th>Met</th></tr>

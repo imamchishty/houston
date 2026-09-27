@@ -6,8 +6,12 @@ import { config } from './config.js';
 import { store } from './store/index.js';
 import { run } from './pipeline.js';
 import { buildInfo } from './version.js';
+import { boardData } from './board.js';
+import { teamSummary } from './summary.js';
+import { openapi } from './openapi.js';
 import { featureCosts } from './cost.js';
-import { metricCatalogue } from './metrics.js';
+import { metricCatalogue, bandFor } from './metrics.js';
+import { history } from './store/history.js';
 import { rules } from './rules/sprintRules.js';
 import { peopleStats } from './people.js';
 import { learnBaseline } from './cycle.js';
@@ -16,9 +20,6 @@ import { recommend, headcountGate } from './recommend.js';
 import { scoreFlow } from './rules/flowRules.js';
 import { githubPeople } from './githubPeople.js';
 import { rosterFor } from './identity.js';
-import { scoreDocs, docsPeople } from './rules/docsRules.js';
-import { scoreFeatures } from './rules/featureRules.js';
-import { scoreOps } from './rules/opsRules.js';
 import { notifyBoard, md } from './teams.js';
 import { sprintInsights, heatmap, headline } from './insights.js';
 import { windowStatus } from './window.js';
@@ -29,35 +30,17 @@ import { randomUUID, timingSafeEqual, createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { Action } from './types.js';
 
-// Everything Houston knows about one board, assembled once per request.
-function boardData(board: string) {
-  const history = store.scorecards().filter((c) => c.board === board).sort((a, b) => a.sprintId - b.sprintId);
-  const sprints = store.sprints().filter((s) => s.board === board);
-  const q = store.quality().find((x) => x.board === board);
-  const g = store.github().find((x) => x.board === board);
-  const d = store.docs().find((x) => x.board === board);
-  const epics = store.epics()[board] ?? [];
-  const az = store.azure().find((x) => x.board === board);
-  return {
-    ops: az ? scoreOps(az) : null,
-    history, sprints, latest: history[history.length - 1],
-    quality: q ? scoreQuality(q) : null,
-    flow: g ? scoreFlow(g) : null,
-    docs: d ? scoreDocs(d, g?.repos.length ?? 1) : null,
-    features: epics.length ? scoreFeatures(epics) : null,
-    people: peopleStats(sprints),
-    github: g ? githubPeople(g, rosterFor(board)) : [],
-    docsPeople: d ? docsPeople(d) : [],
-    raw: { sprints, github: g, docs: d, epics },
-  };
-}
-
 const here = dirname(fileURLToPath(import.meta.url));
 
-export interface AuthOptions { user: string; pass: string; viewers: string[] }
+// People sign in with basic auth. Machines (the IDP, Backstage, reporting) use read-only API tokens:
+// HOUSTON_API_TOKENS=backstage:<token>,reporting:<token>. A token is team level only, unless its name is a people viewer.
+export interface AuthOptions { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[] }
+export const parseTokens = (v: string | undefined) => (v ?? '').split(',').map((x) => x.trim()).filter((x) => x.includes(':'))
+  .map((x) => { const i = x.indexOf(':'); return { name: x.slice(0, i).trim(), token: x.slice(i + 1).trim() }; });
 export const authFromEnv = (): AuthOptions => ({
   user: process.env.HOUSTON_USER ?? '', pass: process.env.HOUSTON_PASSWORD ?? '',
   viewers: (process.env.HOUSTON_PEOPLE_VIEWERS ?? '').split(',').map((x) => x.trim()).filter(Boolean),
+  tokens: parseTokens(process.env.HOUSTON_API_TOKENS),
 });
 
 // The whole HTTP app, without listening. index.ts serves it; the BDD suite drives it with inject().
@@ -65,6 +48,10 @@ export const authFromEnv = (): AuthOptions => ({
 export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // Small bodies only: the one POST with a body is an action log entry.
   const app = Fastify({ logger: opts.logger ?? true, bodyLimit: 16 * 1024 });
+  // Every API route, so the OpenAPI document can be checked against what is really served.
+  const routes: string[] = [];
+  app.addHook('onRoute', (r) => { if (r.url.startsWith('/api/')) for (const m of [r.method].flat()) if (m !== 'HEAD') routes.push(`${m} ${r.url}`); });
+  app.decorate('houstonRoutes', routes);
 
   // Security headers on every response. The UI has no inline script or style, so the CSP can be strict.
   app.addHook('onSend', async (_req, reply) => {
@@ -112,6 +99,17 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!auth.pass || req.routeOptions.url === '/api/health') return; // probes run without credentials
     if (locked(req.ip)) return reply.code(429).send({ error: 'Too many failed sign-ins, try again later' });
     const hdr = req.headers.authorization ?? '';
+    if (/^Bearer /i.test(hdr)) {
+      const presented = hdr.slice(7).trim();
+      // Check every token, so the time taken does not reveal which one nearly matched.
+      const match = (auth.tokens ?? []).reduce<string | null>((m, t) => (same(presented, t.token) ? t.name : m), null);
+      if (!match) { failed(req.ip); return reply.code(401).send({ error: 'Invalid API token' }); }
+      failures.delete(req.ip);
+      if (req.method !== 'GET' && req.method !== 'HEAD') return reply.code(403).send({ error: 'API tokens are read-only' });
+      if (PEOPLE_ROUTES.has(req.routeOptions.url ?? '') && !canSeePeople(match)) return reply.code(403).send({ error: 'Per person data is restricted' });
+      (req as any).houstonUser = match;
+      return;
+    }
     const decoded = Buffer.from(hdr.replace(/^Basic /, ''), 'base64').toString();
     const i = decoded.indexOf(':');
     const u = decoded.slice(0, i), p = decoded.slice(i + 1); // passwords may contain ':'
@@ -194,15 +192,12 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     const c = cards[0];
     const prev = cards[1];
     const gaps = c.findings.filter((f) => f.rag !== 'green');
-    const sprintsB = store.sprints().filter((s) => s.board === req.params.board);
-    const qs = store.quality().find((x) => x.board === req.params.board);
-    const gB = store.github().find((x) => x.board === req.params.board);
     const bdd = boardData(req.params.board);
     const recs = recommend({ card: c, history: bdd.history, quality: bdd.quality, people: bdd.people, flow: bdd.flow, github: bdd.github, docs: bdd.docs, docsPeople: bdd.docsPeople, features: bdd.features, named: req.query.named === '1' && namedFor(req as any) });
     const lines = [
       `# ${c.board}: ${md(c.sprintName)}`,
       '',
-      `Health score: ${c.score} (${c.rag})${prev ? `, previous sprint ${prev.score}` : ''}`,
+      `Sprint health: ${c.score}, ${bandFor(c.score).toLowerCase()}${prev ? ` (previous sprint ${prev.score})` : ''}`,
       '',
       '## Fix these first',
       '',
@@ -234,9 +229,6 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   app.get<{ Params: { board: string } }>('/api/teams/:board/recommendations', async (req, reply) => {
     const history = store.scorecards().filter((c) => c.board === req.params.board).sort((a, b) => a.sprintId - b.sprintId);
     if (!history.length) return reply.code(404).send({ error: `No scorecards for ${req.params.board}` });
-    const sprints = store.sprints().filter((s) => s.board === req.params.board);
-    const qs = store.quality().find((x) => x.board === req.params.board);
-    const g = store.github().find((x) => x.board === req.params.board);
     const bd = boardData(req.params.board);
     const ctx = { card: bd.latest, history: bd.history, quality: bd.quality, people: bd.people, flow: bd.flow, github: bd.github, docs: bd.docs, docsPeople: bd.docsPeople, features: bd.features, named: namedFor(req as any) };
     return { board: req.params.board, recommendations: recommend(ctx), headcountGate: headcountGate(ctx) };
@@ -324,6 +316,21 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     return { configured: true, ...report,
       rates: namedFor(req as any) ? { fteDay, contractorDay, contractors: config.cost.contractors.length, overrides: Object.keys(config.cost.overrides).length } : null };
   });
+
+  // Every day's scores, sprint scores kept beyond Jira's window, and cost over time.
+  app.get<{ Params: { board: string }; Querystring: { days?: string } }>('/api/teams/:board/history', async (req) => {
+    const days = Math.min(Math.max(Number(req.query.days) || 365, 1), 3650);
+    return { board: req.params.board, ...history(req.params.board, days) };
+  });
+
+  // One team on one card, for the IDP. Team level only: safe for any signed in user or API token.
+  app.get<{ Params: { board: string } }>('/api/teams/:board/summary', async (req, reply) => {
+    const s = teamSummary(req.params.board);
+    return s ?? reply.code(404).send({ error: `No scorecards for ${req.params.board}` });
+  });
+
+  // The API contract, for the IDP and anyone else integrating.
+  app.get('/api/openapi.json', async () => openapi(buildInfo().version));
 
   // What every metric means, why it matters and how it is calculated. Powers the "What is this?" links and the Metrics page.
   app.get('/api/metrics', async () => metricCatalogue());

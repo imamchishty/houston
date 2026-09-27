@@ -32,7 +32,7 @@ BeforeAll(async () => {
 
 export class HoustonWorld extends World {
   app?: ReturnType<Houston['buildApp']>;
-  auth = { user: '', pass: '', viewers: [] as string[] };
+  auth: { user: string; pass: string; viewers: string[]; tokens?: { name: string; token: string }[] } = { user: '', pass: '', viewers: [] };
   res?: { statusCode: number; headers: Record<string, unknown>; body: string };
   webhook?: { server: Server; url: string; cards: any[] };
   notified?: Awaited<ReturnType<Houston['notifyAll']>>;

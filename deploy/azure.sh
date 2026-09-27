@@ -60,12 +60,12 @@ az containerapp update -n "$APP" -g "$RG" --yaml "$APP_YAML" -o none
 
 # Nightly collect at 02:00 Gulf time (22:00 UTC)
 az containerapp job create -n houston-nightly -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 22 * * *" \
-  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "dist/cli.js" \
+  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "--disable-warning=ExperimentalWarning" "dist/cli.js" \
   ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 # Friday digest to Teams at 09:00 Gulf time (05:00 UTC), before the retro. Needs TEAMS_WEBHOOK and HOUSTON_URL in .env.
 az containerapp job create -n houston-friday -g "$RG" --environment "$ENV" --trigger-type Schedule --cron-expression "0 5 * * 5" \
-  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "dist/cli.js" "notify" \
+  --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system --command "node" "--disable-warning=ExperimentalWarning" "dist/cli.js" "notify" \
   ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} "${ENV_ARGS[@]}" -o none
 
 echo "Houston: $(az containerapp show -n $APP -g $RG --query properties.configuration.ingress.fqdn -o tsv)"

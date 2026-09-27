@@ -10,7 +10,7 @@ export function scoreFeatures(epics: Epic[]): { score: number; rag: Rag; finding
   const pts: Record<Rag, number> = { green: 1, amber: 0.5, red: 0 };
   let earned = 0, possible = 0;
   const add = (id: string, title: string, unit: Finding['unit'], value: number, rag: Rag, weight: number, message: string, action: string, evidence: string[]) => {
-    findings.push({ ruleId: id, title, area: 'features', unit, value, rag, message, action, evidence }); earned += pts[rag] * weight; possible += weight;
+    findings.push({ ruleId: id, title, area: 'features', unit, value, rag, message, action, evidence, weight }); earned += pts[rag] * weight; possible += weight;
   };
   if (done.length >= 3) {
     const lead = median(done.map((e) => days(e.created, e.resolved!)));

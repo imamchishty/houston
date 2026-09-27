@@ -88,6 +88,11 @@ export function configProblems(c = config): string[] {
   for (const [k, v] of [['RATE_FTE_DAY', c.cost.fteDay], ['RATE_CONTRACTOR_DAY', c.cost.contractorDay], ...Object.entries(c.cost.overrides).map(([n, r]) => [`RATE_OVERRIDES ${n}`, r] as const)] as const)
     if (!Number.isFinite(v) || v < 0) out.push(`${k} must be a number, 0 or more`);
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
+  for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const i = t.indexOf(':'), name = t.slice(0, i), token = t.slice(i + 1);
+    if (i < 1 || !/^[\w-]{1,40}$/.test(name)) out.push('HOUSTON_API_TOKENS: use name:token pairs, names letters, digits, - and _');
+    else if (token.length < 32) out.push(`HOUSTON_API_TOKENS: the token for ${name} must be at least 32 characters (openssl rand -hex 32)`);
+  }
   // Outside demo mode Houston holds per person data and API tokens: it does not start without a password.
   if (c.mode !== 'demo' && !process.env.HOUSTON_PASSWORD) out.push('HOUSTON_PASSWORD must be set outside demo mode');
   return out;

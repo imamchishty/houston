@@ -87,3 +87,7 @@ details.about summary, details.metric summary { cursor:pointer; color:var(--mute
 details.about p, details.metric p { margin:6px 0; line-height:1.45; }
 details.metric summary .note { margin-left:6px; }
 .navlink { margin-left:14px; font-size:14px; text-decoration:none; color:var(--muted); }
+.band { display:inline-block; margin-left:6px; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600; vertical-align:middle; background:var(--soft); border:1px solid var(--line); }
+.band.green { color:var(--green); } .band.amber { color:#8a5a00; } .band.red { color:var(--red); }
+.bigscore .l .band { margin:2px 0 2px 0; display:inline-block; width:max-content; }
+.green-text { color:var(--green); } .amber-text { color:#8a5a00; } .red-text { color:var(--red); }

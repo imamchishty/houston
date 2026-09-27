@@ -3,6 +3,7 @@ import { store } from './store/index.js';
 import { scoreFlow } from './rules/flowRules.js';
 import { scoreQuality } from './rules/qualityRules.js';
 import { scoreFeatures } from './rules/featureRules.js';
+import { bandFor } from './metrics.js';
 
 // Posts a markdown-ish card to a Teams incoming webhook. Used for the Friday digest and the Monday note.
 export async function postToTeams(title: string, lines: string[]) {
@@ -28,7 +29,7 @@ export function digestHeadline(board: string): { title: string; lines: string[] 
   return {
     title: `Houston: ${latest.board}, ${md(latest.sprintName)}`,
     lines: [
-      `Sprint ${latest.score} (${latest.rag})${flow ? `, flow ${flow.score}` : ''}${quality ? `, quality ${quality.score}` : ''}${features ? `, features ${features.score}` : ''}`,
+      `Sprint ${latest.score} (${bandFor(latest.score).toLowerCase()})${flow ? `, flow ${flow.score}` : ''}${quality ? `, quality ${quality.score}` : ''}${features ? `, features ${features.score}` : ''}`,
       ...gaps.map((f) => `**${f.title}**: ${f.message}`),
       config.publicUrl ? `[Full digest](${link})` : `Full digest: /api/teams/${board}/digest.md (set HOUSTON_URL for a clickable link)`,
     ],

@@ -10,6 +10,10 @@ import { demoGithub } from './collectors/githubDemo.js';
 import { collectConfluence, demoConfluence } from './collectors/confluence.js';
 import { collectEpics, demoEpics } from './collectors/epics.js';
 import { collectAzure, demoAzure } from './collectors/azure.js';
+import { boardData } from './board.js';
+import { featureCosts } from './cost.js';
+import { rosterFor } from './identity.js';
+import { recordDay, backup } from './store/history.js';
 
 export async function collect() {
   const sprints = config.mode === 'demo' ? demoSprints() : await collectJira();
@@ -37,5 +41,27 @@ export function score() {
 
 export async function run() {
   await collect();
-  return score();
+  const cards = score();
+  snapshot();
+  return cards;
+}
+
+// Today's scores, metric values and feature costs into the history database, then a backup copy.
+// Runs after every collect; a second run on the same day replaces that day's rows.
+export function snapshot(day = new Date().toISOString().slice(0, 10)) {
+  const boards = [...new Set(store.scorecards().map((c) => c.board))];
+  for (const board of boards) {
+    const b = boardData(board);
+    if (!b.latest) continue;
+    const areas = [
+      { area: 'sprint', score: b.latest.score, rag: b.latest.rag },
+      ...(['flow', 'quality', 'features', 'ops', 'docs'] as const).flatMap((k) => (b[k] ? [{ area: k, score: b[k]!.score, rag: b[k]!.rag }] : [])),
+    ];
+    const findings = [b.latest, b.flow, b.quality, b.features, b.ops, b.docs].flatMap((x) => x?.findings ?? []);
+    const cost = config.cost.fteDay || config.cost.contractorDay
+      ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: config.cost, roster: rosterFor(board), weekend: config.weekend })
+      : null;
+    recordDay({ day, board, areas, findings, sprints: b.history, cost });
+  }
+  if (boards.length) backup(day);
 }

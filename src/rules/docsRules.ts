@@ -45,7 +45,7 @@ export function scoreDocs(s: DocsSnapshot, repos: number): { score: number; rag:
   for (const r of docsRules) {
     const res = r.evaluate(s, repos); if (!res) continue;
     const g = rag(r, res.value); earned += pts[g] * r.weight; possible += r.weight;
-    findings.push({ ruleId: r.id, title: r.title, area: 'docs', unit: r.unit, value: res.value, rag: g, message: res.message, action: res.action, evidence: res.evidence.slice(0, 10) });
+    findings.push({ ruleId: r.id, title: r.title, area: 'docs', unit: r.unit, value: res.value, rag: g, message: res.message, action: res.action, evidence: res.evidence.slice(0, 10) , weight: r.weight });
   }
   const score = possible ? Math.round((earned / possible) * 100) : 0;
   const order: Record<Rag, number> = { red: 0, amber: 1, green: 2 };

@@ -13,7 +13,7 @@ services:
     environment: { HOUSTON_DATA_DIR: /data }
     volumes: [houston-data:/data]
     # Collect and score once a day; on Fridays also post the digest to Teams (skipped if TEAMS_WEBHOOK is blank).
-    entrypoint: ["sh", "-c", "while true; do node dist/cli.js; [ \"$$(date +%u)\" = 5 ] && node dist/cli.js notify; sleep 86400; done"]
+    entrypoint: ["sh", "-c", "while true; do node --disable-warning=ExperimentalWarning dist/cli.js; [ \"$$(date +%u)\" = 5 ] && node --disable-warning=ExperimentalWarning dist/cli.js notify; sleep 86400; done"]
     restart: unless-stopped
 volumes:
   houston-data:

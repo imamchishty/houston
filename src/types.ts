@@ -42,6 +42,7 @@ export interface Finding {
   message: string;         // plain English, one sentence, with the number in it
   action: string;          // what the team should do about it
   evidence: string[];      // issue keys backing the finding
+  weight?: number;         // share of the area score: green earns all of it, amber half, red none
 }
 
 export interface Scorecard {

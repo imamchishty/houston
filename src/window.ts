@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import type { Finding, Scorecard, Rag } from './types.js';
+import type { Finding, Scorecard } from './types.js';
 
 // The 90 day window: the clock the team is on, with the targets that open the headcount gate and a couple more.
 export interface WindowTarget { rule: string; name: string; target: string; start: number | null; now: number | null; met: boolean; direction: 'up' | 'down'; }

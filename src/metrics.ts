@@ -60,8 +60,8 @@ const catalogue: MetricInfo[] = [
   // Scores
   W('Scores', 'score', 'Health scores (0 to 100)',
     'One number per area so a team can see at a glance where to look first. The checks underneath matter more than the score.',
-    'Each check has a weight. Green earns its full weight, amber half, red nothing. Score = points earned ÷ points possible × 100. Checks with no data are left out, not scored as zero.',
-    '75 and above is green, 50 to 74 amber, below 50 red.'),
+    'Each check has a weight. Green earns its full weight, amber half, red nothing. Score = points earned ÷ points possible × 100. Checks with no data are left out, not scored as zero. "What moves this score" lists the checks with the most points to gain.',
+    'Healthy: 75 and above. Watch: 50 to 74. Needs attention: below 50.'),
 
   // Sprint process
   W('Sprint process', 'commit_completion', 'Sprint commitment delivered',
@@ -224,6 +224,10 @@ const catalogue: MetricInfo[] = [
     'A sign the team keeps its documentation alive at all.',
     'Pages edited in the last 30 days.'),
 ];
+
+// Plain-language band for a 0 to 100 score. Same cut-offs as green, amber and red.
+export const BANDS = [{ min: 75, label: 'Healthy' }, { min: 50, label: 'Watch' }, { min: 0, label: 'Needs attention' }] as const;
+export const bandFor = (score: number) => BANDS.find((b) => score >= b.min)!.label;
 
 export function metricCatalogue(): MetricInfo[] { return catalogue; }
 export const metricById = (id: string) => catalogue.find((m) => m.id === id);

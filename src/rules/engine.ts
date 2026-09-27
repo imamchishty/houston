@@ -47,6 +47,7 @@ export function scoreSprint(sprint: Sprint, defs: RuleDef[] = rules): Scorecard 
       message: result.message,
       action: result.action,
       evidence: result.evidence.slice(0, 10),
+      weight: rule.weight,
     });
   }
 

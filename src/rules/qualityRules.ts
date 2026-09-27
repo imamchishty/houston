@@ -53,7 +53,7 @@ export function scoreQuality(q: QualitySnapshot): { score: number; rag: Rag; fin
   for (const r of qualityRules) {
     const res = r.evaluate(q); if (!res) continue;
     const g = rag(r, res.value); earned += pts[g] * r.weight; possible += r.weight;
-    findings.push({ ruleId: r.id, title: r.title, area: 'quality', unit: r.unit, value: Math.round(res.value * 10) / 10, rag: g, message: res.message, action: res.action, evidence: [] });
+    findings.push({ ruleId: r.id, title: r.title, area: 'quality', unit: r.unit, value: Math.round(res.value * 10) / 10, rag: g, message: res.message, action: res.action, evidence: [] , weight: r.weight });
   }
   const score = possible ? Math.round((earned / possible) * 100) : 0;
   const order: Record<Rag, number> = { red: 0, amber: 1, green: 2 };
