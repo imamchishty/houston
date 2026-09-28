@@ -294,3 +294,19 @@ details.metric.sub { margin:8px 0 0 18px; }
 
 #slatable input { font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:5px 8px; width:100%; max-width:160px; }
 fieldset.fld.days { border:0; padding:0; margin:0; } fieldset.fld.days label { display:inline-flex; gap:4px; margin-right:10px; font-size:14px; }
+
+/* Dashboard: one card per team, measures as lines by area. Wraps, never scrolls sideways. */
+.teamcards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap:16px; margin-top:16px; }
+.teamcards.all { grid-template-columns:1fr; }
+a.teamcard { display:block; color:inherit; text-decoration:none; padding:16px 18px; }
+a.teamcard:hover, a.teamcard:focus-visible { border-color:var(--link); }
+.allcard { border-style:dashed; }
+.tchead { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.tchead h3 { margin:0; font-size:18px; }
+.tcsum { margin:6px 0 4px; } .tcsprint { margin:0 0 6px; color:var(--muted); }
+.tcareas { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:10px 22px; margin-top:10px; }
+.tcat { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; border-bottom:1px solid var(--line); padding-bottom:3px; margin-bottom:4px; }
+ul.lines { list-style:none; margin:0; padding:0; }
+ul.lines li { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:3px 0; font-size:14px; }
+ul.lines .ln { color:var(--ink); } ul.lines .lv { white-space:nowrap; font-variant-numeric:tabular-nums; }
+ul.lines .lv .up, ul.lines .lv .down, ul.lines .lv .tr { display:inline-block; width:1em; text-align:center; margin-left:2px; }

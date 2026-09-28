@@ -36,32 +36,40 @@ const scoreCls = (p) => (p == null ? 'none' : p >= 75 ? 'green' : p >= 50 ? 'amb
 const scoreChip = (s, big = false) => s.pct == null ? '<span class="st none">·</span>'
   : `<span class="score ${scoreCls(s.pct)}${big ? ' big' : ''}" title="${esc(s.met)} of ${esc(s.of)} headline targets met">${esc(s.pct)}%</span>`;
 const scoreTrend = (s) => s.previousPct == null ? '' : s.trend === 'better' ? `<span class="up">↑ from ${esc(s.previousPct)}%</span>` : s.trend === 'worse' ? `<span class="down">↓ from ${esc(s.previousPct)}%</span>` : '<span class="muted">no change</span>';
-// One headline in a dashboard cell: ✓ or ▲ with the value; hover for the target and counts.
-const cell = (m) => m.value == null ? '<td class="num" data-sort=""><span class="st none">·</span></td>'
-  : `<td class="num" data-sort="${esc(m.value)}" title="${esc(m.title)}: ${esc(countsText(m).replace(/<[^>]+>/g, ''))} ${esc(targetText(m.target, m))}${m.smallSample ? ' (small sample, not scored)' : ''}"><span class="st ${m.met == null || m.smallSample ? 'none' : m.met ? 'green' : 'red'}"><i aria-hidden="true">${m.met == null || m.smallSample ? '' : m.met ? '✓' : '▲'}</i>${esc(chartFmt(m.value))}${esc(unitOf(m))}</span>${m.trend === 'better' ? ' <span class="up" title="better than the 30 days before">↑</span>' : m.trend === 'worse' ? ' <span class="down" title="worse than the 30 days before">↓</span>' : ''}</td>`;
+// Short names for the dashboard cards, so each measure fits on one line.
+const SHORT = { deploy_frequency: 'Deploys per week', lead_time: 'Lead time', sprint_completion: 'Sprint completion', defect_leakage: 'Bugs reaching customers',
+  bug_workload: 'Time on bugs', change_failure_rate: 'Changes that fail', time_to_restore: 'Time to restore', sla_resolution: 'Support within SLA',
+  flow_efficiency: 'Flow efficiency', security_on_time: 'Security fixed on time' };
+// One measure as a line: name on the left; status icon, value and trend on the right. Hover for target and counts.
+const line = (m) => {
+  const judged = m.met != null && !m.smallSample, cls = !judged ? 'none' : m.met ? 'green' : 'red';
+  const tip = `${METRICS[m.id]?.name ?? m.title}: ${countsText(m).replace(/<[^>]+>/g, '')}. ${targetText(m.target, m)}${m.smallSample ? '. Too few items to judge, not scored' : ''}${m.previous != null ? `. Previous 30 days: ${chartFmt(m.previous)}${unitOf(m)}` : ''}`;
+  return `<li title="${esc(tip)}"><span class="ln">${esc(SHORT[m.id] ?? m.title)}</span>
+    <span class="lv"><span class="st ${cls}"><i aria-hidden="true">${!judged ? '·' : m.met ? '✓' : '▲'}</i>${m.value == null ? '—' : `${esc(chartFmt(m.value))}${esc(unitOf(m))}`}</span>${m.trend === 'better' ? '<span class="up" aria-label="better">↑</span>' : m.trend === 'worse' ? '<span class="down" aria-label="worse">↓</span>' : '<span class="tr"></span>'}</span></li>`;
+};
+// A team as a card: score and trend, one plain sentence, then its measures by area. The whole card opens the team.
+function teamCard(t, areas, all = false) {
+  const by = Object.fromEntries(t.measures.map((m) => [m.id, m]));
+  return `<a class="card teamcard${all ? ' allcard' : ''}" href="#${esc(encodeURIComponent(t.board))}">
+    <div class="tchead"><h3>${all ? 'All teams' : esc(t.board)}</h3><span>${scoreChip(t.score)} <span class="small">${scoreTrend(t.score)}</span></span></div>
+    <p class="muted small tcsum">${esc(t.summary)}</p>
+    ${t.sprint ? `<p class="small tcsprint">${esc(t.sprint.name)}: ${outlookChip(t.sprint.outlook)} · ${esc(t.sprint.workingDaysLeft)} working days left</p>` : ''}
+    <div class="tcareas">${areas.map((a) => { const ms = a.headlines.map((id) => by[id]).filter(Boolean);
+      return ms.length ? `<div class="tcarea"><div class="tcat">${esc(a.title)}</div><ul class="lines">${ms.map(line).join('')}</ul></div>` : ''; }).join('')}</div>
+  </a>`;
+}
 
-// Home page: every team on the 10 headline measures, alphabetical, and what needs attention.
+// Home page: every team as a card (alphabetical), and what needs attention.
 async function overview() {
   $('#crumbs').innerHTML = '';
   const d = await api('/dashboard');
-  const heads = d.areas.flatMap((a) => a.headlines.map((id) => ({ id, area: a.id })));
-  const name = (id) => (METRICS[id]?.name ?? id).replace(/ \(DORA\)$/, '');
-  const row = (t, all = false) => { const by = Object.fromEntries(t.measures.map((m) => [m.id, m]));
-    return `<tr class="row${all ? ' allrow' : ''}" data-go="${esc(t.board)}"><td><b>${all ? 'All teams' : esc(t.board)}</b><div class="muted small">${esc(t.summary)}</div></td>
-      <td data-sort="${esc(t.score.pct ?? '')}">${scoreChip(t.score)} <span class="small">${scoreTrend(t.score)}</span></td>
-      ${heads.map((h) => by[h.id] ? cell(by[h.id]) : '<td class="num" data-sort=""><span class="st none">·</span></td>').join('')}</tr>`; };
   $('#main').innerHTML = `
-    <div class="rephead"><div><h2 class="big">How teams are performing</h2><p class="muted">Last 30 days. The score is the share of headline targets met. ↑ better or ↓ worse than the 30 days before. Click a team for what is behind each number.</p></div>
+    <div class="rephead"><div><h2 class="big">How teams are performing</h2><p class="muted">Last 30 days. The score is the share of headline targets met. ✓ met · ▲ missed · ↑ better or ↓ worse than the 30 days before · grey: too few items to judge. Click a team for what is behind each number.</p></div>
       <div class="tile${d.data.stale ? ' warn' : ''}"><div class="k">Data</div><div class="v small">${d.data.stale ? '▲ Stale' : '✓ Fresh'}</div><div class="s">Collected ${esc(ago(d.data.ageHours))} · <a href="#_data">data checks</a></div></div></div>
-    ${d.attention.length ? `<div class="card attention"><h3>Needs attention <span class="muted small">missed its target two periods running</span></h3><ul>${d.attention.map((a) => `<li><a href="#${esc(encodeURIComponent(a.board))}"><b>${esc(a.board)}</b></a> · ${esc(a.title)}: ${esc(chartFmt(a.value))}${esc(unitOf(a))} <span class="muted">(${esc(targetText(a.target, a))})</span></li>`).join('')}</ul></div>` : ''}
-    <div class="card scrollx"><table class="t dash sortable perf">
-      <thead><tr><th></th><th></th>${d.areas.map((a) => `<th colspan="${a.headlines.length}" class="areahead">${esc(a.title)}</th>`).join('')}</tr>
-      <tr><th>Team</th><th>Score</th>${heads.map((h) => `<th title="${esc(METRICS[h.id]?.why ?? '')}">${esc(name(h.id))}</th>`).join('')}</tr></thead>
-      <tbody>${d.teams.map((t) => row(t)).join('')}</tbody>
-      ${d.all ? `<tbody class="allbody">${row(d.all, true)}</tbody>` : ''}
-    </table><p class="note">✓ target met · ▲ target missed · ↑ better, ↓ worse than the 30 days before · grey: too few items to judge (not scored). Teams in alphabetical order; click a heading to sort.</p></div>
-    ${d.teams.some((t) => t.sprint) ? `<h2>Sprints in progress</h2><div class="card scrollx"><table class="t"><tr><th>Team</th><th>Sprint</th><th>Outlook</th><th class="num">Working days left</th></tr>
-      ${d.teams.filter((t) => t.sprint).map((t) => `<tr class="row" data-go="${esc(t.board)}" data-tab="sprint"><td><b>${esc(t.board)}</b></td><td>${esc(t.sprint.name)}</td><td>${outlookChip(t.sprint.outlook)}</td><td class="num">${esc(t.sprint.workingDaysLeft)}</td></tr>`).join('')}</table></div>` : ''}`;
+    ${d.attention.length ? `<div class="card attention"><h3>Needs attention <span class="muted small">missed its target two periods running</span></h3><ul>${d.attention.map((a) => `<li><a href="#${esc(encodeURIComponent(a.board))}"><b>${esc(a.board)}</b></a> · ${esc(SHORT[a.id] ?? a.title)}: ${esc(chartFmt(a.value))}${esc(unitOf(a))} <span class="muted">(${esc(targetText(a.target, a))})</span></li>`).join('')}</ul></div>` : ''}
+    <div class="teamcards">${d.teams.map((t) => teamCard(t, d.areas)).join('')}</div>
+    ${d.all ? `<div class="teamcards all">${teamCard(d.all, d.areas, true)}</div>` : ''}
+    <p class="note">Teams in alphabetical order. Hover a measure for its target and counts.</p>`;
   window.scrollTo(0, 0);
 }
 
