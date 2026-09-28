@@ -12,6 +12,7 @@ import { PERIODS, type Period } from './reports.js';
 import { boards, performance, HEADLINES } from './performance.js';
 import { weeklyNote } from './note.js';
 import { polish } from './polish.js';
+import { ask, chatSettings } from './chat.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { metricCatalogue } from './metrics.js';
@@ -178,6 +179,21 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!n) return reply.code(404).send({ error: 'Nothing to judge yet' });
     const { lines, polished } = await polish(n);
     return { ...n, lines, polished, rules: polished ? n.lines : undefined };
+  });
+
+  // Ask Houston: a question about a team or all teams, answered from Houston's numbers via Compass. People only
+  // (API tokens cannot POST); at most 30 questions an hour from one address, since each one calls Compass twice.
+  const asked = new Map<string, number[]>();
+  app.get('/api/chat', async () => chatSettings());
+  app.post<{ Body: { question?: unknown; team?: unknown } }>('/api/chat', async (req, reply) => {
+    if (!chatSettings().enabled) return reply.code(503).send({ error: 'Ask Houston is off: set COMPASS_URL and COMPASS_KEY' });
+    const q = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+    if (!q || q.length > 500) return reply.code(400).send({ error: 'question: 1 to 500 characters' });
+    const scope = typeof req.body?.team === 'string' && known(req.body.team) ? req.body.team : 'all';
+    const now = Date.now(), recent = (asked.get(req.ip) ?? []).filter((t) => now - t < 3_600_000);
+    if (recent.length >= 30) return reply.code(429).send({ error: 'Too many questions in an hour, try again later' });
+    asked.set(req.ip, [...recent, now]); if (asked.size > 10_000) asked.clear();
+    return ask(q, scope);
   });
 
   // The score and headline measures by day, for trends. Kept across deploys in the history database.

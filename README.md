@@ -99,6 +99,11 @@ and what is likely next for the sprint in progress. Built by rules from the meas
 names measures, never people. Optional: `COMPASS_URL`, `COMPASS_KEY` and `COMPASS_MODEL` (Core42 Compass, or any
 OpenAI-compatible chat API) reword it; Houston checks every number survived, or keeps its own text.
 
+With Compass set, **Ask Houston** appears on the dashboard and each team page: a question about a team or all teams,
+answered from Houston's numbers. Compass only chooses which of Houston's lookups to run and words the answer; every
+number in it must be in the facts fetched, or Houston shows the facts in its own words. Questions about people are
+refused before anything is sent. People only (API tokens cannot ask), 30 questions an hour per address, nothing stored.
+
 
 Set `TEAMS_WEBHOOK` and `HOUSTON_URL`. `npm run notify` posts each team's note with a link to the team page. No names.
 `deploy/azure.sh` schedules it for Fridays.
@@ -117,6 +122,7 @@ People sign in with basic auth; systems use a token (`Authorization: Bearer <tok
 | `GET /api/sprints/current?team=` | The sprint in progress |
 | `GET /api/data-quality` | Data checks and data hygiene |
 | `GET /api/metrics` | What each measure means, why it matters, how it is calculated |
+| `POST /api/chat` | Ask Houston (needs Compass): `{question, team}` |
 | `POST /api/refresh` | Collect now (at most every 5 minutes) |
 
 ## Version

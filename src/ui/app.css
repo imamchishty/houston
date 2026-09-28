@@ -312,3 +312,8 @@ ul.lines .ln { color:var(--ink); } ul.lines .lv { white-space:nowrap; font-varia
 ul.lines .lv .up, ul.lines .lv .down, ul.lines .lv .tr { display:inline-block; width:1em; text-align:center; margin-left:2px; }
 
 .card.note p { margin:8px 0; line-height:1.55; } .card.note p.note { margin-top:12px; }
+
+.askbox { margin-top:16px; } .askrow { display:flex; gap:8px; margin-top:8px; }
+.askrow input { flex:1; font:inherit; font-size:14px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+.askrow input:focus { outline:2px solid var(--link); outline-offset:1px; }
+.askout .answer p { margin:8px 0; line-height:1.55; }

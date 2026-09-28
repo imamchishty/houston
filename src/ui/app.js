@@ -18,7 +18,7 @@ window.addEventListener('hashchange', route); route();
 
 // Pages: the dashboard, a team (or all teams), the monthly report; Metrics, Data checks and Admin from the footer.
 async function route() {
-  await metricsReady;
+  await metricsReady; await chatReady;
   CHARTS.clear(); $('#tip').hidden = true; // hover readouts belong to the page being left
   document.querySelectorAll('.navlink').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === (location.hash || '#') || (a.getAttribute('href') === '#' && !location.hash.startsWith('#_'))));
   if (location.hash === '#_metrics') return metricsPage();
@@ -31,6 +31,24 @@ async function route() {
   return team(board, tab);
 }
 
+// Ask Houston: one box, on the dashboard (all teams) and each team page (that team). Shown only when Compass is set.
+let CHAT = null; const chatReady = api('/chat').then((c) => { CHAT = c; }).catch(() => {});
+const askBox = (team) => !CHAT?.enabled ? '' : `<form class="card askbox" data-team="${esc(team)}"><label for="askq"><b>Ask Houston</b> <span class="muted small">about ${team === 'all' ? 'all teams' : esc(team)}, answered from the numbers here. Not about people.</span></label>
+  <div class="askrow"><input id="askq" name="q" maxlength="500" placeholder="Why did lead time go up? Which team has the most blocked work? What is flow efficiency?" autocomplete="off"><button type="submit" class="btn primary">Ask</button></div>
+  <div class="askout" aria-live="polite"></div></form>`;
+document.addEventListener('submit', async (e) => {
+  const f = e.target.closest?.('form.askbox'); if (!f) return;
+  e.preventDefault();
+  const q = f.q.value.trim(); if (!q) return;
+  const out = f.querySelector('.askout'); out.innerHTML = '<p class="muted">Asking…</p>'; f.querySelector('button').disabled = true;
+  try {
+    const r = await post('/chat', { question: q, team: f.dataset.team }); const a = await r.json();
+    if (!r.ok) { out.innerHTML = `<p class="warnbox">${esc(a.error ?? 'Could not answer')}</p>`; return; }
+    out.innerHTML = `<div class="answer">${a.answer.split(/\n\s*\n/).map((p) => `<p>${esc(p)}</p>`).join('')}</div>
+      ${a.basedOn?.length ? `<p class="note">Based on: ${a.basedOn.map((b) => `<a href="${esc(b.href)}">${esc(b.title)}</a>`).join(' · ')}${a.fromFacts ? ' · shown as Houston\'s own words because the written answer did not match the numbers' : ''}</p>` : ''}`;
+  } catch { out.innerHTML = '<p class="warnbox">Could not reach Houston.</p>'; }
+  finally { f.querySelector('button').disabled = false; }
+});
 // A note line: plain text with **bold** as the only markup. Everything else is escaped.
 const noteLine = (l) => l.split('**').map((part, i) => (i % 2 ? `<b>${esc(part)}</b>` : esc(part))).join('');
 // A score: the share of headline targets met, with its trend. Colour never carries the meaning alone.
@@ -68,6 +86,7 @@ async function overview() {
   $('#main').innerHTML = `
     <div class="rephead"><div><h2 class="big">How teams are performing</h2><p class="muted">Last 30 days. The score is the share of headline targets met. ✓ met · ▲ missed · ↑ better or ↓ worse than the 30 days before · grey: too few items to judge. Click a team for what is behind each number.</p></div>
       <div class="tile${d.data.stale ? ' warn' : ''}"><div class="k">Data</div><div class="v small">${d.data.stale ? '▲ Stale' : '✓ Fresh'}</div><div class="s">Collected ${esc(ago(d.data.ageHours))} · <a href="#_data">data checks</a></div></div></div>
+    ${askBox('all')}
     ${d.attention.length ? `<div class="card attention"><h3>Needs attention <span class="muted small">missed its target two periods running</span></h3><ul>${d.attention.map((a) => `<li><a href="#${esc(encodeURIComponent(a.board))}"><b>${esc(a.board)}</b></a> · ${esc(SHORT[a.id] ?? a.title)}: ${esc(chartFmt(a.value))}${esc(unitOf(a))} <span class="muted">(${esc(targetText(a.target, a))})</span></li>`).join('')}</ul></div>` : ''}
     ${d.all ? `<div class="teamcards all">${teamCard(d.all, d.areas, true)}</div>` : ''}
     <div class="teamcards">${d.teams.map((t) => teamCard(t, d.areas)).join('')}</div>
@@ -117,6 +136,7 @@ async function team(board, tab) {
       <div class="filters" role="group" aria-label="Period"><label>Period <select data-teamdays>${[7, 30, 90].map((n) => `<option value="${n}"${TEAMF.days === n ? ' selected' : ''}>Last ${n} days</option>`).join('')}</select></label>
       ${board === 'all' ? '' : `<a class="btnlink" href="#${esc(encodeURIComponent(board))}/sprint">Current sprint →</a>`}</div></div>
       <div class="tile"><div class="k">Targets met</div><div class="v">${scoreChip(p.score, true)}</div><div class="s">${esc(p.score.met)} of ${esc(p.score.of)} headline targets · ${scoreTrend(p.score)}</div></div></div>
+    ${askBox(board)}
     ${note?.lines ? `<div class="card note mt"><h3>This week <span class="muted small">what changed, what moved with it, what is likely next</span></h3>${note.lines.map((l) => `<p>${noteLine(l)}</p>`).join('')}<p class="note">Written by Houston from the numbers below${note.polished ? ', worded by Compass (every number checked against Houston\'s own text)' : ''}, every Friday to Teams too. It names measures, never people.</p></div>` : ''}
     ${scores.length > 1 ? `<div class="card mt"><h3>Score over time</h3>${lineChart('score', { labels: scores.map((x) => x.day), xLabel: (d) => shortDate(d), unit: '%', W: 900, H: 160, whole: true, series: [{ name: 'Targets met', key: 'series', values: scores.map((x) => x.value), dots: scores.length < 40 }] })}</div>` : ''}
     ${p.missed.length ? `<div class="card attention mt"><h3>Missed targets, worst first</h3><ul>${p.missed.map((m) => `<li><a href="#h-${esc(m.id)}">${esc(m.title)}</a>: ${esc(chartFmt(m.value))}${esc(unitOf(m))} <span class="muted">(${esc(targetText(m.target, m))})</span>${m.missedTwice ? ' <span class="st red"><i aria-hidden="true">▲</i>two periods running</span>' : ''}</li>`).join('')}</ul></div>` : ''}
