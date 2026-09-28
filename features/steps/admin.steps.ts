@@ -17,6 +17,7 @@ After(async function () {
   globalThis.fetch = real.fetch;
   if (saved) { Object.assign(c.jira, saved.jira); Object.assign(c.github, saved.github); Object.assign(c.sonar, saved.sonar); Object.assign(c.testmo, saved.testmo); Object.assign(c.azure, saved.azure); c.mode = saved.mode as string; saved = null; }
   delete process.env.HOUSTON_TEST_REPORT;
+  if (existsSync(join(c.dataDir, 'settings.json'))) (await import('../../src/admin/settings.js')).resetSettings();
   const f = join(c.dataDir, 'team-setup.json');
   if (existsSync(f)) { rmSync(f); (await import('../../src/admin/teamSetup.js')).applySavedTeams(); }
 });
@@ -139,3 +140,25 @@ Given('there is no test report', function () { process.env.HOUSTON_TEST_REPORT =
 Then('the test report shows {int} of {int} scenarios passed', function (this: HoustonWorld, p: number, n: number) { const b = body(this); assert.equal(b.available, true); assert.deepEqual([b.bdd.passed, b.bdd.scenarios], [p, n]); });
 Then('it is marked as a different build', function (this: HoustonWorld) { assert.equal(body(this).sameBuild, false); });
 Then('it says there is no test report', function (this: HoustonWorld) { assert.equal(body(this).available, false); assert.match(body(this).message, /npm run report/); });
+
+// SLAs and working week
+When('the admin saves SLAs {string} with a working day of {word} to {word}', async function (this: HoustonWorld, sla: string, start: string, end: string) {
+  const supportSla = sla.split(',').map((x) => { const [priority, d] = x.split('='); const [response, resolution] = d.split('/'); return { priority, response, resolution }; });
+  await this.request('POST', '/api/admin/settings', { ...admin(this), headers: H, body: JSON.stringify({ supportSla, workingHours: `${start}-${end}`, tzOffset: 4, weekend: ['sat', 'sun'], supportTypes: ['Support'], supportLabels: ['support'] }) });
+});
+When('the admin resets the settings', async function (this: HoustonWorld) {
+  await this.request('DELETE', '/api/admin/settings', { ...admin(this), headers: { 'X-Requested-With': 'houston' } });
+});
+Then('support tickets are now judged against {string} {word} to respond and {word} to resolve', function (p: string, r: string, s: string) {
+  assert.deepEqual(houston.config.jira.supportSla[p], { response: r, resolution: s });
+});
+Then('support tickets are not judged against {string}', function (p: string) { assert.equal(houston.config.jira.supportSla[p], undefined); });
+Then('the working day is {word} to {word}', function (a: string, b: string) {
+  const h = (x: string) => { const [hh, mm] = x.split(':').map(Number); return hh + mm / 60; };
+  assert.deepEqual(houston.config.workingHours, { start: h(a), end: h(b) });
+});
+Then('the change log shows {string} by {string}', async function (this: HoustonWorld, action: string, by: string) {
+  await this.request('GET', '/api/admin/log', admin(this));
+  const row = (body(this) as any[]).find((r) => r.action === action);
+  assert.ok(row && row.user === by, JSON.stringify(body(this)).slice(0, 300));
+});

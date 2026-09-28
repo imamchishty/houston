@@ -2,7 +2,7 @@
 // Test report for this build, connection health, team setup and the change log. Signs in with the admin account
 // (the browser asks the first time an admin request is made). Token values are never shown or entered here.
 
-const ADMIN_TABS = [['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['log', 'Change log']];
+const ADMIN_TABS = [['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['settings', 'SLAs and working week'], ['log', 'Change log']];
 const adminApi = async (p, opts) => {
   const r = await fetch('/api/admin' + p, opts);
   const body = await r.json().catch(() => ({}));
@@ -29,7 +29,7 @@ async function adminPage(tab = 'tests') {
     <div class="tabs">${ADMIN_TABS.map(([k, l]) => `<a href="#_admin/${k}" class="${k === tab ? 'on' : ''}">${esc(l)}</a>`).join('')}</div>
     <div id="admin-body"><p class="muted">Loading…</p></div>`;
   const body = $('#admin-body');
-  try { body.innerHTML = await ({ tests: adminTests, connections: adminConnections, teams: adminTeams, log: adminLog }[tab] ?? adminTests)(); }
+  try { body.innerHTML = await ({ tests: adminTests, connections: adminConnections, teams: adminTeams, settings: adminSettings, log: adminLog }[tab] ?? adminTests)(); }
   catch (e) { body.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
   window.scrollTo(0, 0);
 }
@@ -119,6 +119,49 @@ const formTeam = () => {
 const showChecks = (checks) => `<div class="scrollx"><table class="t"><tr><th>Check</th><th>Result</th><th>Found</th></tr>${checks.map((c) => `<tr><td>${esc(c.source)}</td><td>${okChip(c.ok, 'Works', 'Failing', 'Not set')}</td><td>${esc(c.detail)}</td></tr>`).join('')}</table></div>`;
 const showProblems = (e) => `<div class="warnbox"><b>${esc(e.message)}</b><ul>${(e.body?.problems ?? []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
 
+// SLAs per priority (any names: P0, P1, Highest...), the working week they run in, and how support tickets are found.
+const DAYNAMES = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+async function adminSettings() {
+  const r = await adminApi('/settings'), s = r.settings;
+  const [start, end] = s.workingHours.split('-');
+  const covered = new Set(s.supportSla.map((x) => x.priority.toLowerCase()));
+  const missing = r.prioritiesSeen.filter((p) => !covered.has(p.toLowerCase()));
+  const row = (x = { priority: '', response: '', resolution: '' }) => `<tr class="slarow"><td><input name="priority" value="${esc(x.priority)}" placeholder="P1" aria-label="Priority"></td>
+    <td><input name="response" value="${esc(x.response)}" placeholder="4h" aria-label="Time to respond"></td><td><input name="resolution" value="${esc(x.resolution)}" placeholder="2d" aria-label="Time to resolve"></td>
+    <td><button type="button" class="btn small" data-admin="slarm" aria-label="Remove this priority">Remove</button></td></tr>`;
+  return `<form class="card settingsform" id="settingsform" autocomplete="off">
+    <p class="muted">${r.source === 'admin' ? 'Set in this page.' : 'From .env. Saving here replaces those values; Reset brings them back.'} Changes apply at once; past days in history keep what was measured then.</p>
+    <h3>Support SLAs per priority</h3>
+    <p class="note">Times are working time: <b>h</b> for hours, <b>d</b> for working days (one working day = the working day below). Priority names exactly as in Jira, for example P0, P1 or Highest.</p>
+    <table class="t" id="slatable"><thead><tr><th>Priority</th><th>Respond within</th><th>Resolve within</th><th></th></tr></thead><tbody>${s.supportSla.map(row).join('')}</tbody></table>
+    <p><button type="button" class="btn small" data-admin="slaadd">Add a priority</button></p>
+    ${r.prioritiesSeen.length ? `<p class="note">Priorities on support tickets now: ${r.prioritiesSeen.map((p) => esc(p)).join(', ')}.${missing.length ? ` <span class="st amber"><i aria-hidden="true">●</i>No SLA yet for ${missing.map((p) => esc(p)).join(', ')}</span>: those tickets are not judged.` : ''}</p>` : ''}
+    <h3 class="mt">Working week</h3>
+    <div class="grid2">
+      <label class="fld"><span>Working day starts</span><input type="time" name="start" value="${esc(start)}"></label>
+      <label class="fld"><span>Working day ends</span><input type="time" name="end" value="${esc(end)}"></label>
+      <label class="fld"><span>Time zone, hours from UTC</span><input type="number" name="tzOffset" step="0.5" value="${esc(s.tzOffset)}"><small class="muted">4 for the UAE</small></label>
+      <fieldset class="fld days"><span>Weekend</span>${DAYNAMES.map(([v, l]) => `<label><input type="checkbox" name="weekend" value="${v}"${s.weekend.includes(v) ? ' checked' : ''}> ${l}</label>`).join('')}</fieldset>
+    </div>
+    <h3 class="mt">Which tickets are support</h3>
+    <p class="note">For teams without their own support project (set per team in Teams): tickets in the team's project with one of these issue types, or one of these labels.</p>
+    <div class="grid2">
+      <label class="fld"><span>Issue types</span><textarea name="supportTypes" rows="3">${esc(s.supportTypes.join('\n'))}</textarea><small class="muted">One per line</small></label>
+      <label class="fld"><span>Labels</span><textarea name="supportLabels" rows="3">${esc(s.supportLabels.join('\n'))}</textarea><small class="muted">One per line</small></label>
+    </div>
+    <div id="settingsresult"></div>
+    <p><button type="button" class="btn primary" data-admin="savesettings">Save</button> ${r.source === 'admin' ? '<button type="button" class="btn" data-admin="resetsettings">Reset to .env</button>' : ''}</p>
+  </form>`;
+}
+const formSettings = () => {
+  const f = $('#settingsform'), fd = new FormData(f);
+  return {
+    supportSla: [...f.querySelectorAll('tr.slarow')].map((tr) => ({ priority: tr.querySelector('[name=priority]').value, response: tr.querySelector('[name=response]').value, resolution: tr.querySelector('[name=resolution]').value })),
+    workingHours: `${fd.get('start')}-${fd.get('end')}`, tzOffset: fd.get('tzOffset'), weekend: fd.getAll('weekend'),
+    supportTypes: String(fd.get('supportTypes') ?? ''), supportLabels: String(fd.get('supportLabels') ?? ''),
+  };
+};
+
 // Change log: what admins changed.
 async function adminLog() {
   const rows = await adminApi('/log');
@@ -137,8 +180,12 @@ document.addEventListener('click', async (e) => {
     if (act === 'cancel') { ADMIN.editing = null; return adminPage('teams'); }
     if (act === 'test') { out().innerHTML = '<p class="muted">Testing…</p>'; out().innerHTML = showChecks((await adminSend('POST', '/teams/test', formTeam())).checks); return; }
     if (act === 'save') { await adminSend('POST', '/teams', formTeam()); ADMIN.editing = null; await adminPage('teams'); return; }
+    if (act === 'slaadd') { const tb = $('#slatable tbody'); tb.insertAdjacentHTML('beforeend', `<tr class="slarow"><td><input name="priority" placeholder="P1" aria-label="Priority"></td><td><input name="response" placeholder="4h" aria-label="Time to respond"></td><td><input name="resolution" placeholder="2d" aria-label="Time to resolve"></td><td><button type="button" class="btn small" data-admin="slarm" aria-label="Remove this priority">Remove</button></td></tr>`); tb.lastElementChild.querySelector('input').focus(); return; }
+    if (act === 'slarm') { el.closest('tr').remove(); return; }
+    if (act === 'savesettings') { await adminSend('POST', '/settings', formSettings()); await adminPage('settings'); $('#settingsresult').innerHTML = '<p><span class="st green"><i aria-hidden="true">✓</i>Saved</span> Applies from now; the next collection recalculates the numbers.</p>'; return; }
+    if (act === 'resetsettings') { if (!confirm('Go back to the SLAs and working week in .env?')) return; await adminSend('DELETE', '/settings'); return adminPage('settings'); }
     if (act === 'delete') { if (!confirm(`Remove ${el.dataset.team} from the admin setup? If .env also defines it, that version comes back.`)) return; await adminSend('DELETE', `/teams/${encodeURIComponent(el.dataset.team)}`); ADMIN.editing = null; return adminPage('teams'); }
-  } catch (err) { if (out()) out().innerHTML = err.body?.problems ? showProblems(err) : `<div class="warnbox">${esc(err.message)}</div>`; else alert(err.message); }
+  } catch (err) { const box = out() ?? $('#settingsresult'); if (box) box.innerHTML = err.body?.problems ? showProblems(err) : `<div class="warnbox">${esc(err.message)}</div>`; else alert(err.message); }
 });
 document.addEventListener('change', (e) => { if (e.target.dataset?.admin === 'filter') { ADMIN.filter = e.target.value; adminPage('tests'); } });
 document.addEventListener('input', (e) => {

@@ -3,8 +3,10 @@ import { buildApp } from './app.js';
 import { store } from './store/index.js';
 import { run } from './pipeline.js';
 import { applySavedTeams } from './admin/teamSetup.js';
+import { applySavedSettings } from './admin/settings.js';
 
 applySavedTeams(); // teams set up in the admin page, over the .env ones
+applySavedSettings(); // SLAs and working week set in the admin page
 assertConfig();
 const app = buildApp();
 

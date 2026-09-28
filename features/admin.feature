@@ -102,3 +102,21 @@ Feature: Admin section
     When the admin requests "/api/admin/tests"
     Then the response status is 200
     And it says there is no test report
+
+  Scenario: SLAs are set per priority in the admin page, with any priority names
+    When the admin saves SLAs "P0=1h/4h,P1=4h/1d,P2=1d/5d" with a working day of 08:00 to 17:00
+    Then the response status is 200
+    And support tickets are now judged against "p0" 1h to respond and 4h to resolve
+    And the working day is 08:00 to 17:00
+    And the change log shows "settings changed" by "admin"
+
+  Scenario: A mistyped SLA is refused and nothing changes
+    When the admin saves SLAs "P0=1 hour/4h" with a working day of 08:00 to 17:00
+    Then the response status is 400
+    And the problems include 'SLA P0: time to respond "1 hour" should look like 4h or 2d'
+    And support tickets are not judged against "p0"
+
+  Scenario: Reset goes back to the .env values
+    When the admin saves SLAs "P0=1h/4h" with a working day of 08:00 to 17:00
+    And the admin resets the settings
+    Then support tickets are not judged against "p0"

@@ -2,8 +2,10 @@ import { collect, run } from './pipeline.js';
 import { notifyAll } from './teams.js';
 import { assertConfig } from './config.js';
 import { applySavedTeams } from './admin/teamSetup.js';
+import { applySavedSettings } from './admin/settings.js';
 
 applySavedTeams(); // teams set up in the admin page, over the .env ones
+applySavedSettings(); // SLAs and working week set in the admin page
 assertConfig();
 
 // collect: fetch only. notify: the weekly Teams post. Anything else (the nightly job): collect, then save today's

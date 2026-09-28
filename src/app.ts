@@ -18,6 +18,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 import { allTeams, applySavedTeams, deleteTeam, normalise, problems, saveTeam, savedTeams } from './admin/teamSetup.js';
 import { checkConnections, testTeam, type Check } from './admin/connections.js';
 import { testReport } from './admin/testReport.js';
+import { applySavedSettings, currentSettings, normaliseSettings, resetSettings, saveSettings, settingsProblems } from './admin/settings.js';
 import { adminLog, logAdmin } from './store/history.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,7 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // Small bodies only: the one POST with a body is an action log entry.
   const app = Fastify({ logger: opts.logger ?? true, bodyLimit: 16 * 1024 });
   applySavedTeams(); // teams set up in the admin page
+  applySavedSettings(); // and SLAs and the working week
   // Every API route, so the OpenAPI document can be checked against what is really served.
   const routes: string[] = [];
   app.addHook('onRoute', (r) => { if (r.url.startsWith('/api/')) for (const m of [r.method].flat()) if (m !== 'HEAD') routes.push(`${m} ${r.url}`); });
@@ -260,6 +262,21 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!before || !deleteTeam(req.params.name)) return reply.code(404).send({ error: 'No team set up in the admin page with that name' });
     logAdmin(who(req), 'team removed', { name: req.params.name, before });
     return { removed: req.params.name, restoredFromEnv: allTeams().some((x) => x.name === req.params.name) };
+  });
+  // Support SLAs per priority, the working week, and how support tickets are found. Applied at once, logged.
+  app.get('/api/admin/settings', async () => currentSettings());
+  app.post('/api/admin/settings', async (req, reply) => {
+    const s = normaliseSettings(req.body), p = settingsProblems(s);
+    if (p.length) return reply.code(400).send({ error: 'Not saved', problems: p });
+    const before = currentSettings().settings;
+    saveSettings(s);
+    logAdmin(who(req), 'settings changed', { name: 'settings', before, after: s });
+    return currentSettings();
+  });
+  app.delete('/api/admin/settings', async (req) => {
+    resetSettings();
+    logAdmin(who(req), 'settings reset to .env', { name: 'settings' });
+    return currentSettings();
   });
   app.get('/api/admin/log', async () => adminLog());
 

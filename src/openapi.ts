@@ -67,6 +67,11 @@ export const openapi = (version: string) => ({
     },
     '/api/admin/teams/test': { post: { summary: 'Admin: test a team setup before saving: one read-only call per source, saying what was found', security: adminOnly, requestBody: { required: true, content: { 'application/json': { schema: TeamInput } } }, responses: { ...adminResponses('Checks'), 400: json('Problems with the setup') } } },
     '/api/admin/teams/{name}': { delete: { summary: 'Admin: remove a team set up in the admin page (a .env team of the same name comes back); logged', security: adminOnly, parameters: [{ name: 'name', in: 'path', required: true, schema: { type: 'string' } }], responses: { ...adminResponses('Removed'), 404: json('Not set up in the admin page') } } },
+    '/api/admin/settings': {
+      get: { summary: 'Admin: support SLAs per priority, the working week, how support tickets are found; where they come from (admin page or .env) and the priorities seen on tickets', security: adminOnly, responses: adminResponses('Settings') },
+      post: { summary: 'Admin: change them. Checked with the same rules as .env, applied at once, logged', security: adminOnly, requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } }, responses: { ...adminResponses('Settings'), 400: json('Problems') } },
+      delete: { summary: 'Admin: go back to the .env values; logged', security: adminOnly, responses: adminResponses('Settings') },
+    },
     '/api/admin/log': { get: { summary: 'Admin: what admins changed, who and when', security: adminOnly, responses: adminResponses('Change log') } },
     '/api/openapi.json': { get: { summary: 'This document', responses: { 200: json('OpenAPI document') } } },
   },

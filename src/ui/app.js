@@ -24,7 +24,7 @@ async function route() {
   if (location.hash === '#_metrics') return metricsPage();
   if (location.hash === '#_data') return dataPage();
   if (location.hash === '#_monthly') return monthlyPage((await api('/teams')).map((t) => t.board));
-  const adm = location.hash.match(/^#_admin(?:\/(tests|connections|teams|log))?$/);
+  const adm = location.hash.match(/^#_admin(?:\/(tests|connections|teams|settings|log))?$/);
   if (adm) return adminPage(adm[1] ?? 'tests');
   const [board, tab] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!board) return overview();
