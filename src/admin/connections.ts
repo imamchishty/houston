@@ -47,10 +47,6 @@ export async function checkConnections(): Promise<Check[]> {
       const { body } = await get(`${config.jira.baseUrl}/rest/api/2/myself`, jiraAuth());
       return { ok: true, detail: `Signed in as ${String(body?.displayName ?? 'the service account').slice(0, 80)}` };
     }),
-    run('Confluence', has.jira(), 'JIRA_BASE_URL and JIRA_API_TOKEN (Confluence uses the Jira credentials)', async () => {
-      await get(`${config.jira.baseUrl}/wiki/rest/api/space?limit=1`, jiraAuth());
-      return { ok: true, detail: 'Spaces readable' };
-    }),
     run('GitHub', has.github(), 'GITHUB_TOKEN', async () => {
       const { body, headers } = await get(`${config.github.api}/user`, ghAuth());
       const { missing } = githubScopes(headers.get('x-oauth-scopes'));
@@ -70,10 +66,6 @@ export async function checkConnections(): Promise<Check[]> {
     run('Azure', has.azure(), 'AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET', async () => {
       await azureToken('https://management.azure.com/.default');
       return { ok: true, detail: 'Service principal signs in. Its secret\'s expiry is not visible to Houston: check the app registration in Entra ID.' };
-    }),
-    run('Claude Code telemetry', has.azure() && !!config.claude.appInsights, 'CLAUDE_OTEL_APPINSIGHTS (and the Azure settings)', async () => {
-      const rows = await appInsightsRows(config.claude.appInsights, 'customMetrics | where timestamp > ago(7d) and name startswith "claude_code." | take 1');
-      return { ok: true, detail: rows.length ? 'Receiving usage data' : 'Connected, but no Claude Code usage in the last 7 days' };
     }),
     Promise.resolve<Check>(config.teamsWebhook ? { source: 'Microsoft Teams', configured: true, ok: null, detail: 'Webhook set. Not tested here: a test would post a message to the channel.' } : notSet('Microsoft Teams', 'TEAMS_WEBHOOK')),
   ]);
@@ -116,10 +108,6 @@ export async function testTeam(t: TeamInput): Promise<Check[]> {
   if (t.testmoProject) await one(`Testmo ${t.testmoProject}`, has.testmo(), 'TESTMO_URL and TESTMO_TOKEN', async () => {
     const { body } = await get(`${config.testmo.url}/api/v1/projects/${enc(t.testmoProject)}`, testmoAuth());
     return `Project "${String(body?.result?.name ?? body?.name ?? t.testmoProject).slice(0, 80)}"`;
-  });
-  for (const k of t.confluenceSpaces) await one(`Confluence ${k}`, has.jira(), 'JIRA_BASE_URL and JIRA_API_TOKEN', async () => {
-    const { body } = await get(`${config.jira.baseUrl}/wiki/rest/api/space/${enc(k)}`, jiraAuth());
-    return `Space "${String(body?.name ?? k).slice(0, 80)}"`;
   });
   if (t.resourceGroup) await one(`Azure ${t.resourceGroup}`, has.azure() && !!config.azure.subscription, 'the Azure settings and AZURE_SUBSCRIPTION_ID', async () => {
     const tok = await azureToken('https://management.azure.com/.default');

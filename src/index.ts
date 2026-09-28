@@ -9,7 +9,7 @@ assertConfig();
 const app = buildApp();
 
 async function main() {
-  if (!store.scorecards().length) await run();
+  if (!store.sprints().length) await run();
   await app.listen({ port: config.port, host: '0.0.0.0' });
 }
 main();

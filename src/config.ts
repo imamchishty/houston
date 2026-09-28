@@ -6,35 +6,15 @@ const pairs = (v: string | undefined) =>
 const lanes = (v: string | undefined) =>
   (v ?? '').split(';').filter(Boolean).map((l) => { const [area, pats] = l.split('='); return { area: area.trim(), patterns: pats.split(',').map((x) => x.trim()) }; });
 
-const demo = (process.env.HOUSTON_MODE ?? 'demo') === 'demo';
+
 
 export const config = {
-  window: { start: process.env.WINDOW_START ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? '2026-09-01' : ''), days: Number(process.env.WINDOW_DAYS ?? 90) },
-  offshoreCost: pairs(process.env.OFFSHORE_MONTHLY_COST ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:280000' : '')).map((p) => ({ name: p.name, aed: Number(p.id) })),
   azure: {
     tenant: process.env.AZURE_TENANT_ID ?? '', client: process.env.AZURE_CLIENT_ID ?? '', secret: process.env.AZURE_CLIENT_SECRET ?? '',
     subscription: process.env.AZURE_SUBSCRIPTION_ID ?? '', workspace: process.env.AZURE_LOG_WORKSPACE ?? '',
     appInsights: pairs(process.env.AZURE_APPINSIGHTS), resourceGroups: pairs(process.env.AZURE_RESOURCE_GROUPS),
-    teamCost: pairs(process.env.TEAM_MONTHLY_COST ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:850000,PLAT:520000' : '')).map((p) => ({ name: p.name, aed: Number(p.id) })),
   },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
-  // Feature cost. Loaded day rates: FTE = salary, benefits and overhead per working day; contractor = the day rate paid.
-  cost: {
-    currency: process.env.COST_CURRENCY ?? 'AED',
-    fteDay: Number(process.env.RATE_FTE_DAY ?? (demo ? 2400 : 0)),
-    contractorDay: Number(process.env.RATE_CONTRACTOR_DAY ?? (demo ? 1400 : 0)),
-    contractors: (process.env.CONTRACTORS ?? (demo ? 'Rahul|Priya|Sam' : '')).split('|').map((x) => x.trim()).filter(Boolean),
-    overrides: Object.fromEntries((process.env.RATE_OVERRIDES ?? '').split(';').filter((x) => x.includes('=')).map((x) => { const [n, r] = x.split('='); return [n.trim(), Number(r)]; })) as Record<string, number>,
-  },
-  // Claude on a seat plan (Team). Billed cost = seats x seat price. Usage comes from Claude Code's OpenTelemetry
-  // metrics, exported to Application Insights (CLAUDE_USAGE.md). CLAUDE_SEATS lists seat holders; empty = everyone on the roster.
-  claude: {
-    seatMonthly: Number(process.env.CLAUDE_SEAT_MONTHLY ?? (demo ? 550 : 0)),   // in COST_CURRENCY
-    seats: (process.env.CLAUDE_SEATS ?? '').split('|').map((x) => x.trim()).filter(Boolean),
-    appInsights: process.env.CLAUDE_OTEL_APPINSIGHTS ?? '',                      // App Insights app id receiving the metrics
-    days: Number(process.env.CLAUDE_DAYS ?? 30),
-    usdRate: Number(process.env.USD_TO_CURRENCY ?? 3.6725),                     // for the API-equivalent value
-  },
   // Time zone for working days and weekends, hours from UTC (UAE: 4).
   tzOffset: Number(process.env.TZ_OFFSET_HOURS ?? 0),
   // How to tell production bugs from bugs caught before release, for defect leakage: labels, or a field's value.
@@ -48,13 +28,6 @@ export const config = {
   workingHours: (() => { const m = /^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/.exec(process.env.WORKING_HOURS ?? '08:00-18:00'); return m ? { start: +m[1] + +m[2] / 60, end: +m[3] + +m[4] / 60 } : { start: NaN, end: NaN }; })(),
   weekend: (process.env.WEEKEND ?? 'sat,sun').split(',').map((d) => ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(d.trim().toLowerCase())),
   publicUrl: (process.env.HOUSTON_URL ?? '').replace(/\/+$/, ''), // how people reach Houston, for links in Teams posts
-  confluence: {
-    spaces: (process.env.CONFLUENCE_SPACES ?? '').split(',').filter(Boolean).map((s) => { const [name, list] = s.split(':'); return { name: name.trim(), spaces: list.split('|').map((x) => x.trim()) }; }),
-    adr: (process.env.CONFLUENCE_ADR_MARKERS ?? 'adr,decision-record').split(',').map((x) => x.trim().toLowerCase()),
-    runbook: (process.env.CONFLUENCE_RUNBOOK_MARKERS ?? 'runbook,playbook').split(',').map((x) => x.trim().toLowerCase()),
-  },
-  roster: (process.env.TEAM_ROSTER ?? ((process.env.HOUSTON_MODE ?? 'demo') === 'demo' ? 'OSSI:Aisha|Rahul|Omar|Priya|Tom|Fatima|Karim|Dinesh,PLAT:Lena|Yusuf|Mei|Sam' : ''))
-    .split(',').filter(Boolean).map((s) => { const [name, list] = s.split(':'); return { name: name.trim(), people: list.split('|').map((x) => x.trim()) }; }),
   github: {
     api: process.env.GITHUB_API ?? 'https://api.github.com',
     token: process.env.GITHUB_TOKEN ?? '',
@@ -127,7 +100,6 @@ export function configProblems(c = config): string[] {
   for (const r of c.github.repos) { check('GITHUB_REPOS board', r.name, BOARD); for (const x of r.repos) check('GITHUB_REPOS repo', x, /^[\w.-]+\/[\w.-]+$/); }
   for (const p of c.sonar.projects) check('SONAR_PROJECTS key', p.id, /^[\w.:-]+$/);
   for (const p of c.testmo.projects) check('TESTMO_PROJECTS id', p.id, /^\d+$/);
-  for (const s of c.confluence.spaces) for (const k of s.spaces) check('CONFLUENCE_SPACES key', k, /^~?[A-Za-z0-9_]+$/);
   check('AZURE_TENANT_ID', c.azure.tenant, /^([0-9a-f-]{36}|[\w.-]+\.[a-z]{2,})$/i);
   check('AZURE_SUBSCRIPTION_ID', c.azure.subscription, GUID);
   check('AZURE_LOG_WORKSPACE', c.azure.workspace, GUID);
@@ -135,11 +107,6 @@ export function configProblems(c = config): string[] {
   for (const r of c.azure.resourceGroups) check('AZURE_RESOURCE_GROUPS', r.id, /^[\w().-]{1,90}$/);
   for (const [k, v] of [['JIRA_BASE_URL', c.jira.baseUrl], ['GITHUB_API', c.github.api], ['SONAR_URL', c.sonar.url], ['TESTMO_URL', c.testmo.url], ['HOUSTON_URL', c.publicUrl]] as const)
     check(k, v, /^https?:\/\/[^\s"'<>]+$/);
-  for (const [k, v] of [['RATE_FTE_DAY', c.cost.fteDay], ['RATE_CONTRACTOR_DAY', c.cost.contractorDay], ...Object.entries(c.cost.overrides).map(([n, r]) => [`RATE_OVERRIDES ${n}`, r] as const)] as const)
-    if (!Number.isFinite(v) || v < 0) out.push(`${k} must be a number, 0 or more`);
-  check('CLAUDE_OTEL_APPINSIGHTS', c.claude.appInsights, GUID);
-  if (!Number.isFinite(c.claude.seatMonthly) || c.claude.seatMonthly < 0) out.push('CLAUDE_SEAT_MONTHLY must be a number, 0 or more');
-  if (!Number.isInteger(c.claude.days) || c.claude.days < 1 || c.claude.days > 90) out.push('CLAUDE_DAYS must be 1 to 90');
   if (!Number.isFinite(c.tzOffset) || c.tzOffset < -12 || c.tzOffset > 14) out.push('TZ_OFFSET_HOURS must be between -12 and 14');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {

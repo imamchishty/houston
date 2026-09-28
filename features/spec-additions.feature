@@ -48,15 +48,14 @@ Feature: Weekend-aware cycle time, unplanned work, defect leakage, WIP per perso
     When the sprint board is read at 2026-09-16T12:00
     Then 1 of 1 people has more than 2 tickets in progress, at most 3
 
-  Scenario: Every finding and report measure has a plain English name for the simple view
-    Then every finding and report measure has a plain name
+  Scenario: Every headline measure has a plain English name for the summary line
+    Then every headline measure has a plain name
 
-  Scenario: The simple view answers four questions for every team, in plain words
+  Scenario: Each team's summary line is plain words and names nobody
     Given Houston is running with user "sam" and password "pw"
-    When the user requests "/api/dashboard/simple"
+    When the user requests "/api/dashboard"
     Then the response status is 200
-    And every team has the four questions answered Yes, Partly, No or Not enough data
-    And the simple view uses no jargon
+    And every team's summary line uses no jargon
     And the response mentions none of the team's names
 
   Scenario: A past sprint's board does not count work finished after it ended

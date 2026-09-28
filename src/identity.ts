@@ -1,4 +1,3 @@
-import { config } from './config.js';
 
 // One person, many names. Jira shows display names, GitHub shows logins.
 // PEOPLE="Aisha Khan=akhan|aisha.khan;Karim Haddad=karimh" maps every alias to one canonical name.
@@ -13,5 +12,3 @@ for (const entry of (process.env.PEOPLE ?? '').split(';').filter(Boolean)) {
 export const canonical = (name: string | null | undefined): string | null =>
   name ? aliases.get(name.toLowerCase()) ?? name : null;
 
-export const rosterFor = (board: string): string[] =>
-  (config.roster.find((r) => r.name === board)?.people ?? []).map((n) => canonical(n)!);

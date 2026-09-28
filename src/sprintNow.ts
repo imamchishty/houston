@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
-import { workingDays } from './cost.js';
+import { workingDays } from './time.js';
 import { doneInSprint, learnBaseline, sizeBucket } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
 

@@ -1,284 +1,124 @@
 # Houston
 
-Engineering health checks for M42 teams. Pulls sprint data from Jira, scores each team
-against a set of plain English rules, and tells the team what to fix first.
+How M42 teams are performing. Houston reads Jira, GitHub (Enterprise), SonarQube, Testmo and Azure, and shows each
+team on **10 headline measures** in five areas, speed and quality first:
 
-This repo: Jira sprint delivery and hygiene checks, GitHub flow and DORA checks, SonarQube and Testmo quality checks, per person views, recommendations, headcount gate, scorecard UI, retro digest, JSON API.
-Phase 2: GitHub PR flow and quality. Phase 3: Confluence docs checks. Phase 4: DORA rollup and Apollo hooks.
+| Area | Headline measures |
+|---|---|
+| Speed | Deployment frequency, lead time for changes, sprint completion |
+| Quality | Bugs reaching customers, time spent on bugs |
+| Stability and support | Change failure rate, time to restore, support resolved within SLA |
+| Flow | Flow efficiency |
+| Security | Critical and high security issues fixed on time |
 
-## Run today
+Each headline has a target. A team's **score** is the share of its headline targets met, with the trend against the
+period before. Everything else is drill-down: under each headline, the measures and charts that explain it. Nothing is
+per person. Definitions, targets and why each matters: `METRICS.md` (generated from the code).
 
-See `RUN-TODAY.md`: `npm install`, `npm run dev`, open http://localhost:4000. Demo data, no tokens.
+Pages: **Dashboard** (every team on the 10 measures, alphabetical), **Team** (click a team: score, missed targets,
+each headline with what drives it, the current sprint), **Monthly** (a month against the one before, six months of trend).
+The footer links to Metrics, Data checks and Admin.
 
-## Going live this week
-
-See `GO-LIVE.md`. Short version: fill `.env`, `npm run check`, fix any FAIL, `npm run collect && npm run score`, deploy with `deploy/azure.sh` or `deploy/docker-compose.yml`.
-
-## Run it in 2 minutes (demo data, no Jira needed)
+## Run it in 2 minutes (demo data, no tokens)
 
 ```
 npm install
-cp .env.example .env      # HOUSTON_MODE=demo is the default
 npm run dev
 ```
 
-Open http://localhost:4000
+Open http://localhost:4000. For the admin section add `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD` to `.env`.
 
-## Point it at real Jira
+## Going live
 
-Edit `.env`:
+See `GO-LIVE.md`. Short version: fill `.env` (start from `.env.example`), `npm run check`, fix any FAIL, `npm run collect`,
+deploy with `deploy/azure.sh`. Teams can also be added or changed later in the admin page.
+
+### Jira
 
 ```
 HOUSTON_MODE=jira
 JIRA_BASE_URL=https://m42.atlassian.net
 JIRA_EMAIL=you@m42.ae
 JIRA_API_TOKEN=...            # Cloud: API token. Data Center: leave JIRA_EMAIL blank, use a PAT.
-JIRA_BOARDS=OSSI:42,PLAT:57   # DisplayName:boardId, the id is in the board URL (rapidView=42)
-JIRA_POINTS_FIELD=customfield_10016
-JIRA_AC_FIELD=                # optional custom field for acceptance criteria
+JIRA_BOARDS=OSSI:42,PLAT:57   # Team:boardId, the id is in the board URL
+JIRA_PROJECTS=OSSI:OSS        # Team:project key, when it differs from the team name
 ```
 
-Then `npm run dev`, or `npx tsx src/cli.ts` for a one-off collect and score.
-Schedule that command nightly (cron, Azure Container Apps job, or GitHub Actions).
+Support tickets are plain Jira: a separate project per team (`SUPPORT_PROJECTS`), or support issue types and labels in the
+team's own project. SLAs per priority in working time: `SUPPORT_SLA`, `WORKING_HOURS`, `WEEKEND`, `TZ_OFFSET_HOURS`.
 
-## GitHub (Enterprise Server or github.com)
+### GitHub (Enterprise Server or github.com)
 
 ```
 GITHUB_API=https://github.m42.internal/api/v3    # GHES. For github.com: https://api.github.com
-GITHUB_TOKEN=...                                  # read only PAT: repo read, read:org, security_events (security alerts)
-GITHUB_REPOS=OSSI:m42/ossi-api|m42/ossi-web       # DisplayName:owner/repo|owner/repo
-GITHUB_DAYS=90
-GITHUB_LANES=frontend=web/,src/ui/;backend=api/,services/;infra=infra/,helm/;tests=test/,tests/;docs=docs/,*.md
-GITHUB_DEPLOY_WORKFLOW=deploy                     # Actions workflow name that means a production deploy
-TEAM_ROSTER=OSSI:aisha|rahul|karim|dinesh         # so people with zero activity still appear
+GITHUB_TOKEN=...                                  # read only: repo, read:org, security_events
+GITHUB_REPOS=OSSI:m42/ossi-api|m42/ossi-web       # Team:owner/repo|owner/repo
+GITHUB_DEPLOY_WORKFLOW=deploy                     # the Actions workflow that means a production deploy
+SECURITY_DEADLINE_DAYS=critical:7,high:30,medium:90
 ```
 
-Flow checks: pickup time, review to merge, PR size, stale PRs (information only), PRs with no ticket of the team's project,
-review concentration, engineers working across frontend and backend, CI failure rate on main, and DORA deployment frequency,
-lead time (from first commit) and change failure rate (the Quality report's calculation).
-Time to restore (DORA 4) needs incident data, planned for the Azure collector.
+### SonarQube, Testmo, Azure
 
-Per person from GitHub: PRs authored and merged, lines, median PR size, reviews given and share of all reviews,
-pickup speed as a reviewer, lanes touched, cross lane PRs, PRs with no ticket, hotfixes, and plain English flags
-("reviews only", "no activity in 90 days", "stays in backend only", "does 79% of reviews").
-
-`GITHUB_LANES` maps path prefixes to areas. Edit it to match your repos; the lane crossing check depends on it.
-First collection is slow (reviews and files per PR). Run it nightly and it stays current.
-
-## SonarQube and Testmo
-
-Add to `.env` (see `.env.example`). Each is optional; the quality score uses whatever is configured.
-
-```
-SONAR_URL=https://sonar.m42.internal
-SONAR_TOKEN=...                 # user token with Browse on the projects
-SONAR_PROJECTS=OSSI:m42-ossi    # DisplayName:sonarProjectKey
-TESTMO_URL=https://m42.testmo.net
-TESTMO_TOKEN=...                # Testmo API token
-TESTMO_PROJECTS=OSSI:12         # DisplayName:testmoProjectId
-```
-
-Quality checks: quality gate, coverage (overall and on new code), vulnerabilities, Sonar bugs, duplication,
-Testmo pass rate, run frequency, automation share, and bugs raised during the sprint from Jira.
-Thresholds in `src/rules/qualityRules.ts`.
+Optional, per team: `SONAR_PROJECTS`, `TESTMO_PROJECTS`, `AZURE_APPINSIGHTS` (server errors, availability) and
+`AZURE_RESOURCE_GROUPS` with `AZURE_LOG_WORKSPACE` (incidents, time to restore). See `.env.example`.
 
 ## History and backups
 
-The JSON files in `HOUSTON_DATA_DIR` hold "now". `history.db` (SQLite, built into Node) keeps every day since go-live:
-area scores, every metric value, every sprint ever scored (Jira only returns the last `SPRINT_HISTORY`), and feature cost.
+`history.db` (SQLite, built into Node) keeps each day's score and every measure, so trends keep growing beyond what the
+tools still return. Each completed month's numbers are saved for good for the monthly report.
 
-- Each night's snapshot is one transaction: a crash loses that night's write, never earlier history. Re-running a day replaces it.
-- After each snapshot a consistent copy goes to `backups/history-YYYY-MM-DD.db`; the last `HOUSTON_BACKUP_DAYS` (30) are kept.
-- Keep the data folder on persistent storage (the compose volume, the Azure Files share) and turn on backup for that share,
-  so a copy lives outside the app. To restore, stop Houston and copy a backup over `history.db`.
-- New versions keep the data: `deploy/azure.sh` reuses the same share on every run and mounts it on the app and both jobs.
-  Schema changes are numbered steps in `src/store/history.ts` (`MIGRATIONS`): add a step, never edit one that shipped.
-  A copy is saved before any step runs, and an older version refuses a newer database rather than writing to it.
-- On a network share only one process should write at a time; the nightly job does the writing.
-  If Houston becomes a shared service, move to Postgres (the queries in `src/store/history.ts` are plain SQL).
+- Each night's snapshot is one transaction; re-running a day replaces it. A consistent copy goes to `backups/history-YYYY-MM-DD.db`; the last `HOUSTON_BACKUP_DAYS` (30) are kept.
+- Keep the data folder on persistent storage. `deploy/azure.sh` reuses the same Azure Files share on every deploy and mounts it on the app and both jobs, so new versions keep the data.
+- Schema changes are numbered steps in `src/store/history.ts` (`MIGRATIONS`). A copy is saved before any step runs, and an older version refuses a newer database.
 
 ## Tests
 
 ```
-npm test        # unit checks on the rules and recommendations
-npm run bdd     # behaviour: access, privacy, security, Teams digest, version (features/*.feature)
+npm test          # core rules: working time, the score
+npm run bdd       # behaviour, in plain English (features/*.feature): every measure's accuracy, access, security, admin
+npm run report    # both, plus npm audit, into reports/test-report.json (shown on the admin page)
 ```
 
-The feature files are plain English and double as the spec for what Houston promises: who can see names,
-what a non viewer gets, which requests are refused. CI runs both, plus `npm audit`, on every push.
+`deploy/azure.sh` runs `npm run report` before building the image; a failing test stops the deploy.
+
+## Access and security
+
+- `HOUSTON_USER` and `HOUSTON_PASSWORD`: basic auth for everything. Outside demo mode Houston will not start without a password. 10 failed sign-ins from one address lock it out for 15 minutes. Serve over HTTPS.
+- `HOUSTON_API_TOKENS`: read-only bearer tokens for the IDP and other systems.
+- `HOUSTON_PEOPLE_VIEWERS`: who may see assignees on the sprint board. Everything else is team level.
+- `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD`: the admin section (test report for this build, connection health, team setup, change log). Always its own sign-in; a weak password works in demo mode only. Tokens are never shown or entered there.
+- Strict Content Security Policy, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `HOUSTON_URL` is https. Every POST needs `X-Requested-With: houston`.
+- `.env` values (and teams saved in the admin page) are validated before they reach any API path or query. `npm audit` is clean; CI fails on high or critical advisories.
+
+## Weekly post in Teams
+
+Set `TEAMS_WEBHOOK` and `HOUSTON_URL`. `npm run notify` posts each team's score and trend, its plain summary and what
+missed its target two periods running, with a link to the team page. No names. `deploy/azure.sh` schedules it for Fridays.
+
+## API
+
+People sign in with basic auth; systems use a token (`Authorization: Bearer <token>`). The contract is at `/api/openapi.json`.
+
+| Endpoint | What it returns |
+|---|---|
+| `GET /api/dashboard` | Every team on the 10 headline measures: score, trend, summary, needs attention, data freshness |
+| `GET /api/teams` | Every team: score and summary |
+| `GET /api/teams/:board?days=30` | One team, or `all`: areas, headlines with drill-down, score, missed targets worst first |
+| `GET /api/teams/:board/history` | Score and headline measures by day |
+| `GET /api/monthly?team=&month=` | The monthly report (`/api/monthly.md` for Markdown) |
+| `GET /api/sprints/current?team=` | The sprint in progress |
+| `GET /api/data-quality` | Data checks and data hygiene |
+| `GET /api/metrics` | What each measure means, why it matters, how it is calculated |
+| `POST /api/refresh` | Collect now (at most every 5 minutes) |
 
 ## Version
 
-The footer and `GET /api/version` show which build is running: `Houston 0.1.0 · build 42 · a1b2c3d · 27 Sep 2026, 15:02`.
-`scripts/stamp.mjs` writes it at build time. In CI the build number is the Actions run number; `deploy/azure.sh` passes
-the commit and build time into the image. Run from a checkout it says "local build" with the last commit, and
-"+ uncommitted changes" when there are any.
-
-## Metric explanations
-
-Every finding has "What is this?": why the metric matters, how it is calculated and its thresholds. The Metrics page
-(header link) lists them all by area. The text is in `src/metrics.ts`; a BDD scenario fails if any scored metric has none.
-
-## Cost to build a feature
-
-The Features tab shows what each feature has cost so far, split FTE and contractor, and an estimate to complete at the
-team's current cost per point. It also shows how much of the team's cost goes on work with no feature, and on people with
-no tickets. Set `RATE_FTE_DAY`, `RATE_CONTRACTOR_DAY` and `CONTRACTORS` (see `.env.example`). Method in `METRICS.md`.
-
-## Claude usage and cost
-
-On a Team plan Claude is billed per seat. `CLAUDE_SEAT_MONTHLY` × seats is added to each seat holder's day rate, so it
-shows in team cost, cost per point and cost per feature. Usage (adoption, active days, sessions, lines, commits, PRs,
-edit acceptance, API-equivalent value) comes from Claude Code's own OpenTelemetry metrics via Application Insights: setup in
-`CLAUDE_USAGE.md`. Team figures for everyone on the Claude tab; per person and who is not using it for people viewers only.
-
-## Metric definitions
-
-Every formula and threshold is in `METRICS.md`. Every finding links to its raw evidence in the UI.
-
-## Identity and access
-
-`PEOPLE=Aisha Khan=akhan|aisha.khan;Karim Haddad=karimh` maps Jira display names and GitHub logins to one person.
-`TEAM_ROSTER=OSSI:Aisha Khan|Karim Haddad|...` lists who is on the team so zero activity still shows.
-`HOUSTON_USER` and `HOUSTON_PASSWORD` turn on basic auth for everything. Outside demo mode Houston will not start without a password.
-After 10 failed sign-ins from one address it answers 429 for 15 minutes. Serve it over HTTPS (your proxy or gateway), since basic auth sends the password with every request. `HOUSTON_PEOPLE_VIEWERS` restricts
-the per person endpoints to named users; everyone else gets team level only. Recommendations name people only
-for those viewers; everyone else, the digest and Teams posts get a count ("2 people, names in the people view").
-
-`HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD` turn on the admin section (Admin in the header): the test report
-shipped with this build, connection health (works or not, token expiry, missing permissions; never token values),
-team setup with a Test connection button, and a log of every admin change. It always asks for the admin sign-in,
-even when the rest of Houston is open. A weak admin password works in demo mode only; anywhere else the admin
-section stays off until the password is at least 14 characters and not a common one. Teams saved there live in
-`<data>/team-setup.json` and replace the `.env` team of the same name.
-
-## Security
-
-- `npm audit` clean. CI fails on any high or critical advisory.
-- Strict Content Security Policy (no inline script or style), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `HOUSTON_URL` is https.
-- Every POST needs `X-Requested-With: houston` (the UI sends it), which blocks cross-site form posts:
-  `curl -X POST -u user:pass -H 'X-Requested-With: houston' https://houston.internal/api/refresh`
-- Refresh runs one at a time, at most every 5 minutes. Action log entries are validated and capped at 16 KB.
-- Per person data (people view, names in recommendations, assignees and authors in raw evidence) only for `HOUSTON_PEOPLE_VIEWERS`.
-- `.env` values are validated at startup and by `npm run check`, before they reach any API path or JQL/KQL query.
-- Container runs compiled JS as the unprivileged `node` user, with a health check. Errors return a generic message; details go to the log.
-
-## Friday digest in Teams
-
-Set `TEAMS_WEBHOOK` and `HOUSTON_URL` (so the post links to the full digest). `npm run notify` posts every board's
-headline: scores and the top three red findings, no names. `deploy/azure.sh` schedules it for 09:00 Gulf time on Fridays,
-and the compose `nightly` service runs it on Fridays after the collect.
-
-`npm run check` tests every configured connection and reports what it can see. Run it before the first collect.
+The footer and `GET /api/version` show which build is running. In CI the build number is the Actions run number;
+`deploy/azure.sh` passes the commit and build time into the image.
 
 ## Docker
 
 ```
 docker build -t houston .
 docker run -p 4000:4000 -v houston-data:/data --env-file .env houston
-```
-
-## API
-
-Everything the page shows is available as JSON, and the contract is published at `GET /api/openapi.json` (OpenAPI 3.1).
-A BDD scenario fails if an endpoint is served but not documented, or documented but not served.
-
-Systems authenticate with a read-only bearer token from `HOUSTON_API_TOKENS`:
-
-```
-curl -H "Authorization: Bearer $TOKEN" https://houston.internal/api/teams/OSSI/summary
-```
-
-Tokens are team level only (no people view, no names) unless the token name is in `HOUSTON_PEOPLE_VIEWERS`, and cannot POST.
-`/api/teams/:board/summary` is sized for an IDP card: score and band, area scores, DORA tiers, the biggest gains, cost summary, links.
-
-| Endpoint | Returns |
-|---|---|
-| `GET /api/dora?team=all&days=30` | The four DORA metrics: headline, previous period, tier, explanation, daily series with 7 day average |
-| `GET /api/dashboard` | The home page: counts by band, data freshness, every team at a glance, biggest gains across teams |
-| `GET /api/teams` | Every team: latest score, RAG, 6 sprint trend, top 3 gaps |
-| `GET /api/teams/:board` | Latest scorecard plus history for one team |
-| `GET /api/teams/:board/summary` | One card for the IDP: score, band, areas, DORA tiers, gains, cost |
-| `GET /api/teams/:board/costs` | Cost to build each feature, FTE and contractor, estimate to complete |
-| `GET /api/teams/:board/history` | Daily area scores, every sprint scored, cost over time |
-| `GET /api/metrics` | Why each metric matters and how it is calculated |
-| `GET /api/openapi.json` | The API contract |
-| `GET /api/teams/:board/digest.md` | Markdown retro digest, paste into Confluence. No names; people viewers can add `?named=1` |
-| `GET /api/teams/:board/people` | Per person: tickets and points done, median cycle time vs team, tickets over the size norm, stuck, carried over |
-| `GET /api/teams/:board/recommendations` | Ranked recommendations (pattern across findings, owner, steps) and the headcount gate |
-| `GET /api/teams/:board/evidence/:ruleId` | The raw tickets, PRs, pages or epics behind one finding |
-| `GET/POST /api/teams/:board/actions` | Action log: accepted, rejected, done per recommendation, with the numbers frozen at that moment and their movement since |
-| `GET /api/rules` | The rules, thresholds and weights |
-| `POST /api/teams/:board/notify` | Post the digest headline to Teams now |
-| `POST /api/refresh` | Re-collect and re-score now |
-| `GET /api/health` | Liveness, no sign in needed |
-| `GET /api/version` | Build number, commit and build time |
-
-## The checks
-
-| Check | Amber | Red | Weight |
-|---|---|---|---|
-| Sprint commitment delivered | below 80% | below 60% | 25 |
-| Carried over from earlier sprint | 20% | 40% | 15 |
-| Stories without acceptance criteria | 15% | 35% | 15 |
-| Scope added after sprint start | 15% | 30% | 10 |
-| Items without an estimate | 10% | 25% | 10 |
-| Work in progress over 3x normal for its size | 2 | 4 | 10 |
-| Tickets over double the team norm for their size | 15% | 30% | 15 |
-| In-progress items with no owner | 1 | 3 | 5 |
-| Sprint has a goal (information only) | missing | missing | 0 |
-
-Score: a green check earns its full weight, amber half, red none. 75 and above is green, 50 to 74 amber, below 50 red.
-Thresholds live in `src/rules/sprintRules.ts`. Adding a rule is one object in that file.
-
-## Recommendations and the headcount gate
-
-`src/recommend.ts` reads all findings for a team together and matches patterns (unready intake, over commitment,
-interrupts, stuck flow, quality debt, security, ownership). Each recommendation has the evidence, the owner,
-a horizon and ordered steps. Top five by impact are shown on the team page and in the digest.
-
-The headcount gate is three conditions that must hold before adding people: 80% of committed points delivered
-for three consecutive sprints, 0% unestimated items for three sprints, and 70% coverage on new code.
-Edit the targets in `headcountGate()`.
-
-## Cycle time and the people view
-
-Cycle time is In Progress to Done. Houston learns the team's median cycle time per story point size
-from its own history, so "normal" means normal for that team. A ticket is flagged when it takes more
-than double that norm (and at least 2 days over).
-
-`/api/teams/:board/people` breaks the same numbers down by assignee. Two rules for using it:
-
-1. Treat every line as a question, not a finding. The data cannot see who got the legacy tickets or who spent the sprint unblocking others.
-2. Keep it off the shared team page in production and behind auth. Check with HR before per person metrics are stored or shown anywhere shared.
-
-## Integrating with the IDP (Backstage)
-
-Houston is API first, so the Backstage plugin is thin:
-
-1. Annotate each catalog Component or Group with `houston.m42.ae/board: OSSI`.
-2. A frontend plugin fetches `/api/teams/:board` and renders the score chip on the entity card
-   and the full findings list on a Team Health tab.
-3. Proxy config in `app-config.yaml`:
-
-```yaml
-proxy:
-  '/houston':
-    target: http://houston.internal:4000/api
-```
-
-The scorecard JSON shape is in `src/types.ts` and is stable. The bundled UI is optional once the plugin exists.
-
-## Layout
-
-```
-src/
-  collectors/jira.ts    Jira Agile API, changelog based carry-over and scope-add detection
-  collectors/demo.ts    fixture generator, two teams over six sprints
-  rules/sprintRules.ts  the checks (edit thresholds here)
-  rules/engine.ts       scoring
-  store/                JSON file store, swap for Postgres when needed
-  index.ts              Fastify server and endpoints
-  ui/index.html         scorecard page
-  cli.ts                collect and score, for cron
 ```

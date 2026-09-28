@@ -22,6 +22,14 @@ export function outsideWorkingHours(iso: string, weekend: number[], offsetHours:
   return weekend.includes(d.getUTCDay()) || h < hours.start || h >= hours.end;
 }
 
+// Days from start to end that are not weekend days (UTC dates), for sprint length.
+export function workingDays(startIso: string, endIso: string, weekend: number[]): number {
+  let n = 0;
+  const end = new Date(endIso).getTime();
+  for (let t = new Date(startIso).getTime(); t < end; t += 86_400_000) if (!weekend.includes(new Date(t).getUTCDay())) n++;
+  return n;
+}
+
 // Working time: only the working day (hours in local time) on working days. Used for support SLAs in plain Jira.
 type Hours = { start: number; end: number };
 const H = 3_600_000;

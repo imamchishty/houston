@@ -74,7 +74,11 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
   const now = Date.now();
   if (n === 6) for (const i of issues) {
     if (i.resolved && Date.parse(i.resolved) > now) Object.assign(i, { resolved: null, statusCategory: 'inprogress', status: 'In Progress' });
-    if (i.inProgressSince && Date.parse(i.inProgressSince) > now) Object.assign(i, { inProgressSince: null, statusCategory: 'todo', status: 'To Do' });
+    // Work planned to start in the sprint's first two days has started by now (people pick up work on day one);
+    // anything planned later is still to do.
+    if (i.inProgressSince && Date.parse(i.inProgressSince) > now) Object.assign(i, Date.parse(i.inProgressSince) - start.getTime() < 2 * day
+      ? { inProgressSince: new Date(Math.max(start.getTime(), now - 3_600_000)).toISOString(), statusCategory: 'inprogress', status: 'In Progress', resolved: null }
+      : { inProgressSince: null, statusCategory: 'todo', status: 'To Do' });
     if (i.addedToSprintAt && Date.parse(i.addedToSprintAt) > now) i.addedToSprintAt = new Date(now - day).toISOString();
   }
   // Status histories last, once resolution times and the in-progress sprint are final.

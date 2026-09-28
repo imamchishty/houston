@@ -81,9 +81,9 @@ async function adminTeams() {
   const teams = await adminApi('/teams');
   const t = ADMIN.editing;
   const src = { admin: 'Admin page', env: '.env', demo: 'Demo data' };
-  return `<div class="card scrollx"><table class="t sortable"><thead><tr><th>Team</th><th>Set up in</th><th>Jira</th><th>Repos</th><th>SonarQube</th><th>Testmo</th><th>Azure</th><th>People</th><th>Changed</th><th></th></tr></thead><tbody>
+  return `<div class="card scrollx"><table class="t sortable"><thead><tr><th>Team</th><th>Set up in</th><th>Jira</th><th>Repos</th><th>SonarQube</th><th>Testmo</th><th>Azure</th><th>Changed</th><th></th></tr></thead><tbody>
     ${teams.map((x) => `<tr><td><b>${esc(x.name)}</b></td><td>${esc(src[x.source])}</td><td>${x.jiraBoardId ? `${esc(x.jiraProject)} · board ${esc(x.jiraBoardId)}` : '<span class="muted">·</span>'}</td>
-      <td class="num">${esc(x.repos.length)}</td><td>${esc(x.sonarProject || '·')}</td><td>${esc(x.testmoProject || '·')}</td><td>${esc(x.resourceGroup || '·')}</td><td class="num">${esc(x.roster.length)}</td>
+      <td class="num">${esc(x.repos.length)}</td><td>${esc(x.sonarProject || '·')}</td><td>${esc(x.testmoProject || '·')}</td><td>${esc(x.resourceGroup || '·')}</td>
       <td>${x.updatedAt ? `${esc(when(x.updatedAt))} by ${esc(x.updatedBy)}` : '<span class="muted">·</span>'}</td>
       <td>${x.source === 'demo' ? '' : `<button class="btn small" data-admin="edit" data-team="${esc(x.name)}">Edit</button>`}</td></tr>`).join('')}
   </tbody></table><p><button class="btn" data-admin="new">Add a team</button></p>
@@ -106,8 +106,6 @@ function teamForm(t, source) {
     </div>
     <div class="grid3">
       ${a('repos', 'GitHub repos', t.repos, 'One per line, owner/name')}
-      ${a('confluenceSpaces', 'Confluence spaces', t.confluenceSpaces, 'One space key per line')}
-      ${a('roster', 'People on the team', t.roster, 'One name per line, as Jira and GitHub know them')}
     </div>
     <div id="teamresult"></div>
     <p><button type="button" class="btn" data-admin="test">Test connection</button> <button type="button" class="btn primary" data-admin="save">Save</button>
@@ -116,7 +114,7 @@ function teamForm(t, source) {
 }
 const formTeam = () => {
   const fd = new FormData($('#teamform'));
-  return Object.fromEntries(['name', 'jiraProject', 'jiraBoardId', 'supportProject', 'sonarProject', 'testmoProject', 'resourceGroup', 'appInsights', 'repos', 'confluenceSpaces', 'roster'].map((k) => [k, String(fd.get(k) ?? '')]));
+  return Object.fromEntries(['name', 'jiraProject', 'jiraBoardId', 'supportProject', 'sonarProject', 'testmoProject', 'resourceGroup', 'appInsights', 'repos'].map((k) => [k, String(fd.get(k) ?? '')]));
 };
 const showChecks = (checks) => `<div class="scrollx"><table class="t"><tr><th>Check</th><th>Result</th><th>Found</th></tr>${checks.map((c) => `<tr><td>${esc(c.source)}</td><td>${okChip(c.ok, 'Works', 'Failing', 'Not set')}</td><td>${esc(c.detail)}</td></tr>`).join('')}</table></div>`;
 const showProblems = (e) => `<div class="warnbox"><b>${esc(e.message)}</b><ul>${(e.body?.problems ?? []).map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
@@ -134,7 +132,7 @@ document.addEventListener('click', async (e) => {
   const act = el.dataset.admin, out = () => $('#teamresult');
   try {
     if (act === 'check') { el.disabled = true; el.textContent = 'Checking…'; await adminSend('POST', '/connections/check'); return adminPage('connections'); }
-    if (act === 'new') { ADMIN.editing = { isNew: true, repos: [], confluenceSpaces: [], roster: [] }; await adminPage('teams'); return $('#teamform')?.scrollIntoView(); }
+    if (act === 'new') { ADMIN.editing = { isNew: true, repos: [] }; await adminPage('teams'); return $('#teamform')?.scrollIntoView(); }
     if (act === 'edit') { ADMIN.editing = (await adminApi('/teams')).find((x) => x.name === el.dataset.team) ?? null; await adminPage('teams'); return $('#teamform')?.scrollIntoView(); }
     if (act === 'cancel') { ADMIN.editing = null; return adminPage('teams'); }
     if (act === 'test') { out().innerHTML = '<p class="muted">Testing…</p>'; out().innerHTML = showChecks((await adminSend('POST', '/teams/test', formTeam())).checks); return; }

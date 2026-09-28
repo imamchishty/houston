@@ -25,7 +25,7 @@ After(async function () {
 Given('a history database with {int} day of scores for {string}', async function (n: number, board: string) {
   await useFreshDir();
   const h = await hist();
-  for (let i = 0; i < n; i++) h.recordDay({ day: `2026-09-${String(10 + i).padStart(2, '0')}`, board, areas: [{ area: 'sprint', score: 40, rag: 'red' }], findings: [], sprints: [], cost: null });
+  for (let i = 0; i < n; i++) h.recordValues(`2026-09-${String(10 + i).padStart(2, '0')}`, board, [{ metric: 'score', value: 40, met: null }]);
   h.closeHistory();
 });
 Given('a history database written by a newer version', async function () {
@@ -49,7 +49,7 @@ When('this version opens it', async function () {
 
 Then('the history still has {int} day of scores for {string}', async function (n: number, board: string) {
   const h = await hist();
-  assert.equal(new Set(h.history(board, 3650).areas.map((a) => (a as { day: string }).day)).size, n);
+  assert.equal(h.history(board, ['score'], 3650).series.score.length, n);
 });
 Then('the database is at the new schema version', async function () {
   const h = await hist();

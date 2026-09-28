@@ -30,12 +30,8 @@ When('the user posts to {string}', async function (this: HoustonWorld, url: stri
 When('the user posts to {string} without the Houston header', async function (this: HoustonWorld, url: string) {
   await this.request('POST', url, { ...this.signedIn(), headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'a=1' });
 });
-When(/^the user records an action (\{.*\}) for "([^"]*)"$/, async function (this: HoustonWorld, body: string, board: string) {
-  await this.request('POST', `/api/teams/${board}/actions`, { ...this.signedIn(), headers: HOUSTON_HEADER, body });
-});
-When('the user records an action with a {int} character note for {string}', async function (this: HoustonWorld, n: number, board: string) {
-  const body = JSON.stringify({ recId: 'flow', status: 'done', owner: 'sam', note: 'a'.repeat(n) });
-  await this.request('POST', `/api/teams/${board}/actions`, { ...this.signedIn(), headers: HOUSTON_HEADER, body });
+When('the user posts a {int} character body to {string}', async function (this: HoustonWorld, n: number, url: string) {
+  await this.request('POST', url, { ...this.signedIn(), headers: HOUSTON_HEADER, body: JSON.stringify({ note: 'a'.repeat(n) }) });
 });
 When('the Friday digest is sent', async function (this: HoustonWorld) { this.notified = await houston.notifyAll(); });
 
@@ -69,6 +65,9 @@ Then("no card mentions any of the team's names", function (this: HoustonWorld) {
 });
 Then('every card links to {string}', function (this: HoustonWorld, prefix: string) {
   for (const c of this.webhook!.cards) assert.ok(c.text.includes(prefix), c.text);
+});
+Then('every card gives the share of targets met', function (this: HoustonWorld) {
+  for (const c of this.webhook!.cards) assert.match(c.text, /\*\*\d+% of targets met\*\* \(\d+ of \d+\)/, c.text);
 });
 Then('every board reports {string}', function (this: HoustonWorld, reason: string) {
   assert.ok(this.notified!.length > 0);

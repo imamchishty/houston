@@ -2,8 +2,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../config.js';
-import type { Scorecard, Finding, Rag } from '../types.js';
-import type { CostReport } from '../cost.js';
 
 // History that survives the nightly re-collect. The JSON store holds "now"; this holds every day since go-live.
 //
@@ -12,8 +10,6 @@ import type { CostReport } from '../cost.js';
 // - Re-running the same day replaces that day (upsert), so a retried job does not double count.
 // - A consistent copy goes to <data>/backups/history-YYYY-MM-DD.db after each snapshot; the last HOUSTON_BACKUP_DAYS are kept.
 // - Rollback journal, not WAL: WAL needs shared memory, which network shares such as Azure Files do not provide.
-
-export interface AreaScore { area: string; score: number; rag: Rag }
 
 let db: DatabaseSync | null = null;
 const file = () => join(config.dataDir, 'history.db');
@@ -77,31 +73,16 @@ function open(): DatabaseSync {
 
 export function closeHistory() { db?.close(); db = null; }
 
-// One board's snapshot for one day, in a single transaction.
-export function recordDay(input: { day: string; board: string; areas: AreaScore[]; findings: Finding[]; sprints: Scorecard[]; cost: CostReport | null }) {
+// One board's values for one day, in a single transaction. rag: green when the target was met, red when missed,
+// none when the measure has no target (the column is kept from the first schema).
+export function recordValues(day: string, board: string, values: { metric: string; value: number; met: boolean | null }[]) {
   const d = open();
-  const now = new Date().toISOString();
   d.exec('BEGIN IMMEDIATE');
   try {
-    const area = d.prepare('INSERT OR REPLACE INTO area_scores (day, board, area, score, rag) VALUES (?, ?, ?, ?, ?)');
-    for (const a of input.areas) area.run(input.day, input.board, a.area, a.score, a.rag);
-    const metric = d.prepare('INSERT OR REPLACE INTO metric_values (day, board, metric, value, rag) VALUES (?, ?, ?, ?, ?)');
-    for (const f of input.findings) metric.run(input.day, input.board, f.ruleId, f.value, f.rag);
-    // Sprints are kept for good: Jira only gives back the last SPRINT_HISTORY, this keeps every one ever scored.
-    const sprint = d.prepare('INSERT OR REPLACE INTO sprint_scorecards (board, sprint_id, sprint_name, sprint_end, score, rag, card, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const c of input.sprints) sprint.run(c.board, c.sprintId, c.sprintName, c.sprintEnd, c.score, c.rag, JSON.stringify(c), now);
-    if (input.cost) {
-      const c = input.cost;
-      d.prepare('INSERT OR REPLACE INTO team_costs (day, board, currency, team_cost, on_features, no_feature, not_on_tickets, cost_per_point) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(input.day, input.board, c.currency, c.teamCost, c.onFeatures, c.noFeature, c.notOnTickets, c.costPerPoint);
-      const fc = d.prepare('INSERT OR REPLACE INTO feature_costs (day, board, feature, status, spent, fte, contractor, to_complete, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-      for (const f of c.features) fc.run(input.day, input.board, f.key, f.status, f.spent, f.fte, f.contractor, f.toComplete, f.total);
-    }
+    const st = d.prepare('INSERT OR REPLACE INTO metric_values (day, board, metric, value, rag) VALUES (?, ?, ?, ?, ?)');
+    for (const v of values) st.run(day, board, v.metric, v.value, v.met == null ? 'none' : v.met ? 'green' : 'red');
     d.exec('COMMIT');
-  } catch (e) {
-    d.exec('ROLLBACK');
-    throw e;
-  }
+  } catch (e) { d.exec('ROLLBACK'); throw e; }
 }
 
 // Consistent copy of the whole database, then drop copies older than the retention window.
@@ -118,16 +99,14 @@ export function backup(day: string, keep = Number(process.env.HOUSTON_BACKUP_DAY
 }
 
 // Reads for the API and UI.
-export function history(board: string, days = 365) {
+// A team's score and headline measures by day, for the trend on the team page. Older tables (area scores, sprint
+// scorecards, costs) stay in the database untouched, so a rollback to an older Houston still finds its data.
+export function history(board: string, metrics: string[], days = 365) {
   const d = open();
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-  return {
-    areas: d.prepare('SELECT day, area, score, rag FROM area_scores WHERE board = ? AND day >= ? ORDER BY day, area').all(board, since),
-    sprints: d.prepare('SELECT sprint_id AS sprintId, sprint_name AS sprintName, sprint_end AS sprintEnd, score, rag FROM sprint_scorecards WHERE board = ? ORDER BY sprint_end').all(board),
-    costs: d.prepare('SELECT day, currency, team_cost AS teamCost, on_features AS onFeatures, no_feature AS noFeature, not_on_tickets AS notOnTickets, cost_per_point AS costPerPoint FROM team_costs WHERE board = ? AND day >= ? ORDER BY day').all(board, since),
-    features: d.prepare('SELECT day, feature, status, spent, to_complete AS toComplete, total FROM feature_costs WHERE board = ? AND day >= ? ORDER BY feature, day').all(board, since),
-    firstDay: (d.prepare('SELECT MIN(day) AS first FROM area_scores WHERE board = ?').get(board) as { first: string | null }).first,
-  };
+  const q = d.prepare(`SELECT day, metric, value, rag FROM metric_values WHERE board = ? AND day >= ? AND metric IN (${metrics.map(() => '?').join(', ')}) ORDER BY day`);
+  const rows = (metrics.length ? q.all(board, since, ...metrics) : []) as { day: string; metric: string; value: number; rag: string }[];
+  return { days: [...new Set(rows.map((r) => r.day))], series: Object.fromEntries(metrics.map((m) => [m, rows.filter((r) => r.metric === m).map((r) => ({ day: r.day, value: r.value, met: r.rag === 'none' ? null : r.rag === 'green' }))])) };
 }
 
 // Metric values over time, for one board and metric.

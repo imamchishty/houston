@@ -16,12 +16,14 @@ When('a caller presents the token {string} for {string}', async function (this: 
   await this.request('GET', url, { headers: { authorization: `Bearer ${token}` } });
 });
 
-Then('the summary has a score, a band, area scores and DORA tiers', function (this: HoustonWorld) {
-  const s = JSON.parse(this.res!.body);
-  assert.equal(typeof s.score, 'number');
-  assert.ok(['Healthy', 'Watch', 'Needs attention'].includes(s.band), s.band);
-  assert.ok(s.areas.length >= 3, 'area scores');
-  assert.ok(s.dora.length >= 3 && s.dora.every((d: { tier: string }) => ['Elite', 'High', 'Medium', 'Low'].includes(d.tier)), 'DORA tiers');
+Then('it has a score, a summary and the 10 headline measures in five areas, speed and quality first', function (this: HoustonWorld) {
+  const p = JSON.parse(this.res!.body);
+  assert.ok(Number.isInteger(p.score.met) && Number.isInteger(p.score.of) && p.score.of <= 10);
+  assert.ok(p.summary.length > 10);
+  assert.deepEqual(p.areas.map((a: { id: string }) => a.id), ['speed', 'quality', 'stability', 'flow', 'security']);
+  assert.deepEqual(p.areas.flatMap((a: { headlines: { measure: { id: string } }[] }) => a.headlines.map((h) => h.measure.id)),
+    ['deploy_frequency', 'lead_time', 'sprint_completion', 'defect_leakage', 'bug_workload', 'change_failure_rate', 'time_to_restore', 'sla_resolution', 'flow_efficiency', 'security_on_time']
+      .filter((id) => p.areas.some((a: { headlines: { measure: { id: string } }[] }) => a.headlines.some((h) => h.measure.id === id))));
 });
 
 Then('the OpenAPI document lists exactly the routes Houston serves', async function (this: HoustonWorld) {

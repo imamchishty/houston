@@ -12,7 +12,7 @@ const blank = (v: string | undefined) => !v || !v.trim();
 After(function () { delete process.env.CFR_SOURCE; });
 
 Given('a reporting period from {word} to {word}', function (from: string, to: string) {
-  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], security: { alerts: [], coverage: {} }, support: [], supportConnected: true, projectKeys: [], defaultBranches: {} };
+  s = { from: Date.parse(`${from}T00:00:00Z`), to: Date.parse(`${to}T00:00:00Z`), boards: ['ABC'], prs: [], deploys: [], mainCommits: [], items: [], epics: [], sprints: [], incidents: [], quality: [], security: { alerts: [], coverage: {} }, support: [], supportConnected: true, ci: [], ops: [], projectKeys: [], defaultBranches: {} };
   measures = [];
 });
 Given("the team's Jira project is {string} and repos merge into {string}", function (key: string, branch: string) {
@@ -81,8 +81,8 @@ Given('these ticket histories:', function (t: DataTable) {
 });
 
 When('the reports are calculated', async function () {
-  const { REPORTS } = await import('../../src/reports.js');
-  groups = Object.values(REPORTS).flatMap((fn) => fn(s).groups);
+  const { REPORTS, hygiene } = await import('../../src/reports.js');
+  groups = [...Object.values(REPORTS), hygiene].flatMap((fn) => fn(s).groups);
   measures = groups.flatMap((g: { measures: Measure[] }) => g.measures);
 });
 

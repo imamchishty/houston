@@ -51,7 +51,7 @@ Feature: Quality measures are exact
     Then change_failure_rate is 1 of 4, 25%
     And change_failure_rate lists ABC-1
 
-  Scenario: Review rate and review comment rate
+  Scenario: Review rate
     Given these pull requests:
       | pr | opened     | merged     | base | reviews | comments |
       | 1  | 2026-09-02 | 2026-09-03 | main | 1       | 0        |
@@ -61,8 +61,6 @@ Feature: Quality measures are exact
     When the reports are calculated
     Then pr_review_rate is 3 of 4, 75%
     And pr_review_rate lists repo#2
-    And pr_review_comment_rate is 2 of 4, 50%
-    And pr_review_comment_rate misses its target of over 50
 
   Scenario: Bug lead time, fix vs find, and bug workload
     Given these work items:

@@ -22,10 +22,10 @@ Given('a closed sprint ending {word} with these items:', function (end: string, 
     addedToSprintAt: null, sprintIds: [1], inProgressSince: null }));
 });
 Then('{int} of {int} committed points are done in that sprint', async function (done: number, total: number) {
-  const { rules } = await import('../../src/rules/sprintRules.js');
-  const sprint = { id: 1, name: 's', board: 'ABC', goal: 'g', start: '2026-09-01T00:00:00Z', end: sprintEnd, state: 'closed' as const, issues: items };
-  const r = rules.find((x) => x.id === 'commit_completion')!.evaluate(sprint)!;
-  assert.equal(r.message.includes(`(${done} of ${total})`), true, r.message);
+  // The same rule sprint completion uses: done by the sprint's end.
+  const { doneInSprint } = await import('../../src/cycle.js');
+  const sprint = { end: sprintEnd };
+  assert.deepEqual([items.filter((i) => doneInSprint(i, sprint)).reduce((t, i) => t + (i.points ?? 0), 0), items.reduce((t, i) => t + (i.points ?? 0), 0)], [done, total]);
 });
 
 let prs: PullRequest[] = [], deploys: { repo: string; at: string; ref: string; success: boolean }[] = [];
@@ -37,7 +37,7 @@ Given('PR {int} in {string} opened {word} and merged {word}', function (n: numbe
 Given('its first commit was on {word}', function (at: string) { prs[0].firstCommitAt = `${at}T00:00:00Z`; });
 Given('a successful deploy of {string} on {word}', function (repo: string, at: string) { deploys.push({ repo, at: `${at}T00:00:00Z`, ref: 'x', success: true }); });
 Then('its lead time is {int} days', async function (days: number) {
-  const { leadTimes } = await import('../../src/rules/flowRules.js');
+  const { leadTimes } = await import('../../src/leadtime.js');
   assert.deepEqual(leadTimes(prs, deploys).map((l) => l.days), [days]);
 });
 

@@ -58,5 +58,5 @@ Then('it has {int} key numbers and {int} months of trend for each', function (th
 Then('the Markdown for the same month shows the same deploys per week', async function (this: HoustonWorld) {
   const r = JSON.parse(this.res!.body), d = r.headline.find((h: { id: string }) => h.id === 'deploy_frequency');
   await this.request('GET', `/api/monthly.md?team=OSSI&month=${lastMonth}`, this.signedIn());
-  assert.ok(this.res!.body.includes(`| Deploys per week | ${d.value} per week`), this.res!.body.slice(0, 400));
+  assert.ok(this.res!.body.includes(`| ${d.title} | ${d.value} per week`), this.res!.body.slice(0, 600));
 });

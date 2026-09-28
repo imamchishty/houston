@@ -26,26 +26,9 @@ Feature: Web security
     When the user requests "/../package.json"
     Then the response status is not 200
 
-  Scenario Outline: The action log rejects bad entries
-    When the user records an action <entry> for "<board>"
-    Then the response status is <status>
-
-    Examples:
-      | entry                                                   | board | status |
-      | {"recId":"flow","status":"hacked","owner":"sam"}        | OSSI  | 400    |
-      | {"recId":"flow","status":"done"}                        | OSSI  | 400    |
-      | {"recId":"flow","status":"done","owner":"sam","x":1}    | OSSI  | 400    |
-      | {"recId":"flow","status":"done","owner":"sam"}          | NOPE  | 404    |
-
-  Scenario: Oversized action log entries are refused
-    When the user records an action with a 20000 character note for "OSSI"
+  Scenario: Oversized request bodies are refused
+    When the user posts a 20000 character body to "/api/refresh"
     Then the response status is 413
-
-  Scenario: A valid action is recorded and listed
-    When the user records an action {"recId":"flow","status":"accepted","owner":"sam","note":"WIP limit agreed"} for "OSSI"
-    Then the response status is 200
-    When the user requests "/api/teams/OSSI/actions"
-    Then the response contains "WIP limit agreed"
 
   Scenario: Refresh runs at most once every five minutes
     When the user posts to "/api/refresh"

@@ -1,28 +1,14 @@
-import { rules } from './rules/sprintRules.js';
-import { flowRules } from './rules/flowRules.js';
-import { qualityRules } from './rules/qualityRules.js';
-import { docsRules } from './rules/docsRules.js';
+import { REPORTS, flatMeasures, sliceRange, type Measure } from './reports.js';
+import { AREAS, DRILL, HEADLINES } from './performance.js';
 
-// What each metric means, why it matters, and how it is calculated. Shown behind "What is this?" on every
-// finding and on the Metrics page. The formulas match METRICS.md; thresholds come from the rule definitions
-// where they are exported, so the explanation cannot drift from what is scored.
+// What each measure means and why it matters. "How it is calculated" and the target come from the measure itself
+// (reports.ts), so the explanation cannot drift from the number. Shown behind "What is this?" and on the Metrics page.
 
-export type Area = 'DORA' | 'Flow' | 'Planning' | 'Quality' | 'Security' | 'Support' | 'Features' | 'Production' | 'Docs' | 'Claude' | 'Scores';
 export interface DoraBand { tier: 'Elite' | 'High' | 'Medium' | 'Low'; test: string; min?: number; max?: number }
-export interface MetricInfo { id: string; area: Area; name: string; why: string; how: string; thresholds?: string; dora?: DoraBand[] }
-
-type Def = { amber: number; red: number; direction: 'high_bad' | 'low_bad'; unit: string };
-const fmt = (v: number, unit: string) => (unit === '%' ? `${v}%` : unit === 'days' ? `${v} ${v === 1 ? 'day' : 'days'}` : String(v));
-const band = (d: Def) => d.direction === 'high_bad'
-  ? `Green below ${fmt(d.amber, d.unit)}, amber from ${fmt(d.amber, d.unit)}, red from ${fmt(d.red, d.unit)}.`
-  : `Green above ${fmt(d.amber, d.unit)}, amber at ${fmt(d.amber, d.unit)} or below, red at ${fmt(d.red, d.unit)} or below.`;
-const defs: Record<string, Def> = Object.fromEntries([...rules, ...flowRules, ...qualityRules, ...docsRules].map((r) => [r.id, r]));
-
-const W = (area: Area, id: string, name: string, why: string, how: string, thresholds?: string, dora?: DoraBand[]): MetricInfo =>
-  ({ id, area, name, why, how, thresholds: thresholds ?? (defs[id] ? band(defs[id]) : undefined), dora });
+export interface MetricInfo { id: string; area: string; headline: boolean; explains: string | null; name: string; why: string; how: string; target: string | null; dora?: DoraBand[] }
 
 // DORA performance bands, from the DORA State of DevOps research (2023 clusters). Approximate: the research reports ranges.
-const DORA = {
+const DORA: Record<string, DoraBand[]> = {
   deploy_frequency: [
     { tier: 'Elite', test: 'On demand, several a day (7 or more a week)', min: 7 },
     { tier: 'High', test: 'Between daily and weekly', min: 1 },
@@ -35,7 +21,7 @@ const DORA = {
     { tier: 'Medium', test: 'A week to a month', max: 30 },
     { tier: 'Low', test: 'More than a month' },
   ],
-  change_failure: [
+  change_failure_rate: [
     { tier: 'Elite', test: '5% or less', max: 5 },
     { tier: 'High', test: '10% or less', max: 10 },
     { tier: 'Medium', test: '15% or less', max: 15 },
@@ -47,224 +33,88 @@ const DORA = {
     { tier: 'Medium', test: 'Less than a week', max: 168 },
     { tier: 'Low', test: 'More than a week' },
   ],
-} satisfies Record<string, DoraBand[]>;
+};
 
-// The DORA tier for a value, or null if the metric is not one of the four.
+// The DORA tier for a value, or null if the measure is not one of the four.
 export function doraTier(id: string, value: number): DoraBand['tier'] | null {
-  const bands = (DORA as Record<string, DoraBand[]>)[id];
-  if (!bands) return null;
-  return bands.find((b) => (b.min != null ? value >= b.min : b.max != null ? value <= b.max : true))!.tier;
+  const bands = DORA[id];
+  return bands ? bands.find((b) => (b.min != null ? value >= b.min : b.max != null ? value <= b.max : true))!.tier : null;
 }
 
-const catalogue: MetricInfo[] = [
-  // Scores
-  W('Scores', 'score', 'Health scores (0 to 100)',
-    'One number per area so a team can see at a glance where to look first. The checks underneath matter more than the score.',
-    'Each check has a weight. Green earns its full weight, amber half, red nothing. Score = points earned ÷ points possible × 100. Checks with no data are left out, not scored as zero. "What moves this score" lists the checks with the most points to gain.',
-    'Healthy: 75 and above. Watch: 50 to 74. Needs attention: below 50.'),
-
-  // Planning
-  W('Planning', 'commit_completion', 'Sprint commitment delivered',
-    'The product team plans around what engineering commits to. Missing the commitment every sprint teaches everyone to ignore the plan.',
-    'Story points done ÷ story points committed. Committed means estimated items that were in the sprint before it started (from the Jira changelog).'),
-  W('Planning', 'carry_over', 'Work carried over',
-    'Carried work is work that was started and not finished. It hides in the next sprint, inflates it, and makes delivery look better than it is.',
-    'Items that were also in an earlier sprint ÷ all work items in the sprint (sub-tasks excluded).'),
-  W('Planning', 'scope_added_mid_sprint', 'Scope added after the sprint started',
-    'Unplanned work pushes out planned work. A little is normal; a lot means interrupts are not being routed through the product owner.',
-    'Items added to the sprint after its start date ÷ all work items. The add date comes from the Sprint field in the changelog.'),
-  W('Planning', 'no_estimate', 'Items without an estimate',
-    'An unestimated item cannot be planned, so the commitment is a guess. It is also the first condition of the headcount gate.',
-    'Work items with no story points ÷ all work items.'),
-  W('Planning', 'no_acceptance_criteria', 'Stories without acceptance criteria',
-    'Without acceptance criteria nobody agrees what done means, which shows up later as rework and escaped bugs.',
-    'Stories with no acceptance criteria ÷ stories. Found in the JIRA_AC_FIELD field if set, otherwise in the description ("Acceptance criteria", Given/When/Then, "AC:").'),
-  W('Planning', 'unassigned', 'In-progress items with no owner',
-    'Work nobody owns drifts. It is also invisible in stand-up because nobody speaks to it.',
-    'Count of In Progress items with no assignee.'),
-  W('Planning', 'stale_in_progress', 'Work in progress far longer than normal',
-    'Long-running tickets are where quality and predictability go. Stuck work usually means blocked, too big, or under-estimated.',
-    'Count of items in progress at the sprint\'s end (or now for the sprint in progress), taken from each ticket\'s status history, that had been in progress more than 3x the team\'s median cycle time for their size (5 days where the size has no history).'),
-  W('Planning', 'cycle_time_vs_size', 'Tickets that took far longer than their size',
-    'A 3 point ticket that takes three weeks is a question worth asking: blocked, unclear, or wrongly sized. Compared with the team\'s own norm, not an outside standard.',
-    'Done tickets whose cycle time (In Progress to resolved) was more than double the team\'s median for that point size, and at least 2 days over, ÷ done tickets with a cycle time.'),
-  W('Planning', 'sprint_goal', 'Sprint has a goal',
-    'A goal lets the team make trade-offs mid-sprint without asking. Without one every ticket is equally important.',
-    '1 if the sprint goal in Jira is longer than 10 characters, otherwise 0.', 'Red if missing.'),
-
-  // Flow
-  W('Flow', 'pickup_time', 'Time to first review',
-    'A PR waiting for review is finished work nobody can use. Long waits make people start something else, which makes everything slower.',
-    'Median time from PR opened to the first review or review comment by someone other than the author, merged PRs, in days.'),
-  W('Flow', 'review_time', 'Review to merge',
-    'Long review cycles mean big PRs or back and forth. Both slow delivery and both are fixable.',
-    'Median time from first review to merge, in days.'),
-  W('Flow', 'pr_size', 'PR size',
-    'Small PRs get reviewed properly and quickly. Large ones get skimmed, and skimmed code is where defects hide.',
-    'Median lines changed (additions + deletions) per merged PR.'),
-  W('Flow', 'stale_prs', 'Stale PRs',
-    'Open PRs age into merge conflicts and forgotten work.',
-    'Count of open, non-draft PRs older than 72 hours.'),
-  W('Flow', 'no_jira_link', 'PRs with no Jira ticket',
-    'Code with no ticket cannot be traced to a requirement or a feature, and its cost lands nowhere.',
-    'Merged PRs with no Jira key (like OSSI-123) in the title, branch or body ÷ merged PRs.'),
-  W('Flow', 'reviewer_load', 'Review concentration',
-    'When one person does most reviews, everyone waits for them and knowledge stays with one head.',
-    'Reviews by the busiest reviewer ÷ all reviews on merged PRs.'),
-  W('Flow', 'lane_crossing', 'Engineers working across frontend and backend',
-    'Teams that stay in lanes hand work off, and every handoff is a wait. People who can work both sides ship features end to end.',
-    'Engineers with 5 or more merged PRs in the period who merged work in both frontend and backend paths (any repo, paths from GITHUB_LANES) ÷ those engineers.'),
-  W('Flow', 'ci_red_rate', 'CI failure rate',
-    'A red build blocks everyone and trains people to ignore failures.',
-    'Failed CI runs ÷ (successful + failed) on each repo\'s default branch, excluding the deploy workflow. Runs on feature branches are left out: failing there is normal work in progress.'),
-  W('DORA', 'deploy_frequency', 'Deployment frequency (DORA)',
-    'One of the four DORA measures. Teams that deploy often ship smaller changes, which are safer and easier to fix.',
-    'Successful runs of the production deploy workflow (GITHUB_DEPLOY_WORKFLOW) ÷ weeks in the window.', undefined, DORA.deploy_frequency),
-  W('DORA', 'lead_time', 'Lead time for changes (DORA)',
-    'One of the four DORA measures: how long a change takes to reach users. It is what the business feels as speed.',
-    'Median days from a PR\'s first commit (author date; PR opened if commit data is missing) to the first successful production deploy of its own repo after it merged. A repo with no deploy workflow of its own falls back to the team\'s deploys. PRs never deployed are left out.', undefined, DORA.lead_time),
-  W('DORA', 'change_failure', 'Change failure rate (DORA)',
-    'One of the four DORA measures: how often a change breaks production. Speed only counts if it holds.',
-    '(Hotfix or revert PRs + failed deploys) ÷ (merged PRs + failed deploys). A hotfix has "hotfix" or "revert" in its title or branch.', undefined, DORA.change_failure),
-
+const WHY: Record<string, string> = {
+  // Speed
+  deploy_frequency: 'How often value reaches users. Teams that release often release smaller, safer changes and learn faster.',
+  lead_time: 'How long a change takes from first commit to running in production. The clearest single measure of speed.',
+  stage_coding: 'Time spent writing a change before it is opened for review. Long coding time usually means big changes.',
+  stage_review: 'Time a change waits for and goes through review. Often the biggest and easiest part of lead time to cut.',
+  stage_deploy: 'Time finished work waits to be released. Pure waste: the work is done but no one can use it.',
+  sprint_completion: 'Whether the team delivers what it commits to. Low completion makes every plan built on it unreliable.',
+  unplanned_work: 'Work that did not exist when the sprint was planned. A common reason sprints are missed.',
+  scope_added: 'Existing work pulled into a sprint after it started. Changes the plan the team committed to.',
+  carry_over: 'Work not finished by the end of its sprint and rolled into the next.',
   // Quality
-  W('Quality', 'quality_gate', 'SonarQube quality gate',
-    'The gate is the team\'s own definition of shippable code. A failing gate that nobody fixes means the definition is not real.',
-    'SonarQube quality gate status for the project: 1 if passed, 0 if failed.', 'Red if failing.'),
-  W('Quality', 'coverage', 'Test coverage, overall',
-    'Information only, not scored. Context only. Legacy code drags this down; do not chase it. New code coverage is the number to act on.',
-    'SonarQube coverage for the project.'),
-  W('Quality', 'new_code_coverage', 'Test coverage on new code',
-    'Whether the code being written now is tested. It is the one coverage number a team can control, and a headcount gate condition.',
-    'SonarQube coverage on new code, for the new code period set in SonarQube.'),
-  W('Quality', 'sonar_bugs', 'SonarQube bugs',
-    'Static analysis bugs are defects found before users find them. Cheap to fix now, expensive later.',
-    'SonarQube bug count.'),
-  W('Quality', 'duplication', 'Duplicated code',
-    'Duplicated code means every fix has to be made twice, and one copy gets missed.',
-    'SonarQube duplicated lines density.'),
-  W('Quality', 'test_pass_rate', 'Automated test pass rate',
-    'A suite that is often red is ignored, and then it protects nothing.',
-    'Tests passed ÷ tests run, pooled over every Testmo automation run in the last 30 days. Not measured when there were no runs.'),
-  W('Quality', 'test_runs', 'Automated test runs',
-    'Tests only help if they run. Frequent runs catch problems while the change is still fresh.',
-    'Testmo automation runs in the last 30 days.'),
-  W('Quality', 'automation_share', 'Share of tests automated',
-    'Manual regression is what makes releases slow. Automating it shortens every release after.',
-    'Automated tests ÷ (automated + manual test cases) in Testmo.'),
-
+  defect_leakage: 'The share of bugs customers find rather than the team. The quality outcome customers actually feel.',
+  bugs_per_change: 'Bugs raised for the amount of change shipped. Rising means quality is slipping as the team goes faster.',
+  qa_rejection: 'Work sent back from testing. Each rejection is rework and delay.',
+  pr_review_rate: 'Code merged without anyone else reviewing it. Unreviewed code is where most escaped bugs come from.',
+  quality_gate_pass: 'Whether new code passes the SonarQube quality gate the team set for itself.',
+  new_code_coverage: 'How much of the code written now is covered by tests. New code, so legacy code does not count against the team.',
+  test_pass_rate: 'Automated tests passing. Failing tests either catch real bugs or have stopped being trusted.',
+  bug_workload: 'The share of finished work that is bug fixing: the cost of poor quality in time not spent on features.',
+  bug_lead_time: 'How long bugs take to fix once raised.',
+  bug_fix_find: 'Bugs fixed against bugs found. Under 100% means the bug backlog is growing.',
+  revert_ratio: 'Changes undone after merging. Each revert is work thrown away.',
+  // Stability and support
+  change_failure_rate: 'How often a change to production breaks something and needs a fix. Speed only counts if this stays low.',
+  time_to_restore: 'How fast service comes back after an incident. Failures happen; recovering fast is what users notice.',
+  incidents: 'Production incidents (Sev0 to Sev2) in the period.',
+  server_errors: 'Requests that failed with a server error. Users see these as errors on screen.',
+  availability: 'How much of the time the service answered its availability tests.',
+  incidents_out_of_hours: 'Incidents that fired at night or at the weekend: someone is pulled out of bed, with no on-call rota to share it.',
+  sla_resolution: 'Whether customers\' support requests are resolved within the time agreed for their priority.',
+  sla_response: 'Whether customers get a first answer within the agreed time. Silence is what customers mind most.',
+  support_response_time: 'How long customers wait for a first answer.',
+  support_resolution_time: 'How long customers wait for a fix.',
+  support_per_week: 'How much support arrives. Rising volume explains slower delivery before anyone asks.',
+  support_open: 'Support requests not yet resolved. A growing queue means customers waiting.',
+  support_share: 'The share of the team\'s finished work that is support. A plan that ignores it will be missed.',
+  support_repeat: 'Tickets reopened after being resolved, or raised again as duplicates: fixes that did not hold.',
+  support_out_of_hours: 'Support work done at night or at the weekend. Invisible in delivery numbers, and it burns people out.',
+  // Flow
+  flow_efficiency: 'The share of a ticket\'s time spent being worked on rather than waiting. The one number that says whether work flows.',
+  flow_time: 'How long work items take from being raised to done.',
+  flow_load: 'Work in progress now. Too much at once means context switching and everything finishing later.',
+  flow_velocity: 'Work items finished per week. A trend for the team, not a comparison between teams.',
+  pickup_time: 'How long a change waits for its first review.',
+  review_time: 'How long from first review to merge.',
+  pr_size: 'Lines changed per pull request. Big changes get slow, shallow reviews and hide bugs.',
+  reviewer_load: 'The share of reviews done by the busiest reviewer. High means one person is the bottleneck.',
+  ci_failure_rate: 'How often the build on the main branch fails. A red main blocks everyone.',
   // Security
-  W('Security', 'security_on_time', 'Critical and high fixed on time',
-    'The question auditors ask: when a serious vulnerability is found, is it fixed within the agreed time? A backlog of known, unfixed issues is the exposure attackers use.',
-    'Critical and high GitHub alerts (Dependabot, code scanning, secret scanning) fixed within SECURITY_DEADLINE_DAYS, judged once when fixed or when the deadline passes. Still open at the deadline is late even if dismissed later.'),
-  W('Security', 'security_fix_critical', 'Time to fix, critical',
-    'How long the most serious issues stay exploitable.', 'Median days from a critical alert opening to it being fixed (a leaked secret: revoked).'),
-  W('Security', 'security_fix_high', 'Time to fix, high',
-    'How long high severity issues stay exploitable.', 'Median days from a high alert opening to it being fixed.'),
-  W('Security', 'security_overdue', 'Security alerts overdue',
-    'Each one is a known issue past the agreed fix date: the first list to work through.', 'Open alerts past their deadline, any severity with a deadline, listed with their age.'),
-  W('Security', 'security_open_critical_high', 'Open critical and high alerts',
-    'Current exposure, including issues still within their deadline.', 'Open critical and high alerts at the end of the period.'),
-  W('Security', 'secrets_open', 'Leaked secrets not yet revoked',
-    'A leaked key is usable by anyone who has seen the code until it is revoked. Removing it from the code is not enough.', 'Open secret scanning alerts. Houston stores the secret type only, never the secret.'),
-  W('Security', 'security_dismissed', 'Alerts dismissed instead of fixed',
-    'Dismissing is sometimes right (false positive, test data) but it must be visible, or it becomes a way to hide issues.', 'Alerts dismissed in the period, including auto-dismissed dependency alerts.'),
-  W('Security', 'scan_dependency', 'Dependency scanning turned on',
-    'A repo with scanning off shows no alerts, so it looks safe when it is not.', 'Team repos with Dependabot alerts enabled.'),
-  W('Security', 'scan_secret', 'Secret scanning turned on',
-    'Without it a committed password goes unnoticed.', 'Team repos with secret scanning enabled.'),
-  W('Security', 'scan_code', 'Code scanning turned on',
-    'Finds injection, cross-site scripting and similar flaws in the team\'s own code.', 'Team repos with code scanning results (GitHub Advanced Security).'),
-  W('Security', 'vulnerabilities', 'SonarQube vulnerabilities',
-    'In a regulated healthcare environment an open vulnerability is a compliance exposure, not a backlog item.',
-    'SonarQube vulnerability count.'),
+  security_on_time: 'Whether serious security issues (vulnerable libraries, flaws in the team\'s code, leaked secrets) are fixed within their deadline. What auditors ask.',
+  security_overdue: 'Open security issues already past their fix deadline: the list to work through first.',
+  secrets_open: 'Leaked passwords and keys not yet revoked. Anyone who has seen the code can use them until then.',
+  security_fix_critical: 'How long critical security issues stay open.',
+  security_fix_high: 'How long high severity security issues stay open.',
+  security_open_critical_high: 'Critical and high security issues open now, within their deadline or not.',
+  security_dismissed: 'Security issues dismissed rather than fixed. Sometimes right, but it must be visible.',
+  scan_dependency: 'Repos checked for vulnerable libraries. A repo with scanning off looks safe when it is not.',
+  scan_secret: 'Repos checked for leaked passwords and keys.',
+  scan_code: 'Repos checked for security flaws in the team\'s own code.',
+};
 
-  // Support
-  W('Support', 'support_per_week', 'Support tickets per week', 'Support is work the plan does not show. Rising volume explains slow delivery before anyone asks.', 'Support tickets created per week, from plain Jira (SUPPORT_PROJECTS, or support issue types and labels).'),
-  W('Support', 'support_share', 'Support share of work finished', 'A team spending a third of its output on support cannot hit a feature plan built as if it spent none.', 'Support tickets resolved ÷ all items resolved (support plus the team\'s own work). A count, not hours.'),
-  W('Support', 'support_open', 'Open support tickets', 'A growing queue means customers waiting.', 'Unresolved support tickets at the end of the period, oldest first.'),
-  W('Support', 'sla_response', 'First response within SLA', 'Customers mind silence more than waiting: a quick first answer is the promise most often broken.', 'Tickets answered within the SUPPORT_SLA response goal for their priority, in working time.'),
-  W('Support', 'sla_resolution', 'Resolved within SLA', 'Whether the agreed service levels are kept.', 'Tickets resolved within the SUPPORT_SLA resolution goal for their priority, in working time.'),
-  W('Support', 'support_response_time', 'Time to first response', 'How long customers wait for an answer.', 'Median working hours from raised to the first comment by someone other than the reporter, or first status change by a person.'),
-  W('Support', 'support_resolution_time', 'Time to resolve', 'How long customers wait for a fix.', 'Median working hours from raised to resolved.'),
-  W('Support', 'support_out_of_hours', 'Support work outside working hours', 'Regular night and weekend work burns people out and is invisible in delivery numbers.', 'Status changes on support tickets made by people outside WORKING_HOURS or at the weekend. Team total only.'),
-  W('Support', 'incidents_out_of_hours', 'Incidents outside working hours', 'Incidents at night pull someone out of bed, with no on-call rota to share the load.', 'Sev0 to Sev2 incidents fired outside WORKING_HOURS or at the weekend.'),
-  W('Support', 'support_repeat', 'Reopened or duplicate', 'A ticket reopened means the fix did not hold; a duplicate means the same problem was raised again.', 'Resolved support tickets that were reopened (resolution cleared) or are linked as a duplicate of another ticket.'),
-  // Features
-  W('Features', 'feature_lead_time', 'Feature lead time',
-    'Product sees features, not tickets. This is the number they judge engineering by.',
-    'Median days from epic created to epic done, for epics resolved in the last 180 days.',
-    'Green at 45 days or under, amber up to 90, red over 90.'),
-  W('Features', 'feature_wip', 'Features in progress at once',
-    'Starting many features at once means finishing each one later. Fewer in flight ships each sooner.',
-    'Count of epics in the In Progress status category.',
-    'Green up to 3, amber 4 or 5, red over 5.'),
-  W('Features', 'feature_cost', 'Cost to build a feature',
-    'What a feature really cost, and what the rest will cost at the current pace. Lets product weigh value against cost, and shows how much of the team goes on work that is no feature at all.',
-    'Each person\'s sprint cost (day rate × working days) is split across the tickets they worked that sprint, weighted by story points; unestimated tickets count as the median size. A feature\'s cost is the sum over its tickets. FTE and contractor rates are configured separately (RATE_FTE_DAY, RATE_CONTRACTOR_DAY, CONTRACTORS, RATE_OVERRIDES). To complete = remaining points × the team\'s cost per point. An estimate, not accounting.',
-    'Informational. Compare features with each other and over time.'),
-  W('Features', 'cost_per_point', 'Cost per story point',
-    'The price of a unit of delivered work. Falls when the team gets more done for the same cost.',
-    'Team cost over the sprints seen ÷ story points done in those sprints.', 'Informational.'),
-  W('Features', 'cost_off_features', 'Cost not on features',
-    'Money spent on work with no feature (unplanned work, support, bugs without an epic) or by people with no ticket that sprint. Some is healthy; a lot means the plan is not where the money goes.',
-    'Cost of tickets with no epic, plus the sprint cost of people who touched no ticket that sprint, ÷ team cost.', 'Informational.'),
+const targetText = (m: Measure) => (m.target ? `${m.target.op === '<' ? 'Under' : 'Over'} ${m.target.value}${m.unit === '%' ? '%' : m.unit === 'count' ? '' : ` ${m.unit}`}` : null);
 
-  // Production
-  W('Production', 'failed_requests', 'Server errors',
-    'Requests the service failed to handle: the errors users see that are the service\'s fault.',
-    'Application Insights requests with a 5xx result code ÷ all requests, last 30 days. 4xx responses (not found, not signed in) are not the service failing.',
-    'Green under 1%, amber from 1%, red from 3%.'),
-  W('Production', 'availability', 'Availability',
-    'Whether the service was there when users needed it.',
-    'Application Insights availability tests passed ÷ run, last 30 days.',
-    'Green at 99.9% or above, amber from 99.5%, red below 99.5%.'),
-  W('Production', 'incidents', 'Incidents',
-    'Each serious incident costs users trust and costs the team a day.',
-    'Sev0 to Sev2 alerts fired in the last 30 days for the team\'s resource group.',
-    'Green up to 1, amber 2 to 4, red 5 or more.'),
-  W('DORA', 'time_to_restore', 'Time to restore (DORA)',
-    'One of the four DORA measures: failures will happen, so how fast service comes back matters most.',
-    'Median time from alert fired to alert resolved, in hours.',
-    'Green under 1 hour, amber under 24, red 24 or more.', DORA.time_to_restore),
-  W('Production', 'cloud_cost', 'Cloud cost',
-    'Context for cost per feature, and a check that spend tracks usage.',
-    'Azure Cost Management actual cost for the team\'s resource group, last full calendar month.', 'Informational.'),
-
-  // Claude
-  W('Claude', 'claude_seat_cost', 'Claude seat cost',
-    'What the team pays for Claude, so AI shows up in cost per feature like any other cost.',
-    'Seats × CLAUDE_SEAT_MONTHLY. Seat holders are CLAUDE_SEATS, or everyone on the roster. In cost per feature the seat is added to the holder\'s day rate: monthly price × 12 ÷ working days in a year.',
-    'Informational.'),
-  W('Claude', 'claude_adoption', 'Claude Code adoption',
-    'A seat nobody uses is pure cost. Adoption shows whether the team has made Claude part of how it works, and where help is needed.',
-    'People on the team roster with any Claude Code activity in the last CLAUDE_DAYS (30) ÷ people on the roster. Activity comes from Claude Code\'s own OpenTelemetry metrics.',
-    'Informational. Low adoption is a question for the team, not a verdict on anyone.'),
-  W('Claude', 'claude_acceptance', 'Edit acceptance rate',
-    'How often people keep what Claude proposes. Very low means it is not helping on this codebase; very high with no review is worth a look.',
-    'Accepted ÷ (accepted + rejected) Edit, Write and NotebookEdit proposals, from claude_code.code_edit_tool.decision.', 'Informational.'),
-  W('Claude', 'claude_output', 'Output through Claude Code',
-    'Lines, commits and PRs made through Claude Code, next to the GitHub numbers, so AI\'s share of the work is visible.',
-    'Sums of claude_code.lines_of_code.count, commit.count and pull_request.count for the team\'s people over the window.', 'Informational.'),
-  W('Claude', 'claude_api_equivalent', 'API-equivalent value',
-    'What the same usage would cost at API prices. On a seat plan this is not billed; it shows how much the seats are worth.',
-    'Sum of claude_code.cost.usage (tokens priced at API rates, USD) × USD_TO_CURRENCY.', 'Informational. Not billed on a Team plan.'),
-
-  // Docs
-  W('Docs', 'stale_docs', 'Pages untouched for 90+ days',
-    'Stale docs are worse than none: people follow them and get it wrong.',
-    'Pages last edited over 90 days ago ÷ pages in the team\'s Confluence spaces.'),
-  W('Docs', 'runbook_coverage', 'Runbooks per service',
-    'At 3 a.m. the runbook is the difference between a 20 minute and a 4 hour outage. Missing runbooks are also an audit finding.',
-    'Pages classified as runbooks ÷ repos configured for the team. Classified by CONFLUENCE_RUNBOOK_MARKERS in the title or labels.'),
-  W('Docs', 'adr_activity', 'Architecture decisions recorded',
-    'Unwritten decisions get re-argued every sprint, and nobody can tell whether architecture work is happening.',
-    'ADR pages created in the last 90 days, classified by CONFLUENCE_ADR_MARKERS.'),
-];
-
-// Plain-language band for a 0 to 100 score. Same cut-offs as green, amber and red.
-export const BANDS = [{ min: 75, label: 'Healthy' }, { min: 50, label: 'Watch' }, { min: 0, label: 'Needs attention' }] as const;
-export const bandFor = (score: number) => BANDS.find((b) => score >= b.min)!.label;
-
-export function metricCatalogue(): MetricInfo[] { return catalogue; }
-export const metricById = (id: string) => catalogue.find((m) => m.id === id);
+let catalogue: MetricInfo[] | null = null;
+export function metricCatalogue(): MetricInfo[] {
+  if (catalogue) return catalogue;
+  const empty = sliceRange('all', 0, 1);
+  const ms = new Map(Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(empty))).map((m) => [m.id, m]));
+  const areaOf = (h: string) => AREAS.find((a) => (a.headlines as readonly string[]).includes(h))!;
+  catalogue = HEADLINES.flatMap((h) => [h, ...DRILL[h]].flatMap((id) => {
+    const m = ms.get(id); if (!m) return [];
+    return [{ id, area: areaOf(h).title, headline: id === h, explains: id === h ? null : h, name: m.title.replace(/ \(median\)$/, ''), why: WHY[id] ?? '', how: m.how, target: targetText(m), dora: DORA[id] }];
+  }));
+  return catalogue;
+}
+export const metricById = (id: string) => metricCatalogue().find((m) => m.id === id);

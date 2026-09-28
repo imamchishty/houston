@@ -7,10 +7,10 @@ Feature: API for the IDP
     And the people viewers are "imam"
     And an API token "backstage" of "0123456789abcdef0123456789abcdef"
 
-  Scenario: A system reads a team's summary with its token
-    When "backstage" requests "/api/teams/OSSI/summary" with its token
+  Scenario: A system reads how a team is performing with its token
+    When "backstage" requests "/api/teams/OSSI" with its token
     Then the response status is 200
-    And the summary has a score, a band, area scores and DORA tiers
+    And it has a score, a summary and the 10 headline measures in five areas, speed and quality first
     And the response mentions none of the team's names
 
   Scenario: A wrong token is refused
@@ -19,10 +19,6 @@ Feature: API for the IDP
 
   Scenario: API tokens are read-only
     When "backstage" posts to "/api/refresh" with its token
-    Then the response status is 403
-
-  Scenario: API tokens cannot see per person data
-    When "backstage" requests "/api/teams/OSSI/people" with its token
     Then the response status is 403
 
   Scenario: Every endpoint is described in the OpenAPI document, and nothing else
@@ -35,15 +31,14 @@ Feature: API for the IDP
     Then the response status is 200
 
     Examples:
-      | path                                     |
-      | /api/teams                               |
-      | /api/teams/OSSI                          |
-      | /api/teams/OSSI/summary                  |
-      | /api/teams/OSSI/recommendations          |
-      | /api/teams/OSSI/costs                    |
-      | /api/teams/OSSI/history                  |
-      | /api/teams/OSSI/actions                  |
-      | /api/teams/OSSI/evidence/commit_completion |
-      | /api/metrics                             |
-      | /api/rules                               |
-      | /api/version                             |
+      | path                          |
+      | /api/teams                    |
+      | /api/teams/OSSI               |
+      | /api/teams/all?days=90        |
+      | /api/teams/OSSI/history       |
+      | /api/dashboard                |
+      | /api/monthly?team=OSSI        |
+      | /api/sprints/current?team=OSSI |
+      | /api/data-quality             |
+      | /api/metrics                  |
+      | /api/version                  |

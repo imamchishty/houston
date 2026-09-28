@@ -25,7 +25,7 @@ Feature: Monthly report
     Given Houston is running with user "sam" and password "pw"
     When the user requests the monthly report for last month
     Then the response status is 200
-    And it has 15 key numbers and 6 months of trend for each
+    And it has 11 key numbers and 6 months of trend for each
     And the Markdown for the same month shows the same deploys per week
 
   Scenario Outline: Bad months are refused

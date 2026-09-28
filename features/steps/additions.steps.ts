@@ -13,28 +13,14 @@ Then('{int} of {int} people has more than {int} tickets in progress, at most {in
   assert.deepEqual({ over: b.wip.overLimit, people: b.wip.people, limit: b.wip.limit, max: b.wip.max }, { over, people, limit, max });
 });
 
-Then('every finding and report measure has a plain name', async function () {
-  const { plainName } = await import('../../src/simple.js');
-  const { metricCatalogue } = await import('../../src/metrics.js');
-  const { TARGETS } = await import('../../src/reports.js');
-  const ids = [...metricCatalogue().map((m) => m.id), ...Object.keys(TARGETS)]
-    .filter((id) => !['score', 'feature_cost', 'cost_per_point', 'cost_off_features', 'time_to_restore'].includes(id) && !id.startsWith('claude_'));
-  const missing = ids.filter((id) => plainName(id, '__none__') === '__none__');
-  assert.deepEqual(missing, [], 'no plain name');
+Then('every headline measure has a plain name', async function () {
+  const { HEADLINES, PLAIN } = await import('../../src/performance.js');
+  assert.deepEqual(HEADLINES.filter((id) => !PLAIN[id]), [], 'no plain name');
 });
-
-Then('every team has the four questions answered Yes, Partly, No or Not enough data', function (this: HoustonWorld) {
-  const teams = JSON.parse(this.res!.body);
-  assert.ok(teams.length >= 2);
-  for (const t of teams) {
-    assert.deepEqual(t.questions.map((q: { id: string }) => q.id), ['promises', 'sprint', 'quality', 'speed'], t.board);
-    for (const q of t.questions) { assert.ok(['Yes', 'Partly', 'No', 'Not enough data'].includes(q.answer)); assert.ok(q.sentence.length > 20); }
-  }
-});
-Then('the simple view uses no jargon', function (this: HoustonWorld) {
-  const words = /\b(DORA|PR|PRs|CFR|WIP|epic|epics|merge|merged|deploy|deploys|story points|velocity|burndown|median|p95|KQL|Jira|GitHub|sprint goal)\b/;
-  for (const t of JSON.parse(this.res!.body)) for (const text of [t.summary, ...t.questions.map((q: { sentence: string; question: string }) => q.sentence + ' ' + q.question), ...t.fixFirst, ...t.worse])
-    assert.ok(!words.test(text), `jargon in: ${text}`);
+Then("every team's summary line uses no jargon", function (this: HoustonWorld) {
+  const words = /\b(DORA|PR|PRs|CFR|WIP|epic|epics|merge|merged|deploy|deploys|story points|velocity|burndown|median|p95|KQL|Jira|GitHub|sprint goal|SLA breach)\b/;
+  const d = JSON.parse(this.res!.body);
+  for (const t of [...d.teams, ...(d.all ? [d.all] : [])]) { assert.ok(t.summary.length > 10); assert.ok(!words.test(t.summary), `jargon in: ${t.summary}`); }
 });
 
 When("the user requests the board for OSSI's first sprint", async function (this: HoustonWorld) {

@@ -47,7 +47,6 @@ Given('no support data has been collected yet', async function () {
   const { store } = await import('../../src/store/index.js'); stash = store.support(); store.saveSupport([]);
 });
 After(async function () { if (stash) { const { store } = await import('../../src/store/index.js'); store.saveSupport(stash as any); stash = null; } });
-Then('the Support card says it is not collected yet', function (this: any) {
-  const card = JSON.parse(this.res.body).headlines.find((h: { page: string }) => h.page === 'support');
-  assert.deepEqual(card.measures, []);
+Then('support SLAs are left out of the score until support data is collected', function (this: any) {
+  for (const t of JSON.parse(this.res.body).teams) assert.ok(!t.measures.some((m: { id: string }) => m.id === 'sla_resolution'), t.board);
 });

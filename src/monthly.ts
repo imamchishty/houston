@@ -1,11 +1,8 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
-import { leadTimes } from './leadtime.js';
-import { sliceRange, activitySummary, changeFailure, flatMeasures, TARGETS, REPORTS, type Target } from './reports.js';
-import { featureCosts } from './cost.js';
-import { costRates } from './claude.js';
-import { rosterFor } from './identity.js';
+import { sliceRange, flatMeasures, REPORTS, type Target, type Measure } from './reports.js';
+import { HEADLINES, score, boards as allBoards } from './performance.js';
 import { recordMonth, storedMonth } from './store/history.js';
 
 // The monthly report: one calendar month (in the team's time zone) for one team or all, against the month before,
@@ -13,27 +10,19 @@ import { recordMonth, storedMonth } from './store/history.js';
 // only reaches back JIRA_DAYS / GITHUB_DAYS, so each completed month is also saved for good, and a month the data
 // does not fully cover says so instead of showing a number for part of it.
 
-const DAY = 86_400_000;
 export type MonthStatus = 'complete' | 'in progress' | 'partial' | 'saved' | 'no data';
 
-// The key numbers, in the order the report shows them. better: which direction is an improvement.
+// The key numbers, in the order the report shows them: the score, then the 10 headline measures (speed and quality
+// first). better: which direction is an improvement. Titles and targets come from the measures themselves.
 const KEYS: { id: string; title: string; unit: string; better: 'up' | 'down'; target: Target | null }[] = [
-  { id: 'deploy_frequency', title: 'Deploys per week', unit: 'per week', better: 'up', target: { op: '>', value: 1 } },
-  { id: 'lead_time', title: 'Lead time for changes', unit: 'days', better: 'down', target: { op: '<', value: 7 } },
-  { id: 'change_failure_rate', title: 'Change failure rate', unit: '%', better: 'down', target: TARGETS.change_failure_rate },
-  { id: 'time_to_restore', title: 'Time to restore', unit: 'hours', better: 'down', target: TARGETS.time_to_restore },
-  { id: 'sprint_completion', title: 'Sprint completion', unit: '%', better: 'up', target: TARGETS.sprint_completion },
-  { id: 'bugs_per_change', title: 'Bugs per change', unit: '%', better: 'down', target: TARGETS.bugs_per_change },
-  { id: 'defect_leakage', title: 'Defect leakage', unit: '%', better: 'down', target: TARGETS.defect_leakage },
-  { id: 'bug_workload', title: 'Bug workload', unit: '%', better: 'down', target: TARGETS.bug_workload },
-  { id: 'pr_cycle_hours', title: 'PR cycle time', unit: 'hours', better: 'down', target: TARGETS.pr_cycle_hours },
-  { id: 'flow_efficiency', title: 'Flow efficiency', unit: '%', better: 'up', target: TARGETS.flow_efficiency },
-  { id: 'security_on_time', title: 'Security fixed on time', unit: '%', better: 'up', target: TARGETS.security_on_time },
-  { id: 'security_overdue', title: 'Security alerts overdue', unit: 'count', better: 'down', target: TARGETS.security_overdue },
-  { id: 'support_share', title: 'Support share of work', unit: '%', better: 'down', target: TARGETS.support_share },
-  { id: 'sla_resolution', title: 'Support resolved within SLA', unit: '%', better: 'up', target: { op: '>', value: 95 } },
-  { id: 'tickets_done', title: 'Work items completed', unit: 'count', better: 'up', target: null },
+  { id: 'score', title: 'Targets met', unit: '%', better: 'up', target: null },
+  ...HEADLINES.map((id) => ({ id, title: '', unit: '', better: 'up' as const, target: null as Target | null })),
 ];
+// Fill in titles, units, targets and direction from the measures (computed once on an empty slice).
+{
+  const empty = sliceRange('all', 0, 1), ms = new Map(Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(empty))).map((m) => [m.id, m]));
+  for (const k of KEYS) { const m = ms.get(k.id); if (!m) continue; k.title = m.title.replace(/ \(median\)$/, ''); k.unit = m.id === 'deploy_frequency' ? 'per week' : m.unit; k.target = m.target; k.better = m.target?.op === '<' ? 'down' : 'up'; }
+}
 
 // Month boundaries in the team's time zone: [1st 00:00, next 1st 00:00).
 export function monthRange(month: string) {
@@ -43,7 +32,7 @@ export function monthRange(month: string) {
 export const monthOf = (t: number) => new Date(t + config.tzOffset * 3_600_000).toISOString().slice(0, 7);
 export const prevMonth = (month: string) => { const [y, m] = month.split('-').map(Number); return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7); };
 
-const boardsOf = (team: string) => (team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team]);
+const boardsOf = (team: string) => (team === 'all' ? allBoards() : [team]);
 
 // When the collected data starts for these teams: the latest start of any source, so every measure is covered.
 function coverageStart(team: string) {
@@ -58,22 +47,12 @@ type Val = { value: number | null; num: number | null; den: number | null; small
 // The key numbers for one month, computed from the collected data for [from, min(to, now)).
 function compute(team: string, from: number, to: number): Map<string, Val> {
   const s = sliceRange(team, from, to);
-  const all = Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(s)));
-  const m = (id: string): Val => { const x = all.find((y) => y.id === id); return x ? { value: x.value, num: x.num, den: x.den, smallSample: x.smallSample } : { value: null, num: null, den: null }; };
-  const weeks = Math.max(1, (to - from) / (7 * DAY));
-  const deploys = s.deploys.filter((d) => d.success && Date.parse(d.at) >= from && Date.parse(d.at) < to).length;
-  const merged = s.prs.filter((p) => p.mergedAt && !p.draft && Date.parse(p.mergedAt) >= from && Date.parse(p.mergedAt) < to);
-  const leads = leadTimes(merged, s.deploys).map((l) => l.days);
-  const cfr = changeFailure(s);
-  const out = new Map<string, Val>([
-    ['deploy_frequency', { value: Math.round((deploys / weeks) * 10) / 10, num: deploys, den: null }],
-    ['lead_time', { value: leads.length ? Math.round(median(leads) * 10) / 10 : null, num: null, den: leads.length, smallSample: leads.length > 0 && leads.length < 5 }],
-    ['change_failure_rate', { value: cfr.value, num: cfr.num, den: cfr.den, smallSample: cfr.smallSample }],
-    ['tickets_done', { value: activitySummary(s).ticketsCompleted, num: null, den: null }],
-  ]);
-  for (const id of ['time_to_restore', 'sprint_completion', 'bugs_per_change', 'defect_leakage', 'bug_workload', 'pr_cycle_hours', 'flow_efficiency', 'security_on_time', 'security_overdue', 'support_share', 'sla_resolution']) out.set(id, m(id));
+  const all = new Map(Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(s))).map((m) => [m.id, m] as const));
+  const val = (m: Measure | undefined): Val => (m ? { value: m.value, num: m.num, den: m.den, smallSample: m.smallSample } : { value: null, num: null, den: null });
+  const sc = score(all);
+  const out = new Map<string, Val>([['score', { value: sc.pct, num: sc.met, den: sc.of }], ...HEADLINES.map((id) => [id, val(all.get(id))] as [string, Val])]);
   // Flow distribution: items completed this month by kind (features, defects, risks, debt), saved with the month.
-  const dist = (REPORTS.flow(s).groups.find((g) => 'distribution' in g) as { distribution?: { kind: string; items: number }[] } | undefined)?.distribution ?? [];
+  const dist = (REPORTS.flow(s).groups.find((g) => 'distribution' in g) as unknown as { distribution?: { kind: string; items: number }[] } | undefined)?.distribution ?? [];
   for (const d of dist) out.set(`dist_${d.kind.toLowerCase()}`, { value: d.items, num: null, den: null });
   return out;
 }
@@ -124,11 +103,7 @@ export function monthlyReport(team: string, month: string, now = Date.now()) {
     const planned = committed.reduce((t, i) => t + i.points!, 0), done = committed.filter((i) => doneInSprint(i, sp)).reduce((t, i) => t + i.points!, 0);
     return { board: sp.board, sprint: sp.name, end: sp.end.slice(0, 10), committed: planned, done, pct: planned ? Math.round((100 * done) / planned) : null };
   });
-  const features = boards.flatMap((b) => {
-    const epics = store.epics()[b] ?? [];
-    const cost = config.cost.fteDay || config.cost.contractorDay ? featureCosts({ sprints: store.sprints().filter((x) => x.board === b), epics, rates: costRates(), roster: rosterFor(b), weekend: config.weekend }) : null;
-    return epics.filter((e) => inMonth(e.resolved)).map((e) => ({ board: b, key: e.key, summary: e.summary, resolved: e.resolved!.slice(0, 10), cost: cost?.features.find((f) => f.key === e.key)?.spent ?? null, currency: cost?.currency ?? null }));
-  });
+  const features = boards.flatMap((b) => (store.epics()[b] ?? []).filter((e) => inMonth(e.resolved)).map((e) => ({ board: b, key: e.key, summary: e.summary, resolved: e.resolved!.slice(0, 10) })));
   const incidents = store.azure().filter((a) => boards.includes(a.board)).flatMap((a) => a.ops?.incidents ?? []).filter((i) => inMonth(i.firedAt));
 
   const good = headline.filter((h) => h.met === true).length, measured = headline.filter((h) => h.met != null).length;
@@ -153,7 +128,7 @@ export function monthlyMarkdown(r: ReturnType<typeof monthlyReport>) {
     '', '## What changed', '', ...(r.improved.length ? r.improved.map((x) => `- Better: ${x}`) : ['- Nothing improved clearly.']), ...(r.worse.length ? r.worse.map((x) => `- Worse: ${x}`) : ['- Nothing got clearly worse.']),
     '', '## Delivered by kind', '', (() => { const d = r.distribution[r.distribution.length - 1] as Record<string, unknown>; return d.features == null ? 'No data.' : `Features ${d.features}, defects ${d.defects}, risks ${d.risks}, debt ${d.debt}.`; })(),
     '', '## Sprints closed', '', ...(r.detail.sprints.length ? ['| Team | Sprint | Committed | Done | Completion |', '|---|---|---|---|---|', ...r.detail.sprints.map((s) => `| ${s.board} | ${s.sprint} | ${s.committed} | ${s.done} | ${s.pct ?? 'n/a'}% |`)] : ['None.']),
-    '', '## Features shipped', '', ...(r.detail.features.length ? r.detail.features.map((f) => `- ${f.key} ${f.summary} (${f.board}, ${f.resolved})${f.cost != null ? `: ${f.currency} ${f.cost.toLocaleString()}` : ''}`) : ['None.']),
+    '', '## Features shipped', '', ...(r.detail.features.length ? r.detail.features.map((f) => `- ${f.key} ${f.summary} (${f.board}, ${f.resolved})`) : ['None.']),
     '', `## Incidents`, '', `${r.detail.incidents.count} incidents${r.detail.incidents.medianRestoreHours != null ? `, median ${r.detail.incidents.medianRestoreHours} hours to restore` : ''}.`,
   ].join('\n');
 }

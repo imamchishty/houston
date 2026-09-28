@@ -1,25 +1,18 @@
 import { config } from './config.js';
 import { collectJira } from './collectors/jira.js';
 import { demoSprints } from './collectors/demo.js';
-import { scoreSprint } from './rules/engine.js';
 import { store } from './store/index.js';
-import { learnBaseline } from './cycle.js';
 import { collectQuality, demoQuality } from './collectors/quality.js';
 import { collectGithub } from './collectors/github.js';
 import { demoGithub } from './collectors/githubDemo.js';
-import { collectConfluence, demoConfluence } from './collectors/confluence.js';
 import { collectEpics, demoEpics } from './collectors/epics.js';
 import { collectAzure, demoAzure } from './collectors/azure.js';
-import { collectClaude, demoClaude } from './collectors/claude.js';
 import { collectProjects, demoProjects } from './collectors/projects.js';
 import { collectSupport, demoSupport } from './collectors/support.js';
-import { boardData } from './board.js';
-import { featureCosts } from './cost.js';
-import { costRates } from './claude.js';
-import { rosterFor } from './identity.js';
-import { recordDay, backup } from './store/history.js';
+import { recordValues, backup } from './store/history.js';
 import { recordLastMonth } from './monthly.js';
 import { slice, flatMeasures, REPORTS } from './reports.js';
+import { boards, score } from './performance.js';
 
 export async function collect() {
   const sprints = config.mode === 'demo' ? demoSprints() : await collectJira();
@@ -28,53 +21,32 @@ export async function collect() {
   store.saveSupport(config.mode === 'demo' ? demoSupport() : await collectSupport());
   store.saveQuality(config.mode === 'demo' ? demoQuality(sprints) : await collectQuality(sprints));
   store.saveGithub(config.mode === 'demo' ? demoGithub() : config.github.token ? await collectGithub() : []);
-  store.saveDocs(config.mode === 'demo' ? demoConfluence() : config.confluence.spaces.length ? await collectConfluence() : []);
   const epics: Record<string, import('./types.js').Epic[]> = {};
   for (const b of config.mode === 'demo' ? [{ name: 'OSSI' }, { name: 'PLAT' }] : config.jira.boards) {
     epics[b.name] = config.mode === 'demo' ? demoEpics(b.name, b.name === 'OSSI') : await collectEpics(b.name);
   }
   store.saveEpics(epics);
-  store.saveClaude(config.mode === 'demo' ? demoClaude() : await collectClaude());
-  store.saveAzure(config.mode === 'demo' ? demoAzure(epics) : config.azure.client ? await collectAzure(epics) : []);
+  store.saveAzure(config.mode === 'demo' ? demoAzure() : config.azure.client ? await collectAzure() : []);
   return sprints;
 }
 
-export function score() {
-  const sprints = store.sprints();
-  const boards = [...new Set(sprints.map((s) => s.board))];
-  const baselines = Object.fromEntries(boards.map((b) => [b, learnBaseline(sprints.filter((s) => s.board === b))]));
-  const cards = sprints.map((s) => scoreSprint({ ...s, baseline: baselines[s.board] }));
-  store.saveScorecards(cards);
-  return cards;
-}
-
 export async function run() {
-  await collect();
-  const cards = score();
+  const sprints = await collect();
   snapshot();
-  return cards;
+  return sprints;
 }
 
-// Today's scores, metric values and feature costs into the history database, then a backup copy.
-// Runs after every collect; a second run on the same day replaces that day's rows.
+// Today's score and every measure (last 30 days) into the history database, then a backup copy. The score has the
+// id "score"; measures are prefixed "r:". Runs after every collect; a second run on the same day replaces that day's rows.
 export function snapshot(day = new Date().toISOString().slice(0, 10)) {
-  const boards = [...new Set(store.scorecards().map((c) => c.board))];
-  for (const board of boards) {
-    const b = boardData(board);
-    if (!b.latest) continue;
-    const areas = [
-      { area: 'sprint', score: b.latest.score, rag: b.latest.rag },
-      ...(['flow', 'quality', 'features', 'ops', 'docs'] as const).flatMap((k) => (b[k] ? [{ area: k, score: b[k]!.score, rag: b[k]!.rag }] : [])),
-    ];
-    const findings = [b.latest, b.flow, b.quality, b.features, b.ops, b.docs].flatMap((x) => x?.findings ?? []);
-    // Report measures (last 30 days) too, prefixed "r:", so they have a history and the window a starting value.
-    const s30 = slice(board, 30);
-    for (const m of Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(s30)))) if (m.value != null)
-      findings.push({ ruleId: `r:${m.id}`, title: m.title, area: 'flow', value: m.value, unit: m.unit === 'hours' ? 'count' : m.unit, rag: m.met === false ? 'red' : 'green', message: '', action: '', evidence: [] });
-    const cost = config.cost.fteDay || config.cost.contractorDay
-      ? featureCosts({ sprints: b.sprints, epics: b.raw.epics, rates: costRates(), roster: rosterFor(board), weekend: config.weekend })
-      : null;
-    recordDay({ day, board, areas, findings, sprints: b.history, cost });
+  const bs = boards();
+  for (const board of bs) {
+    const ms = Object.values(REPORTS).flatMap((fn) => flatMeasures(fn(slice(board, 30))));
+    const sc = score(new Map(ms.map((m) => [m.id, m])));
+    recordValues(day, board, [
+      ...(sc.pct == null ? [] : [{ metric: 'score', value: sc.pct, met: null }]),
+      ...ms.filter((m) => m.value != null).map((m) => ({ metric: `r:${m.id}`, value: m.value!, met: m.met })),
+    ]);
   }
-  if (boards.length) { recordLastMonth(); backup(day); }
+  if (bs.length) { recordLastMonth(); backup(day); }
 }

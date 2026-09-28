@@ -1,17 +1,12 @@
 Feature: History that survives the nightly collect
-  Jira only gives back the last few sprints and the other tools only give "now".
-  Houston keeps every day's scores, every sprint it has scored, and cost over time.
+  Jira and the other tools only give back recent data. Houston keeps every day's score and measures, so trends
+  keep growing beyond what the tools still hold.
 
   Scenario: Each run records the day, and a second run the same day replaces it
     When the nightly job runs twice on "2026-09-27"
-    Then the history has 1 day of area scores for "OSSI"
-    And the history keeps 6 sprints for "OSSI"
+    Then the history has 1 score for "OSSI" on "2026-09-27", equal to the team's score now
+    And the history has the headline measures for "OSSI" on "2026-09-27"
     And a backup of the history exists for "2026-09-27"
-
-  Scenario: Sprints Jira no longer returns are kept
-    Given the history already holds a sprint "OSSI Sprint 3" for "OSSI"
-    When the nightly job runs on "2026-09-28"
-    Then the history keeps 7 sprints for "OSSI"
 
   Scenario: Old backups are pruned
     When the nightly job has run on 32 different days
@@ -21,5 +16,4 @@ Feature: History that survives the nightly collect
     Given Houston is running with user "sam" and password "pw"
     When the user requests "/api/teams/OSSI/history"
     Then the response status is 200
-    And the response contains "\"areas\""
-    And the response contains "\"sprints\""
+    And the history response has a score series and one series per headline measure

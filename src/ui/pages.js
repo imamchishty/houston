@@ -1,14 +1,13 @@
-// Houston pages beyond the team tabs: the sprint board, the Quality / Predictability / Efficiency summaries,
-// and the dashboard sections that link to them. Loaded before app.js; uses its helpers (esc, api, METRICS, ...)
-// at call time only.
+// Shared page pieces: measure tiles, the charts that explain a headline, the sprint board and the monthly report.
+// Loaded before app.js; uses its helpers (esc, api, METRICS, ...) at call time only.
 
 const shortDate = (d) => new Date(d.length === 10 ? d + 'T00:00:00Z' : d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const OUTLOOK = { 'On track': ['green', '✓'], 'At risk': ['amber', '●'], 'Off track': ['red', '▲'], 'Just started': ['none', '·'] };
 const outlookChip = (o) => { const [c, i] = OUTLOOK[o] ?? ['none', '·']; return `<span class="st ${c}"><i aria-hidden="true">${i}</i>${esc(o)}</span>`; };
 
-// ---------- Measure tiles (reports and dashboard headlines) ----------
+// ---------- Measure tiles ----------
 // DORA tier for the four DORA measures, from the research bands in the metric catalogue.
-const tierChip = (m) => { const c = METRICS[m.id === 'change_failure_rate' ? 'change_failure' : m.id]; const t = c?.dora && m.value != null ? doraTier(c, m.value) : null;
+const tierChip = (m) => { const c = METRICS[m.id]; const t = c?.dora && m.value != null ? doraTier(c, m.value) : null;
   return t ? ` <span class="tierchip ${TIER_CLS[t]}">DORA ${esc(t)}</span>` : ''; };
 const unitOf = (m) => (m.unit === '%' ? '%' : m.unit === 'count' ? '' : ` ${m.unit}`);
 const unitWord = (u, v) => (u === '%' ? '%' : u === 'count' ? '' : ` ${v === 1 ? u.replace(/s$/, '') : u}`);
@@ -32,76 +31,31 @@ function measureTile(m, opts = {}) {
   </div>`;
 }
 
-// ---------- Report pages: Quality, Predictability, Efficiency ----------
-// The areas. Every number lives in exactly one of them.
-const REPORTS = {
-  dora: { title: 'DORA', intro: 'How fast and how safely change reaches users: deployment frequency, lead time, change failure rate and time to restore, and where lead time goes.' },
-  flow: { title: 'Flow', intro: 'How much work flows and where it waits: the Flow Framework (velocity, time, efficiency, load, distribution), bottlenecks, cycle time and pull request flow.' },
-  quality: { title: 'Quality', intro: 'Bugs and the code itself: how many bugs each change brings, how many reach customers, what stops them, code quality from SonarQube and tests, and how fast bugs are fixed.' },
-  security: { title: 'Security', intro: 'Whether serious security issues are fixed within their deadline, what is exposed right now, and whether every repo is actually scanned: vulnerable dependencies, leaked secrets and flaws in the team\'s own code.' },
-  support: { title: 'Support', intro: 'How much support work arrives and how much of the team\'s work it takes, whether customers are answered and helped within the agreed service levels, how much happens outside working hours, and whether the same problems keep coming back.' },
-  planning: { title: 'Planning', intro: 'Whether the team delivers what it plans, how much unplanned work arrives, and whether work is set up so plans can be trusted.' },
-};
-const FILT = { team: 'all', days: 30 };
+// ---------- Charts and tables that explain a headline ----------
 const pctOf = (x, t) => { const sum = t.coding + t.review + t.deploy; return sum ? `${Math.round((100 * x) / sum)}%` : '·'; };
-
-async function reportPage(name, teams) {
-  const r = REPORTS[name];
-  $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">${esc(r.title)}</a>`;
-  const d = await api(`/reports/${name}?team=${encodeURIComponent(FILT.team)}&days=${FILT.days}`);
-  if (!d.groups) { $('#main').innerHTML = `<p class="empty">${esc(d.error ?? 'No data')}</p>`; return; }
-  const all = d.groups.flatMap((g) => g.measures);
-  const met = all.filter((m) => m.met === true).length, measured = all.filter((m) => m.met != null).length;
-  $('#main').innerHTML = `
-    <div class="rephead"><div><h2 class="big">${esc(r.title)}</h2><p class="muted">${esc(r.intro)}</p></div>
-      <div class="tile"><div class="k">Targets met</div><div class="v">${esc(met)}<small> of ${esc(measured)}</small></div><div class="s">${esc(shortDate(d.from))} to ${esc(shortDate(d.to))}</div></div></div>
-    ${filterRow(teams, 'rep')}
-    ${d.groups.map((g) => `<section class="group"><h2>${esc(g.title)}</h2><p class="muted">${esc(g.question)}</p>
-      <div class="mtiles">${g.measures.map((m) => measureTile(m)).join('')}</div>
-      ${g.note ? `<p class="note">${esc(g.note)}</p>` : ''}
-      ${g.heatmap?.length ? `<div class="card mt"><h3>Where tickets spend their time</h3>
-        <table class="t"><tr><th>Status</th><th>Kind</th><th class="num">Share of time</th><th></th><th class="num">Median per ticket</th><th class="num">Tickets</th></tr>
-        ${g.heatmap.map((h, k) => `<tr><td>${esc(h.status)}</td><td>${h.waiting ? '<span class="st amber"><i aria-hidden="true">●</i>Waiting</span>' : '<span class="muted">Active</span>'}</td>
-          <td class="num">${esc(h.share)}%</td><td class="heatbar"><div class="track"><i class="${h.waiting ? (k < 2 ? 'k-s2 hot' : 'k-s2') : 'k-s1'}" data-w="${esc(h.share)}" data-max="${esc(Math.max(...g.heatmap.map((x) => x.share), 1))}"></i></div></td>
-          <td class="num">${esc(h.medianHours)} h</td><td class="num">${esc(h.tickets)}</td></tr>`).join('')}</table>
-        <p class="note">Working hours from first start to done, tickets resolved in the period. Waiting statuses in orange; the biggest are where to look first.</p></div>` : ''}
-      ${g.stages ? `<div class="card mt"><h3>Lead time by stage, per week</h3>${barChart('stages', { labels: g.stages.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), stacked: true, unit: 'hours', W: 900, H: 200,
-          detail: (i) => { const w = g.stages.weekly[i], per = (x) => (w.prs ? `${chartFmt(Math.round((10 * x) / w.prs) / 10)} hours` : '·');
-            return { subtitle: `${w.prs} ${w.prs === 1 ? 'PR' : 'PRs'} deployed`, rows: w.prs ? [{ name: 'Average per PR', value: per(w.coding + w.review + w.deploy) }] : [{ name: 'Nothing merged this week has been deployed yet', value: '' }] }; }, series: [
-          { name: 'Coding', key: 's1', values: g.stages.weekly.map((w) => Math.round(w.coding)) }, { name: 'Review', key: 's2', values: g.stages.weekly.map((w) => Math.round(w.review)) }, { name: 'Waiting to deploy', key: 'muted', values: g.stages.weekly.map((w) => Math.round(w.deploy)) }] })}
-        <p class="note">Total hours across the PRs deployed each week, so the stages add up exactly. Of all lead time in the period: coding ${esc(pctOf(g.stages.total.coding, g.stages.total))}, review ${esc(pctOf(g.stages.total.review, g.stages.total))}, waiting to deploy ${esc(pctOf(g.stages.total.deploy, g.stages.total))}.</p></div>` : ''}
-      ${g.weekly ? `<div class="card mt"><h3>Support tickets by week</h3>${barChart('sup-' + g.id, { labels: g.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'tickets', W: 900, H: 180, series: [
-          { name: 'Created', key: 's2', values: g.weekly.map((w) => w.created) }, { name: 'Resolved', key: 's1', values: g.weekly.map((w) => w.resolved) }] })}
-        <p class="note">When created stays above resolved, the queue grows.</p></div>` : ''}
-      ${g.distribution ? `<div class="twocol mt"><div class="card"><h3>Flow distribution</h3>${barChart('dist', { labels: g.distribution.map((d) => d.kind), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.distribution.map((d) => d.items) }] })}
-          <p class="note">Bugs are defects; debt and risk come from labels; everything else is feature work.</p></div>
-        <div class="card"><h3>Flow velocity by week</h3>${barChart('vel', { labels: g.velocityByWeek.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: g.velocityByWeek.map((w) => w.items) }] })}</div></div>` : ''}
-      ${g.trend?.length ? `<div class="card mt"><h3>Escaped bugs by week</h3>${barChart('esc-' + g.id, { labels: g.trend.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: '', W: 900, H: 180, series: [
-        { name: 'Significant bugs found in production', key: 's2', values: g.trend.map((w) => w.significantBugs) }, { name: 'Incidents (Sev0 to Sev2)', key: 's1', values: g.trend.map((w) => w.incidents) }] })}
-        <p class="note">Significant = priority ${esc('in JIRA_SIGNIFICANT_PRIORITIES')}; bugs labelled pre-release are left out.</p></div>` : ''}
-      ${g.detail?.length ? `<details class="tbl"><summary>Sprints in this period</summary><table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
-        ${g.detail.map((x) => `<tr><td>${esc(x.board)}</td><td>${esc(x.sprint)}</td><td class="num">${esc(x.planned)}</td><td class="num">${esc(x.done)}</td><td class="num">${esc(x.pct)}%</td></tr>`).join('')}</table></details>` : ''}
-    </section>`).join('')}
-    ${name === 'dora' ? '<h2>Day by day</h2><div id="dora"></div>' : ''}
-    <h2>By team</h2>
-    <div class="card scrollx"><table class="t dash sortable"><thead><tr><th>Team</th>${all.map((m) => `<th title="${esc(m.title)}">${esc(m.title)}</th>`).join('')}</tr></thead><tbody>
-      ${d.teams.map((t) => `<tr class="row" data-go="${esc(t.board)}"><td><b>${esc(t.board)}</b></td>${t.measures.map((m) => `<td data-sort="${m.value == null ? '' : esc(m.value)}" title="${esc(m.title)}: ${esc(countsText(m).replace(/<[^>]+>/g, ''))}">${m.value == null ? '<span class="st none">·</span>' : `<span class="st ${m.met == null ? 'none' : m.met ? 'green' : 'red'}"><i aria-hidden="true">${m.met == null ? '' : m.met ? '✓' : '▲'}</i>${esc(chartFmt(m.value))}${esc(unitOf(m))}</span>`}</td>`).join('')}</tr>`).join('')}
-    </tbody></table><p class="note">✓ target met · ▲ target missed · hover a cell for the counts. Click a column heading to sort, or a team for its detail.</p></div>`;
-  if (name === 'dora') { DORA.team = FILT.team; DORA.days = FILT.days; renderDora(); }
-  window.scrollTo(0, 0);
+function extrasHtml(id, ex) {
+  const out = [];
+  if (ex.stages) out.push(`<div class="card mt"><h3>Lead time by stage, per week</h3>${barChart(`${id}-stages`, { labels: ex.stages.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), stacked: true, unit: 'hours', W: 900, H: 200,
+      detail: (i) => { const w = ex.stages.weekly[i]; return { subtitle: `${w.prs} ${w.prs === 1 ? 'PR' : 'PRs'} deployed`, rows: w.prs ? [{ name: 'Average per PR', value: `${chartFmt(Math.round((10 * (w.coding + w.review + w.deploy)) / w.prs) / 10)} hours` }] : [{ name: 'Nothing merged this week has been deployed yet', value: '' }] }; },
+      series: [{ name: 'Coding', key: 's1', values: ex.stages.weekly.map((w) => Math.round(w.coding)) }, { name: 'Review', key: 's2', values: ex.stages.weekly.map((w) => Math.round(w.review)) }, { name: 'Waiting to deploy', key: 'muted', values: ex.stages.weekly.map((w) => Math.round(w.deploy)) }] })}
+    <p class="note">Of all lead time in the period: coding ${esc(pctOf(ex.stages.total.coding, ex.stages.total))}, review ${esc(pctOf(ex.stages.total.review, ex.stages.total))}, waiting to deploy ${esc(pctOf(ex.stages.total.deploy, ex.stages.total))}.</p></div>`);
+  if (ex.detail?.length) out.push(`<details class="tbl"><summary>Sprints in this period</summary><table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
+    ${ex.detail.map((x) => `<tr><td>${esc(x.board)}</td><td>${esc(x.sprint)}</td><td class="num">${esc(x.planned)}</td><td class="num">${esc(x.done)}</td><td class="num">${esc(x.pct)}%</td></tr>`).join('')}</table></details>`);
+  if (ex.trend?.length) out.push(`<div class="card mt"><h3>Bugs found in production, by week</h3>${barChart(`${id}-esc`, { labels: ex.trend.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: '', W: 900, H: 180, series: [
+    { name: 'Significant bugs found in production', key: 's2', values: ex.trend.map((w) => w.significantBugs) }, { name: 'Incidents (Sev0 to Sev2)', key: 's1', values: ex.trend.map((w) => w.incidents) }] })}</div>`);
+  if (ex.heatmap?.length) { const mx = Math.max(...ex.heatmap.map((x) => x.share), 1); out.push(`<div class="card mt"><h3>Where tickets spend their time</h3>
+    <table class="t"><tr><th>Status</th><th>Kind</th><th class="num">Share of time</th><th></th><th class="num">Median per ticket</th><th class="num">Tickets</th></tr>
+    ${ex.heatmap.map((h, k) => `<tr><td>${esc(h.status)}</td><td>${h.waiting ? '<span class="st amber"><i aria-hidden="true">●</i>Waiting</span>' : '<span class="muted">Active</span>'}</td>
+      <td class="num">${esc(h.share)}%</td><td class="heatbar"><div class="track"><i class="${h.waiting ? (k < 2 ? 'k-s2 hot' : 'k-s2') : 'k-s1'}" data-w="${esc(h.share)}" data-max="${esc(mx)}"></i></div></td>
+      <td class="num">${esc(h.medianHours)} h</td><td class="num">${esc(h.tickets)}</td></tr>`).join('')}</table>
+    <p class="note">Working hours from first start to done. Waiting statuses in orange: the biggest are where to look first.</p></div>`); }
+  if (ex.distribution) out.push(`<div class="twocol mt"><div class="card"><h3>What was delivered</h3>${barChart(`${id}-dist`, { labels: ex.distribution.map((d) => d.kind), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: ex.distribution.map((d) => d.items) }] })}
+      <p class="note">Bugs are defects; debt and risk come from labels; everything else is feature work.</p></div>
+    <div class="card"><h3>Items finished per week</h3>${barChart(`${id}-vel`, { labels: ex.velocityByWeek.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'items', W: 440, H: 190, series: [{ name: 'Items completed', key: 's1', values: ex.velocityByWeek.map((w) => w.items) }] })}</div></div>`);
+  if (ex.weekly) out.push(`<div class="card mt"><h3>Support tickets by week</h3>${barChart(`${id}-sup`, { labels: ex.weekly.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: 'tickets', W: 900, H: 180, series: [
+    { name: 'Created', key: 's2', values: ex.weekly.map((w) => w.created) }, { name: 'Resolved', key: 's1', values: ex.weekly.map((w) => w.resolved) }] })}<p class="note">When created stays above resolved, the queue grows.</p></div>`);
+  return out.join('');
 }
-
-function filterRow(teams, kind) {
-  return `<div class="filters" role="group" aria-label="Filters">
-    <label>Team <select data-filter="team" data-kind="${kind}"><option value="all">All teams</option>${teams.map((t) => `<option value="${esc(t)}"${FILT.team === t ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
-    <label>Period <select data-filter="days" data-kind="${kind}">${[7, 30, 90].map((n) => `<option value="${n}"${FILT.days === n ? ' selected' : ''}>Last ${n} days</option>`).join('')}</select></label>
-  </div>`;
-}
-document.addEventListener('change', (e) => {
-  const f = e.target.dataset?.filter; if (!f) return;
-  FILT[f] = f === 'days' ? Number(e.target.value) : e.target.value;
-  route();
-});
 
 // ---------- Sprint board (team tab "Current sprint") ----------
 function sprintBoard(cs) {
@@ -144,78 +98,7 @@ function sprintBoard(cs) {
 // Horizontal bar widths are set from data attributes after render (no inline styles under the CSP).
 function sizeBars() { document.querySelectorAll('i[data-w]').forEach((i) => { i.style.width = `${(100 * Number(i.dataset.w)) / Number(i.dataset.max)}%`; }); }
 
-// ---------- Dashboard sections ----------
-function dashHeadlines(d) {
-  return `<div class="heads">${d.headlines.map((h) => `<a class="card head" href="#_${esc(h.page)}">
-    <div class="hh"><h3>${esc(h.title)}</h3><span class="muted">${esc(h.question)}</span></div>
-    ${h.measures.length ? `<div class="mtiles two">${h.measures.map((m) => measureTile(m, { compact: true })).join('')}</div>` : '<p class="muted">Not collected yet: shows after the next data collection.</p>'}
-    <div class="more">Full ${esc(h.title.toLowerCase())} report →</div></a>`).join('')}</div>
-    <p class="note">Last 30 days, all teams.</p>`;
-}
-
-function dashSprints(d) {
-  if (!d.sprints.length) return '';
-  return `<h2>Current sprints</h2><div class="card scrollx"><table class="t dash">
-    <tr><th>Team</th><th>Sprint</th><th>Ends</th><th class="num">Days left</th><th>Points done</th><th>Outlook</th></tr>
-    ${d.sprints.map((s) => `<tr class="row" data-go="${esc(s.board)}" data-tab="now">
-      <td><b>${esc(s.board)}</b></td><td>${esc(s.sprint)}</td><td>${esc(shortDate(s.end))}</td><td class="num">${esc(s.workingDaysLeft)}</td>
-      <td><div class="pbar"><div class="track"><i class="k-s1" data-w="${esc(s.points.done)}" data-max="${esc(Math.max(1, s.points.scope))}"></i></div><span>${esc(s.points.done)} / ${esc(s.points.scope)}</span></div></td>
-      <td>${outlookChip(s.outlook)}</td></tr>`).join('')}
-  </table><p class="note">Click a sprint for its board. Outlook projects points done so far to the end of the sprint.</p></div>`;
-}
-
-function dashProjects(d) {
-  if (!d.projects.length) return '';
-  const cur = d.projects.find((p) => p.currency)?.currency;
-  return `<h2>Features in progress</h2><div class="card scrollx"><table class="t dash">
-    <tr><th>Feature</th><th>Team</th><th>Tickets done</th><th class="num">Spent</th><th class="num">To complete</th><th class="num">Estimated total</th><th>Due</th></tr>
-    ${d.projects.map((p) => `<tr class="row" data-go="${esc(p.board)}" data-tab="features"><td><code>${esc(p.key)}</code> ${esc(p.summary)}</td><td>${esc(p.board)}</td>
-      <td><div class="pbar"><div class="track"><i class="k-s1" data-w="${esc(p.childDone)}" data-max="${esc(Math.max(1, p.childCount))}"></i></div><span>${esc(p.childDone)} / ${esc(p.childCount)}</span></div></td>
-      <td class="num">${p.spent == null ? '·' : money(p.spent, cur)}</td><td class="num">${p.toComplete == null ? '·' : money(p.toComplete, cur)}</td><td class="num"><b>${p.total == null ? '·' : money(p.total, cur)}</b></td>
-      <td>${p.due ? esc(shortDate(p.due)) : '<span class="muted">no due date</span>'}</td></tr>`).join('')}
-  </table><p class="note">Cost from the cost model on the Features tab: spent so far, and remaining points at the team's cost per point.</p></div>`;
-}
-
-function dashActivity(d) {
-  const a = d.activity;
-  return `<div class="tiles small">
-    <div class="tile"><div class="k">Active people</div><div class="v">${esc(a.activePeople)}</div><div class="s">with a trace in Jira or GitHub, last ${esc(a.days)} days</div></div>
-    <div class="tile"><div class="k">Commits to main</div><div class="v">${esc(a.commits.toLocaleString())}</div><div class="s">last ${esc(a.days)} days</div></div>
-    <div class="tile"><div class="k">Pull requests merged</div><div class="v">${esc(a.mergedPrs.toLocaleString())}</div><div class="s">last ${esc(a.days)} days</div></div>
-    <div class="tile"><div class="k">Tickets completed</div><div class="v">${esc(a.ticketsCompleted.toLocaleString())}</div><div class="s">last ${esc(a.days)} days, sub-tasks excluded</div></div>
-  </div>`;
-}
-
-// ---------- Simple dashboard: each team in plain English ----------
-const ANSWER = { 'Yes': ['green', '✓'], 'Partly': ['amber', '●'], 'No': ['red', '▲'], 'Not enough data': ['none', '·'] };
-function simpleView(teams, dq) {
-  const bad = dq.filter((x) => x.status !== 'ok').length;
-  return `<p class="lead">${esc(teams.length)} ${teams.length === 1 ? 'team' : 'teams'}: ${esc(teams.filter((t) => t.band === 'Healthy').length)} healthy, ${esc(teams.filter((t) => t.band === 'Watch').length)} to watch, ${esc(teams.filter((t) => t.band === 'Needs attention').length)} needing attention.${bad ? ` <a href="#_data">${esc(bad)} data ${bad === 1 ? 'check' : 'checks'} to look at</a> before trusting every number.` : ''}</p>
-    <div class="simple">${teams.map((t) => `<section class="card sc">
-      <div class="sch"><h2 class="big">${esc(t.board)}</h2><span class="band ${bandCls(t.band)}">${esc(t.band)}</span></div>
-      <p class="sum">${esc(t.summary)}</p>
-      ${t.questions.map((q) => `<div class="qa"><span class="st ${ANSWER[q.answer][0]} ans"><i aria-hidden="true">${ANSWER[q.answer][1]}</i>${esc(q.answer)}</span>
-        <div><div class="qq">${esc(q.question)}</div><div class="muted">${esc(q.sentence)}</div></div></div>`).join('')}
-      ${t.fixFirst.length ? `<div class="fix"><b>Fix first</b><ul>${t.fixFirst.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
-      ${t.worse.length ? `<div class="fix"><b>Keeps missing its target</b><ul>${t.worse.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>${t.worseCount > t.worse.length ? `<span class="muted">and ${esc(t.worseCount - t.worse.length)} more</span>` : ''}</div>` : ''}
-      <a class="more" href="#${esc(encodeURIComponent(t.board))}">See the detail →</a>
-    </section>`).join('')}</div>
-    <p class="note">Answers use the last 30 days. Switch to Detailed for every number, chart and definition.</p>`;
-}
-
-// ---------- Team health alerts (detailed dashboard) ----------
-function alertsPanel(alerts) {
-  if (!alerts.length) return `<div class="card alerts"><h3>Team health alerts</h3><p class="note"><span class="st green"><i>✓</i></span> Every target met in the last 30 days.</p></div>`;
-  const red = alerts.filter((a) => a.severity === 'red').length;
-  const shown = alerts.slice(0, 10);
-  return `<div class="card alerts"><h3>Team health alerts <span class="muted">${esc(alerts.length)} targets missed, ${esc(red)} for two periods running</span></h3>
-    <table class="t">${shown.map((a) => `<tr class="row" data-href="#_${esc(a.page)}"><td><span class="st ${a.severity}"><i aria-hidden="true">${a.severity === 'red' ? '▲' : '●'}</i>${a.severity === 'red' ? 'Keeps missing' : 'Missed'}</span></td>
-      <td><b>${esc(a.board)}</b></td><td>${esc(a.title)}</td><td class="num">${esc(chartFmt(a.value))}${esc(unitOf(a))}</td>
-      <td class="muted">${esc(targetText(a.target, a))}</td><td class="muted">${a.trend ? trendArrow(a.trend) : ''}</td></tr>`).join('')}</table>
-    ${alerts.length > shown.length ? `<p class="note">and ${esc(alerts.length - shown.length)} more on the Quality, Predictability and Efficiency pages.</p>` : ''}
-    <p class="note">Amber: target missed in the last 30 days. Red: missed in the 30 days before as well. Small samples never raise an alert.</p></div>`;
-}
-const trendArrow = (t) => (t === 'better' ? '<span class="up">▲ better</span>' : t === 'worse' ? '<span class="down">▼ worse</span>' : t === 'same' ? '<span class="muted">no change</span>' : '');
+const trendArrow = (t) => (t === 'better' ? '<span class="up">↑ better</span>' : t === 'worse' ? '<span class="down">↓ worse</span>' : t === 'same' ? '<span class="muted">no change</span>' : '');
 
 // Choosing a past sprint re-renders the board for it.
 document.addEventListener('change', async (e) => {
@@ -255,8 +138,8 @@ async function monthlyPage(teams) {
         <td class="num"><b>${esc(fmtU(h.value, h.unit))}</b></td><td class="num muted">${esc(fmtU(h.previous, h.unit))}</td><td>${h.trend ? trendArrow(h.trend) : '<span class="muted">·</span>'}</td>
         <td>${h.target ? `<span class="muted">${h.target.op === '<' ? 'under' : 'over'} ${esc(fmtU(h.target.value, h.unit))}</span> ${chip(h)}` : ''}</td></tr>`).join('')}
     </table>${r.previousStatus !== 'complete' && r.previousStatus !== 'saved' ? `<p class="note">No comparison: ${esc(STATUS_NOTE[r.previousStatus] || r.previousStatus)} for ${esc(monthLong(prevMonthOf(r.month)))}.</p>` : ''}</div>
-    <div class="twocol mt"><div class="card"><h3>Improved</h3>${r.improved.length ? `<ul class="plain">${r.improved.map((x) => `<li><span class="up">▲</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing improved clearly.</p>'}</div>
-      <div class="card"><h3>Got worse</h3>${r.worse.length ? `<ul class="plain">${r.worse.map((x) => `<li><span class="down">▼</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing got clearly worse.</p>'}</div></div>
+    <div class="twocol mt"><div class="card"><h3>Improved</h3>${r.improved.length ? `<ul class="plain">${r.improved.map((x) => `<li><span class="up">↑</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing improved clearly.</p>'}</div>
+      <div class="card"><h3>Got worse</h3>${r.worse.length ? `<ul class="plain">${r.worse.map((x) => `<li><span class="down">↓</span> ${esc(x)}</li>`).join('')}</ul>` : '<p class="note">Nothing got clearly worse.</p>'}</div></div>
     <h2>Delivered by kind</h2>
     <div class="card">${barChart('m-dist', { labels: r.distribution.map((d) => d.month), xLabel: monthLabel, stacked: true, unit: 'items', W: 900, H: 200, series: [
       { name: 'Features', key: 's1', values: r.distribution.map((d) => d.features) }, { name: 'Defects', key: 's2', values: r.distribution.map((d) => d.defects) },
@@ -270,8 +153,8 @@ async function monthlyPage(teams) {
     <h2>In ${esc(r.name)}</h2>
     <div class="twocol"><div class="card"><h3>Sprints closed</h3>${r.detail.sprints.length ? `<table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
         ${r.detail.sprints.map((s) => `<tr><td>${esc(s.board)}</td><td>${esc(s.sprint)}</td><td class="num">${esc(s.committed)}</td><td class="num">${esc(s.done)}</td><td class="num">${esc(s.pct ?? '·')}%</td></tr>`).join('')}</table>` : '<p class="note">None.</p>'}</div>
-      <div class="card"><h3>Features shipped</h3>${r.detail.features.length ? `<table class="t"><tr><th>Feature</th><th>Team</th><th class="num">Cost</th></tr>
-        ${r.detail.features.map((f) => `<tr><td><code>${esc(f.key)}</code> ${esc(f.summary)}</td><td>${esc(f.board)}</td><td class="num">${f.cost == null ? '·' : money(f.cost, f.currency)}</td></tr>`).join('')}</table>` : '<p class="note">None.</p>'}
+      <div class="card"><h3>Features shipped</h3>${r.detail.features.length ? `<table class="t"><tr><th>Feature</th><th>Team</th><th>Done</th></tr>
+        ${r.detail.features.map((f) => `<tr><td><code>${esc(f.key)}</code> ${esc(f.summary)}</td><td>${esc(f.board)}</td><td>${esc(shortDate(f.resolved))}</td></tr>`).join('')}</table>` : '<p class="note">None.</p>'}
         <h3 class="mt">Incidents</h3><p>${esc(r.detail.incidents.count)} ${r.detail.incidents.count === 1 ? 'incident' : 'incidents'}${r.detail.incidents.medianRestoreHours != null ? `, median ${esc(r.detail.incidents.medianRestoreHours)} hours to restore` : ''}.</p></div></div>`;
   window.scrollTo(0, 0);
 }

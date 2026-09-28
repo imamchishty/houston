@@ -18,14 +18,14 @@ type Houston = {
 export let houston: Houston;
 
 BeforeAll(async () => {
-  const [{ buildApp }, { config }, { notifyAll }, { run }, { store }, { peopleStats }] = await Promise.all([
+  const [{ buildApp }, { config }, { notifyAll }, { run }, { store }] = await Promise.all([
     import('../../src/app.js'), import('../../src/config.js'), import('../../src/teams.js'),
-    import('../../src/pipeline.js'), import('../../src/store/index.js'), import('../../src/people.js'),
+    import('../../src/pipeline.js'), import('../../src/store/index.js'),
   ]);
   await run();
-  // Everyone the demo data knows about: the rosters, and every Jira assignee and GitHub author or reviewer.
-  const names = new Set<string>(config.roster.flatMap((r) => r.people));
-  for (const p of peopleStats(store.sprints())) names.add(p.name);
+  // Everyone the demo data knows about: every Jira assignee and GitHub author or reviewer.
+  const names = new Set<string>();
+  for (const sp of store.sprints()) for (const i of sp.issues) if (i.assignee) names.add(i.assignee);
   for (const g of store.github()) for (const pr of g.prs) { names.add(pr.author); pr.reviewers.forEach((r) => names.add(r)); }
   houston = { buildApp, config, notifyAll, names: [...names].filter((n) => n && n !== 'unknown') };
 });

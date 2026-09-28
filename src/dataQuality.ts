@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
+import { allBoards, flatMeasures, hygiene, slice } from './reports.js';
 
 // Checks on the collected data for the ways a correct formula still gives a wrong number: a field id that points
 // at nothing, a workflow name that matches no runs, bots doing the reviewing, statuses Houston cannot classify.
@@ -82,12 +83,21 @@ export function dataQuality(): DataCheck[] {
   }
 
   if (config.mode !== 'demo' && !process.env.TZ_OFFSET_HOURS)
-    add('Settings', 'Time zone', 'warn', 'TZ_OFFSET_HOURS is not set, so weekends and working days are judged in UTC. For the UAE set 4.', ['PR cycle time excluding weekends', 'working days', 'cost']);
+    add('Settings', 'Time zone', 'warn', 'TZ_OFFSET_HOURS is not set, so weekends and working days are judged in UTC. For the UAE set 4.', ['working hours', 'working days', 'SLAs']);
   for (const a of store.azure()) {
     const inc = a.ops?.incidents ?? [];
     if (!inc.length) continue;
     const open = pct(inc.filter((i) => !i.resolvedAt).length, inc.length);
     add(`Azure ${a.board}`, 'Incidents resolved', open > 20 ? 'warn' : 'ok', `${open}% of ${inc.length} alerts never resolved.${open > 20 ? ' Alerts that are never closed are left out of time to restore; set alerts to auto-resolve.' : ''}`, ['time to restore']);
+  }
+  // Data hygiene, last 90 days: not performance, but whether the performance numbers can be trusted.
+  const AFFECTS: Record<string, string[]> = {
+    use_of_branches: ['lead time', 'change failure rate'], merged_with_pr: ['lead time', 'change failure rate'], prs_traceable: ['lead time by ticket', 'bugs per change'],
+    tickets_estimated: ['sprint completion', 'unplanned work'], tickets_in_sprint: ['sprint completion', 'flow efficiency'], tickets_in_epic: ['delivered by kind'], epics_with_due_date: ['monthly report: features shipped'],
+  };
+  for (const b of allBoards()) for (const m of flatMeasures(hygiene(slice(b, 90)))) {
+    if (m.value == null) continue;
+    add(`Hygiene ${b}`, m.title, m.met === false ? 'warn' : 'ok', `${m.num} of ${m.den} ${m.denLabel ?? ''} (${m.value}%), last 90 days. Target: ${m.target?.op === '<' ? 'under' : 'over'} ${m.target?.value}%.${m.failing?.length && m.met === false ? ` Examples: ${m.failing.slice(0, 5).join(', ')}.` : ''}`, m.met === false ? AFFECTS[m.id] ?? [] : []);
   }
   return out;
 }

@@ -6,42 +6,6 @@ import { Given, When, Then, After, type DataTable } from '@cucumber/cucumber';
 import { HoustonWorld, houston } from '../support/world.js';
 import type { Sprint, Issue } from '../../src/types.js';
 
-type M = { id: string; value: number | null; num: number | null; den: number | null; target: unknown; how?: string; unit: string };
-let second: any = null;
-When('the user also requests {string}', async function (this: HoustonWorld, url: string) {
-  const first = this.res; await this.request('GET', url, this.signedIn()); second = JSON.parse(this.res!.body); (globalThis as any).__houstonSecond = second; this.res = first;
-});
-Then("the dashboard's {word} equals the report's", function (this: HoustonWorld, id: string) {
-  const dash = JSON.parse(this.res!.body);
-  const h = dash.headlines.flatMap((x: { measures: M[] }) => x.measures).find((m: M) => m.id === id);
-  const r = second.groups.flatMap((g: { measures: M[] }) => g.measures).find((m: M) => m.id === id);
-  assert.ok(h && r, id);
-  assert.deepEqual({ value: h.value, num: h.num, den: h.den }, { value: r.value, num: r.num, den: r.den }, id);
-});
-Then("every team's row equals the report filtered to that team", async function (this: HoustonWorld) {
-  const all = JSON.parse(this.res!.body);
-  for (const t of all.teams) {
-    await this.request('GET', `/api/reports/${all.report}?team=${t.board}&days=${all.days}`, this.signedIn());
-    const own = JSON.parse(this.res!.body).groups.flatMap((g: { measures: M[] }) => g.measures);
-    for (const m of t.measures as M[]) {
-      const o = own.find((x: M) => x.id === m.id);
-      assert.deepEqual({ value: m.value, num: m.num, den: m.den }, { value: o.value, num: o.num, den: o.den }, `${t.board} ${m.id}`);
-    }
-  }
-});
-Then('every measured rate has a count over a count that gives its value', function (this: HoustonWorld) {
-  const ms: M[] = JSON.parse(this.res!.body).groups.flatMap((g: { measures: M[] }) => g.measures);
-  // A rate is a count over a count. Percentages read from a scan (SonarQube coverage) have no count to show,
-  // so they must say how many teams they come from instead.
-  for (const m of ms.filter((x) => x.unit === '%' && x.value != null)) {
-    if (m.num == null) { assert.match((m as any).denLabel ?? '', /^teams?$/, `${m.id}: a percentage with no count`); continue; }
-    assert.equal(m.value, Math.round((1000 * m.num!) / m.den!) / 10, `${m.id}: ${m.num}/${m.den} vs ${m.value}`);
-  }
-});
-Then('every measure has a target and a definition', function (this: HoustonWorld) {
-  const ms: M[] = JSON.parse(this.res!.body).groups.flatMap((g: { measures: M[] }) => g.measures);
-  for (const m of ms) { assert.ok(m.target, `${m.id} target`); assert.ok((m.how ?? '').length > 30, `${m.id} definition`); }
-});
 Then('no work in progress item has an assignee', function (this: HoustonWorld) {
   const s = JSON.parse(this.res!.body); assert.ok(s.inProgress.length > 0);
   for (const x of s.inProgress) assert.ok(!('assignee' in x), x.key);

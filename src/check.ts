@@ -76,17 +76,6 @@ async function testmo() {
   }
 }
 
-async function confluence() {
-  console.log('Confluence');
-  if (!config.jira.token || !config.confluence.spaces.length) return skip('CONFLUENCE_SPACES or JIRA_API_TOKEN not set');
-  const auth = 'Basic ' + Buffer.from(`${config.jira.email}:${config.jira.token}`).toString('base64');
-  for (const b of config.confluence.spaces) for (const sp of b.spaces) {
-    const r = await fetch(`${config.jira.baseUrl}/wiki/rest/api/content?spaceKey=${encodeURIComponent(sp)}&type=page&limit=1`, { headers: { Authorization: auth } });
-    if (!r.ok) { bad(`space ${sp}: ${r.status}`); continue; }
-    ok(`space ${sp}: ${(await r.json() as any).size ?? 0}+ pages visible`);
-  }
-}
-
 async function azure() {
   console.log('Azure');
   if (!config.azure.client) return skip('AZURE_CLIENT_ID not set');
@@ -104,22 +93,8 @@ async function azure() {
 
 console.log(`Houston connection check, mode=${config.mode}\n`);
 console.log('Config'); { const p = configProblems(); p.length ? p.forEach(bad) : ok('values look valid'); }
-await jira(); await confluence(); await github(); await sonar(); await testmo(); await azure();
+await jira(); await github(); await sonar(); await testmo(); await azure();
 console.log('Teams'); config.teamsWebhook ? ok('webhook set') : skip('TEAMS_WEBHOOK not set');
-console.log('Claude');
-config.claude.seatMonthly ? ok(`seat price ${config.cost.currency} ${config.claude.seatMonthly} a month, ${config.claude.seats.length ? `${config.claude.seats.length} named seats` : 'everyone on the roster has a seat'}`) : skip('CLAUDE_SEAT_MONTHLY not set, no seat cost');
-if (!config.claude.appInsights) skip('CLAUDE_OTEL_APPINSIGHTS not set, no usage (see CLAUDE_USAGE.md)');
-else if (!config.azure.client) bad('CLAUDE_OTEL_APPINSIGHTS set but no Azure service principal (AZURE_CLIENT_ID)');
-else {
-  try {
-    const { collectClaude } = await import('./collectors/claude.js');
-    const snaps = await collectClaude();
-    const users = snaps.flatMap((s) => s.users);
-    users.length ? ok(`${users.length} people on a roster with Claude Code activity in ${config.claude.days} days`)
-      : bad('no Claude Code metrics for anyone on a roster: check the managed settings, the collector, and that PEOPLE maps emails');
-  } catch (e) { bad(`Claude usage query failed: ${(e as Error).message.slice(0, 200)}`); }
-}
-console.log(`\nRoster: ${config.roster.map((r) => `${r.name} (${r.people.length})`).join(', ') || 'none'}`);
 console.log('If anything says FAIL, fix it before npm run collect.');
 
 // Data quality: needs collected data. Run npm run collect first, then npm run check again.

@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import type { AzureSnapshot, Epic } from '../types.js';
+import type { AzureSnapshot } from '../types.js';
 
 // KQL string literal: escape backslash and quote so a value cannot end the string.
 const kqlString = (s: string) => s.replace(/[\\"]/g, (c) => '\\' + c);
@@ -71,38 +71,14 @@ async function ops(appId: string, rg: string | undefined): Promise<AzureSnapshot
     p95LatencyMs: Math.round(Number(p95 ?? 0)), availability: avail != null ? Math.round(Number(avail) * 10) / 10 : null, incidents30d, medianRestoreMin, incidents };
 }
 
-async function cloudCost(rg: string): Promise<number> {
-  const t = await token('https://management.azure.com/.default');
-  const now = new Date(); const from = new Date(now.getFullYear(), now.getMonth() - 1, 1), to = new Date(now.getFullYear(), now.getMonth(), 0);
-  const res = await fetch(`https://management.azure.com/subscriptions/${encodeURIComponent(config.azure.subscription)}/resourceGroups/${encodeURIComponent(rg)}/providers/Microsoft.CostManagement/query?api-version=2023-11-01`, {
-    method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type: 'ActualCost', timeframe: 'Custom', timePeriod: { from: from.toISOString(), to: to.toISOString() },
-      dataset: { granularity: 'None', aggregation: { totalCost: { name: 'Cost', function: 'Sum' } } } }),
-  });
-  if (!res.ok) throw new Error(`Cost Management ${res.status}: ${await res.text()}`);
-  const body = await res.json() as any;
-  const cost = Number(body.properties?.rows?.[0]?.[0] ?? 0);
-  const currency = body.properties?.rows?.[0]?.[1] ?? 'AED';
-  return currency === 'USD' ? cost * 3.6725 : cost;
-}
-
-export function costBlock(cloudMonthAed: number, board: string, epics: Epic[]): AzureSnapshot['cost'] {
-  const team = config.azure.teamCost.find((t) => t.name === board)?.aed ?? null;
-  const since = Date.now() - 90 * 86_400_000;
-  const shipped = epics.filter((e) => e.resolved && new Date(e.resolved).getTime() >= since).length;
-  const quarter = (cloudMonthAed + (team ?? 0)) * 3;
-  return { cloudMonthAed: Math.round(cloudMonthAed), teamMonthAed: team, featuresShipped90d: shipped, costPerFeatureAed: shipped ? Math.round(quarter / shipped) : null };
-}
-
-export async function collectAzure(epics: Record<string, Epic[]>): Promise<AzureSnapshot[]> {
+export async function collectAzure(): Promise<AzureSnapshot[]> {
   const out: AzureSnapshot[] = [];
   const boards = new Set([...config.azure.appInsights.map((x) => x.name), ...config.azure.resourceGroups.map((x) => x.name)]);
   for (const board of boards) {
     const appId = config.azure.appInsights.find((x) => x.name === board)?.id;
     const rg = config.azure.resourceGroups.find((x) => x.name === board)?.id;
     out.push({ board, capturedAt: new Date().toISOString(),
-      ops: appId ? await ops(appId, rg) : null,
-      cost: rg ? costBlock(await cloudCost(rg), board, epics[board] ?? []) : null });
+      ops: appId ? await ops(appId, rg) : null });
   }
   return out;
 }
@@ -118,9 +94,9 @@ function demoIncidents(every: number, restoreMin: number, seed: number) {
   return out;
 }
 
-export function demoAzure(epics: Record<string, Epic[]>): AzureSnapshot[] {
+export function demoAzure(): AzureSnapshot[] {
   return [
-    { board: 'OSSI', capturedAt: new Date().toISOString(), ops: { requests30d: 1_840_000, failedRate: 2.9, p95LatencyMs: 1840, availability: 98.1, incidents30d: 7, medianRestoreMin: 310, incidents: demoIncidents(4.3, 310, 11) }, cost: costBlock(142_000, 'OSSI', epics.OSSI ?? []) },
-    { board: 'PLAT', capturedAt: new Date().toISOString(), ops: { requests30d: 9_200_000, failedRate: 0.3, p95LatencyMs: 420, availability: 99.95, incidents30d: 1, medianRestoreMin: 42, incidents: demoIncidents(25, 42, 12) }, cost: costBlock(310_000, 'PLAT', epics.PLAT ?? []) },
+    { board: 'OSSI', capturedAt: new Date().toISOString(), ops: { requests30d: 1_840_000, failedRate: 2.9, p95LatencyMs: 1840, availability: 98.1, incidents30d: 7, medianRestoreMin: 310, incidents: demoIncidents(4.3, 310, 11) } },
+    { board: 'PLAT', capturedAt: new Date().toISOString(), ops: { requests30d: 9_200_000, failedRate: 0.3, p95LatencyMs: 420, availability: 99.95, incidents30d: 1, medianRestoreMin: 42, incidents: demoIncidents(25, 42, 12) } },
   ];
 }

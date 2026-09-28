@@ -32,31 +32,6 @@ export interface Sprint {
   baseline?: Record<string, number>;
 }
 
-export type Rag = 'green' | 'amber' | 'red';
-
-export interface Finding {
-  ruleId: string;
-  title: string;
-  area: 'delivery' | 'hygiene' | 'ownership' | 'flow' | 'quality' | 'docs' | 'features' | 'ops';
-  value: number;
-  unit: '%' | 'count' | 'days' | 'ratio';
-  rag: Rag;
-  message: string;         // plain English, one sentence, with the number in it
-  action: string;          // what the team should do about it
-  evidence: string[];      // issue keys backing the finding
-  weight?: number;         // share of the area score: green earns all of it, amber half, red none
-}
-
-export interface Scorecard {
-  board: string;
-  sprintId: number;
-  sprintName: string;
-  sprintEnd: string;
-  score: number;           // 0 to 100
-  rag: Rag;
-  findings: Finding[];
-  generatedAt: string;
-}
 
 // Quality snapshot per team, from SonarQube and Testmo. Latest state, refreshed nightly.
 export interface QualitySnapshot {
@@ -85,8 +60,6 @@ export interface QualitySnapshot {
   escapedBugs: number;         // bugs created after release in the last sprint, from Jira
   reopened: number;            // tickets reopened in the last sprint, from Jira
 }
-
-export type { PersonStats } from './people.js';
 
 // GitHub, one PR normalised. Collected from GitHub Enterprise Server (or github.com), last N days.
 export interface PullRequest {
@@ -161,21 +134,6 @@ export interface ScanCoverage { dependency: boolean | null; secret: boolean | nu
 // (true for merge, squash and rebase merges alike); false means it was pushed or merged without a PR.
 export interface MainCommit { repo: string; sha: string; at: string; merge: boolean; viaPr: boolean }
 
-// Confluence: pages in the team's spaces, for docs health and for who writes what.
-export interface DocPage {
-  id: string;
-  title: string;
-  space: string;
-  type: 'adr' | 'runbook' | 'design' | 'other';   // from labels or title
-  createdAt: string;
-  createdBy: string;
-  updatedAt: string;
-  updatedBy: string;
-  labels: string[];
-  url: string;
-}
-export interface DocsSnapshot { board: string; spaces: string[]; capturedAt: string; pages: DocPage[]; }
-
 // Jira epics for feature lead time. An epic is a feature from the product team's point of view.
 export interface Epic {
   key: string;
@@ -188,19 +146,6 @@ export interface Epic {
   childCount: number;
   childDone: number;
   due?: string | null;       // Jira due date, set from the roadmap
-}
-
-// Action log: what was done about a recommendation, by whom, and whether the number moved.
-export interface Action {
-  id: string;
-  board: string;
-  recId: string;
-  title: string;
-  status: 'accepted' | 'rejected' | 'done';
-  owner: string;
-  note: string;
-  at: string;
-  baseline: Record<string, number>; // rule values at the time, to compare later
 }
 
 // Azure: production health, incidents and cost per team.
@@ -216,27 +161,7 @@ export interface AzureSnapshot {
     medianRestoreMin: number | null; // DORA 4: alert fired to resolved
     incidents?: { firedAt: string; resolvedAt: string | null; severity: string }[]; // last 90 days, for the time to restore trend
   } | null;
-  cost: {
-    cloudMonthAed: number;     // last full month, cloud only, for the team's resource group
-    teamMonthAed: number | null; // people cost from config
-    featuresShipped90d: number;  // from epics
-    costPerFeatureAed: number | null; // (cloud + team) × 3 ÷ features in 90 days
-  } | null;
 }
-
-// Claude Code usage per person over the window, from Claude Code's OpenTelemetry metrics in Application Insights.
-export interface ClaudeUser {
-  name: string;               // canonical person (PEOPLE maps emails), or the email if unmapped
-  email: string;
-  activeDays: number;         // days with any Claude Code activity
-  sessions: number;
-  activeHours: number;
-  linesAdded: number; linesRemoved: number;
-  commits: number; pullRequests: number;
-  editsAccepted: number; editsRejected: number;
-  apiEquivalentUsd: number;   // tokens priced at API rates. On a seat plan this is NOT billed
-}
-export interface ClaudeSnapshot { board: string; capturedAt: string; days: number; users: ClaudeUser[] }
 
 // Every work item in a team's Jira project created or resolved in the window, whether or not it was in a sprint.
 // The source for bug metrics and ticket hygiene. Epics are in Epic[], not here.

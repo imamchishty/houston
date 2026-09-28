@@ -12,4 +12,4 @@ Feature: Build version
   Scenario: The page has a footer for the version
     Given Houston is running with user "sam" and password "pw"
     When the user requests "/"
-    Then the response contains "<footer id=\"version\">"
+    Then the response contains "<div id=\"version\">"

@@ -81,4 +81,4 @@ Feature: Support load from plain Jira
     And no support data has been collected yet
     When the user requests "/api/dashboard"
     Then the response status is 200
-    And the Support card says it is not collected yet
+    And support SLAs are left out of the score until support data is collected

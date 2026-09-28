@@ -2,7 +2,7 @@ import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, PullRequest, ScanCoverage, SecurityAlert, Sprint, SupportTicket, WorkItem } from './types.js';
-import { addWorkingMinutes, durationMinutes, hoursExcludingWeekends, outsideWorkingHours, weekOf, workingMinutes } from './time.js';
+import { addWorkingMinutes, durationMinutes, outsideWorkingHours, weekOf, workingMinutes } from './time.js';
 import { flow } from './flow.js';
 import { leadTimes } from './leadtime.js';
 
@@ -32,14 +32,15 @@ export const MIN_RATE_SAMPLE = 10, MIN_MEDIAN_SAMPLE = 5;
 // Targets from the reference dashboards. One place, so every page shows the same target.
 export const TARGETS: Record<string, Target> = {
   change_failure_rate: { op: '<', value: 10 }, bugs_per_change: { op: '<', value: 30 },
-  pr_review_rate: { op: '>', value: 95 }, pr_review_comment_rate: { op: '>', value: 50 },
+  pr_review_rate: { op: '>', value: 95 },
   time_to_restore: { op: '<', value: 24 }, bug_lead_time: { op: '<', value: 14 },
   bug_fix_find: { op: '>', value: 80 }, bug_workload: { op: '<', value: 20 }, revert_ratio: { op: '<', value: 5 },
   deploy_frequency: { op: '>', value: 1 }, lead_time: { op: '<', value: 7 },
   sprint_completion: { op: '>', value: 80 }, scope_added: { op: '<', value: 15 }, unplanned_work: { op: '<', value: 20 }, defect_leakage: { op: '<', value: 20 }, qa_rejection: { op: '<', value: 15 }, flow_efficiency: { op: '>', value: 40 },
   use_of_branches: { op: '>', value: 95 }, merged_with_pr: { op: '>', value: 95 }, prs_traceable: { op: '>', value: 90 },
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
-  pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 },
+  pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 }, reviewer_load: { op: '<', value: 40 }, ci_failure_rate: { op: '<', value: 10 },
+  server_errors: { op: '<', value: 1 }, availability: { op: '>', value: 99.9 },
   security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
   support_share: { op: '<', value: 20 }, support_out_of_hours: { op: '<', value: 10 }, support_repeat: { op: '<', value: 20 },
   scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
@@ -67,13 +68,17 @@ export interface Slice {
   quality: import('./types.js').QualitySnapshot[];
   security: { alerts: SecurityAlert[]; coverage: Record<string, ScanCoverage> };
   support: SupportTicket[]; supportConnected: boolean;
+  ci: GithubSnapshot['ci']; ops: { failedRate: number; availability: number | null; requests30d: number }[];
 }
+
+// Every team Houston has data for: Jira sprints, or teams set up in .env or the admin page.
+export const allBoards = () => [...new Set([...store.sprints().map((s) => s.board), ...config.jira.boards.map((b) => b.name)])].sort((a, b) => a.localeCompare(b));
 
 export const slice = (team: string, days: Period, now = Date.now()): Slice => sliceRange(team, now - days * DAY, now);
 
 // Any exact range [from, to), for calendar months in the monthly report.
 export function sliceRange(team: string, from: number, to: number): Slice {
-  const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team];
+  const boards = team === 'all' ? allBoards() : [team];
   const gh = store.github().filter((g) => boards.includes(g.board));
   return {
     from, to, boards,
@@ -88,6 +93,7 @@ export function sliceRange(team: string, from: number, to: number): Slice {
     security: { alerts: gh.flatMap((g) => g.security?.alerts ?? []), coverage: Object.assign({}, ...gh.map((g) => g.security?.coverage ?? {})) },
     support: store.support().filter((x) => boards.includes(x.board)).flatMap((x) => x.tickets),
     supportConnected: store.support().some((x) => boards.includes(x.board)),
+    ci: gh.flatMap((g) => g.ci), ops: store.azure().filter((a) => boards.includes(a.board) && a.ops).map((a) => ({ failedRate: a.ops!.failedRate, availability: a.ops!.availability ?? null, requests30d: a.ops!.requests30d })),
   };
 }
 
@@ -109,7 +115,6 @@ export function quality(s: Slice) {
   const resolved = s.items.filter((i) => !isSub(i) && inWin(s, i.resolved));
 
   const reviewed = merged.filter((p) => p.reviewCount > 0);
-  const commented = merged.filter((p) => (p.reviewComments ?? 0) > 0);
   const reverts = merged.filter((p) => p.isRevert);
   // Defect leakage: production bugs ÷ (bugs caught before release + production bugs). A bug is production if a
   // production label (or the environment field) says so; caught before release if a QA/staging label does.
@@ -141,7 +146,6 @@ export function quality(s: Slice) {
         (() => { const f = flow(s); return rate('qa_rejection', 'QA rejection rate', f.qa.rejected.length, f.qa.entered,
           `Tickets sent back from QA (${config.jira.qaStatuses.join(', ')}) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection.`,
           ['sent back', 'entered QA'], f.qa.rejected); })(),
-        rate('pr_review_comment_rate', 'PR review comment rate', commented.length, merged.length, 'Merged PRs with at least one review comment, or a review with a written body, by someone other than the author ÷ merged PRs.', ['with review comments', 'merged PRs'], merged.filter((p) => !(p.reviewComments ?? 0)).map(ref)),
       ] },
       codeQuality(s),
       { id: 'bug_resolution', title: 'Bug fixing', question: 'How quickly are bugs fixed?', measures: [
@@ -159,7 +163,7 @@ export function quality(s: Slice) {
 }
 
 // ---------- Predictability ----------
-export function predictability(s: Slice) {
+export function planning(s: Slice) {
   const closedSprints = s.sprints.filter((sp) => sp.state === 'closed' && inWin(s, sp.end));
   const completion = closedSprints.flatMap((sp) => {
     const committed = sp.issues.filter((i) => i.type !== 'Sub-task' && i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= sp.start));
@@ -174,6 +178,27 @@ export function predictability(s: Slice) {
   const unplanned = finished.filter(({ i, sp }) => i.created > sp.start);
   const unestimatedDone = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task' && i.points == null && doneInSprint(i, sp))).length;
 
+  // Carried over: items in the sprint at its end that were not done by then.
+  const atEnd = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task').map((i) => ({ i, sp })));
+  const carried = atEnd.filter(({ i, sp }) => !doneInSprint(i, sp));
+  return {
+    groups: [
+      { id: 'delivery', title: 'Delivery against plan', question: 'Does the team deliver what it commits to?', measures: [
+        rate('sprint_completion', 'Sprint completion', doneSum, plannedSum, 'Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started.', ['points done', 'points committed']),
+        (() => { const m = rate('unplanned_work', 'Unplanned work', unplanned.reduce((t, x) => t + x.i.points!, 0), finished.reduce((t, x) => t + x.i.points!, 0),
+          'Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work.',
+          ['points unplanned', 'points finished'], unplanned.map((x) => x.i.key));
+          if (unestimatedDone) m.note = `${unestimatedDone} finished tickets had no estimate and are not counted.`; return m; })(),
+        rate('scope_added', 'Scope added mid-sprint', addedLate.length, added.length, 'Items added after the sprint started ÷ items in the sprint, sprints that closed in the period.', ['added late', 'items'], addedLate.map((i) => i.key)),
+        { ...rate('carry_over', 'Work carried over', carried.length, atEnd.length, 'Items in a sprint that were not done by its end ÷ items in the sprint, sprints that closed in the period. They roll into the next sprint.', ['not done', 'items'], carried.map((x) => x.i.key)), target: null, met: null },
+      ], detail: completion.map((c) => ({ ...c, pct: round1(c.pct) })) },
+    ],
+  };
+}
+
+// ---------- Data hygiene ----------
+// Not performance: whether the data behind the measures can be trusted. Shown on the Data checks page.
+export function hygiene(s: Slice) {
   // Code traceability
   const commits = s.mainCommits.filter((c) => inWin(s, c.at));
   const nonMerge = commits.filter((c) => !c.merge), plainMerges = commits.filter((c) => c.merge && !c.viaPr);
@@ -189,14 +214,6 @@ export function predictability(s: Slice) {
   const nonBugClosed = closed.filter((i) => !isBug(i)).length;
   return {
     groups: [
-      { id: 'delivery', title: 'Delivery against plan', question: 'Does the team deliver what it commits to?', measures: [
-        rate('sprint_completion', 'Sprint completion', doneSum, plannedSum, 'Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started.', ['points done', 'points committed']),
-        (() => { const m = rate('unplanned_work', 'Unplanned work', unplanned.reduce((t, x) => t + x.i.points!, 0), finished.reduce((t, x) => t + x.i.points!, 0),
-          'Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work.',
-          ['points unplanned', 'points finished'], unplanned.map((x) => x.i.key));
-          if (unestimatedDone) m.note = `${unestimatedDone} finished tickets had no estimate and are not counted.`; return m; })(),
-        rate('scope_added', 'Scope added mid-sprint', addedLate.length, added.length, 'Items added after the sprint started ÷ items in the sprint, sprints that closed in the period.', ['added late', 'items'], addedLate.map((i) => i.key)),
-      ], detail: completion.map((c) => ({ ...c, pct: round1(c.pct) })) },
       { id: 'traceability', title: 'Code traceability', question: 'Is all work visible as tickets and pull requests?', measures: [
         rate('use_of_branches', 'Use of branches', nonMerge.filter((c) => c.viaPr).length, nonMerge.length, 'Non-merge commits on the default branch that arrived through a merged PR ÷ all non-merge commits on the default branch, in the period. GitHub links each commit to its PR, whatever the merge strategy.', ['via a PR', 'commits'], nonMerge.filter((c) => !c.viaPr).map((c) => `${c.repo.split('/')[1]}@${c.sha.slice(0, 7)}`)),
         rate('merged_with_pr', 'Merged branches with PR', merged.length, merged.length + plainMerges.length, 'PRs merged to the default branch ÷ (those PRs + plain git merges on the default branch with no PR), in the period.', ['PR merges', 'all merges'], plainMerges.map((c) => `${c.repo.split('/')[1]}@${c.sha.slice(0, 7)}`)),
@@ -216,15 +233,18 @@ export function predictability(s: Slice) {
 export function efficiency(s: Slice) {
   const merged = mergedPrs(s);
   const hrs = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 3_600_000;
-  const cyc = s.sprints.flatMap((sp) => sp.issues).filter((i) => i.statusCategory === 'done' && i.inProgressSince && inWin(s, i.resolved));
-  const uniq = [...new Map(cyc.map((i) => [i.key, i])).values()];
+  // Review concentration: the one reviewer who did the largest share of reviews on merged PRs.
+  const reviews = new Map<string, number>(); for (const p of merged) for (const r of p.reviewers) reviews.set(r, (reviews.get(r) ?? 0) + 1);
+  const totalReviews = [...reviews.values()].reduce((t, n) => t + n, 0), topReviews = Math.max(0, ...reviews.values());
+  // CI on the default branch only: a red run on a feature branch is normal work in progress; a red main blocks everyone.
+  const ci = s.ci.filter((c) => inWin(s, c.at) && (!c.branch || !s.defaultBranches[c.repo] || c.branch === s.defaultBranches[c.repo]) && (c.conclusion === 'success' || c.conclusion === 'failure'));
   return {
     groups: [
       { id: 'pr_flow', title: 'Pull request flow', question: 'How fast does a change get from opened to merged?', measures: [
-        med('pr_cycle_hours', 'PR cycle time (median)', merged.map((p) => hoursExcludingWeekends(p.createdAt, p.mergedAt!, config.weekend, config.tzOffset)), 'hours',
-          `Median hours from PR opened to merged, leaving out weekend days (${config.weekend.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}, UTC${config.tzOffset >= 0 ? '+' : ''}${config.tzOffset}). PRs merged in the period.`, 'merged PRs'),
         med('pickup_time', 'Time to first review (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.createdAt, p.firstReviewAt!) / 24), 'days', 'Median days from PR opened to the first review or review comment by someone else, PRs merged in the period.', 'reviewed PRs'),
         med('review_time', 'Review to merge (median)', merged.filter((p) => p.firstReviewAt).map((p) => hrs(p.firstReviewAt!, p.mergedAt!) / 24), 'days', 'Median days from first review to merge, PRs merged in the period.', 'reviewed PRs'),
+        { ...rate('reviewer_load', 'Review concentration', topReviews, totalReviews, 'Reviews done by the busiest reviewer ÷ all reviews on PRs merged in the period. High means one person is the bottleneck. No names are shown.', ['by the busiest reviewer', 'reviews']), target: TARGETS.reviewer_load, met: totalReviews ? metTarget(round1((100 * topReviews) / totalReviews), TARGETS.reviewer_load) : null },
+        rate('ci_failure_rate', 'CI failure rate (main)', ci.filter((c) => c.conclusion === 'failure').length, ci.length, 'Failed CI runs on the default branch ÷ finished CI runs on the default branch, in the period. A red main blocks everyone.', ['failed', 'runs']),
         (() => { const xs = merged.map((p) => p.additions + p.deletions); const v = xs.length ? Math.round(median(xs)) : null; return { id: 'pr_size', title: 'PR size (median)', value: v, unit: 'count' as const, num: null, den: xs.length, denLabel: 'merged PRs', target: TARGETS.pr_size, met: metTarget(v, TARGETS.pr_size), how: 'Median lines changed (additions + deletions) per PR merged in the period.', smallSample: xs.length > 0 && xs.length < MIN_MEDIAN_SAMPLE }; })(),
       ] },
       (() => {
@@ -233,11 +253,7 @@ export function efficiency(s: Slice) {
           `Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: ${config.jira.waitStatuses.join(', ')}, or back in to do. Weekends left out.`,
           ['active hours', 'hours from start to done']);
         eff.note = `${f.tickets} tickets with a full status history.`;
-        const req = rate('flow_efficiency_request', 'Flow efficiency from request', Math.round(f.activeHours), Math.round(f.requestHours),
-          'Active working hours ÷ all working hours from the ticket being created to done, so time waiting in the backlog counts too (the Flow Framework\'s definition). Usually far lower than flow efficiency from start, which is the part the team controls.',
-          ['active hours', 'hours from created to done']);
-        req.target = null; req.met = null;
-        return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff, req], heatmap: f.heatmap };
+        return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff], heatmap: f.heatmap };
       })(),
       // The Flow Framework's five: velocity, time, load and distribution here; efficiency in "Where work waits".
       (() => {
@@ -258,9 +274,6 @@ export function efficiency(s: Slice) {
           loadM,
         ], distribution: dist, velocityByWeek: [...byWeek.entries()].map(([week, items]) => ({ week, items })) };
       })(),
-      { id: 'ticket_flow', title: 'Ticket flow', question: 'Once work starts, how long until it is done?', measures: [
-        med('cycle_time', 'Cycle time (median)', uniq.map((i) => (Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY), 'days', 'Median days from moving to In Progress to resolved, sprint tickets resolved in the period.', 'tickets'),
-      ] },
     ],
   };
 }
@@ -284,7 +297,7 @@ export function activitySummary(s: Slice) {
 
 // ---------- Per-team table for a report ----------
 export function perTeam<T>(team: string, days: Period, fn: (s: Slice) => T, now = Date.now()) {
-  const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))].sort((a, b) => a.localeCompare(b)) : [team];
+  const boards = team === 'all' ? allBoards() : [team];
   return boards.map((b) => ({ board: b, ...fn(slice(b, days, now)) }));
 }
 
@@ -294,7 +307,7 @@ export const flatMeasures = (r: { groups: { measures: Measure[] }[] }) => r.grou
 // only when the collected data reaches back that far (Jira JIRA_DAYS, GitHub GITHUB_DAYS); otherwise null.
 export function withPrevious<T extends { groups: { measures: Measure[] }[] }>(team: string, days: Period, fn: (s: Slice) => T, now = Date.now()): T {
   const cur = fn(slice(team, days, now));
-  const boards = team === 'all' ? [...new Set(store.scorecards().map((c) => c.board))] : [team];
+  const boards = team === 'all' ? allBoards() : [team];
   const starts = [...store.github().filter((g) => boards.includes(g.board)).map((g) => Date.parse(g.since)),
     ...store.projects().filter((p) => boards.includes(p.board)).map((p) => Date.parse(p.since))];
   const covered = starts.length > 0 && now - 2 * days * DAY >= Math.max(...starts) - DAY;
@@ -386,7 +399,7 @@ export function dora(s: Slice) {
       med('time_to_restore', 'Time to restore (median)', restore, 'hours', 'Median hours from alert fired to alert resolved, Sev0 to Sev2 incidents fired in the period (Azure Monitor).', 'resolved incidents'),
     ] },
     { id: 'lead_stages', title: 'Where lead time goes', question: 'Is the time in writing, reviewing, or waiting to release?', measures: [
-      stage('stage_coding', 'Coding time (median)', f.stages.median.coding, `Median hours from a PR's first commit (author date) to the PR being opened. ${f.stages.withFirstCommit} of ${f.stages.prs} PRs have commit dates.`),
+      { ...stage('stage_coding', 'Coding time (median)', f.stages.median.coding, 'Median hours from a PR\'s first commit (author date) to the PR being opened. PRs without commit dates count from when they were opened.'), note: f.stages.prs ? `${f.stages.withFirstCommit} of ${f.stages.prs} PRs have commit dates.` : undefined },
       stage('stage_review', 'Review time (median)', f.stages.median.review, 'Median hours from PR opened to merged.'),
       stage('stage_deploy', 'Waiting to deploy (median)', f.stages.median.deploy, 'Median hours from merge to the first successful production deploy of its repo.'),
     ], stages: f.stages },
@@ -433,11 +446,6 @@ export function security(s: Slice) {
   const openCH = A.filter((a) => openAt(a, now) && (a.severity === 'critical' || a.severity === 'high'));
   const secrets = A.filter((a) => a.kind === 'secret' && openAt(a, now));
   const dismissed = A.filter((a) => a.state === 'dismissed' && inWin(s, a.closedAt));
-  const sonar = s.quality.map((q) => q.sonar).filter((x): x is NonNullable<typeof x> => !!x);
-  const sonarVulns: Measure = { id: 'vulnerabilities', title: 'SonarQube vulnerabilities', value: sonar.length ? sonar.reduce((t, x) => t + x.vulnerabilities, 0) : null, unit: 'count',
-    num: null, den: sonar.length, denLabel: sonar.length === 1 ? 'team' : 'teams', target: TARGETS.vulnerabilities, met: null, how: 'SonarQube open vulnerabilities, latest scan, all teams together (not the selected period).' };
-  sonarVulns.met = metTarget(sonarVulns.value, sonarVulns.target);
-
   const repos = Object.entries(s.security.coverage);
   const cov = (k: keyof ScanCoverage, id: string, title: string, what: string): Measure => {
     const known = repos.filter(([, c]) => c[k] != null), off = known.filter(([, c]) => c[k] === false).map(([r]) => r);
@@ -452,7 +460,6 @@ export function security(s: Slice) {
       count('security_overdue', 'Overdue now', overdue, 'Open alerts past their deadline at the end of the period, any severity with a deadline. Each is listed with its age.', true),
       count('security_open_critical_high', 'Open critical and high', openCH, 'Open critical and high alerts at the end of the period, within their deadline or not.'),
       count('secrets_open', 'Leaked secrets not yet revoked', secrets, 'Secrets (passwords, keys, tokens) found in code and not yet revoked, at the end of the period. Houston stores only the secret type, never the secret.'),
-      sonarVulns,
       { ...count('security_dismissed', 'Dismissed instead of fixed', dismissed, 'Alerts dismissed in the period (false positive, won\'t fix, used in tests, or auto-dismissed). Shown so dismissals are seen, not hidden.'), target: null, met: null },
     ] },
     { id: 'scan_coverage', title: 'Scanning turned on', question: 'Is every repo actually being scanned?', measures: [
@@ -547,5 +554,21 @@ export function support(s: Slice) {
   ] };
 }
 
-// Report names as the pages show them.
-export const REPORTS = { dora, flow: efficiency, quality, planning: predictability, security, support } as const;
+// ---------- Production ----------
+// Incidents in the period (Azure Monitor alerts, Sev0 to Sev2), and server errors and availability from Application
+// Insights (last 30 days as collected, not the selected period). Several teams: requests-weighted errors, lowest availability.
+export function production(s: Slice) {
+  const inc = s.incidents.filter((i) => inWin(s, i.firedAt));
+  const req = s.ops.reduce((t, o) => t + o.requests30d, 0);
+  const err = s.ops.length ? round1(req ? s.ops.reduce((t, o) => t + o.failedRate * o.requests30d, 0) / req : median(s.ops.map((o) => o.failedRate))) : null;
+  const avs = s.ops.map((o) => o.availability).filter((v): v is number => v != null), av = avs.length ? Math.min(...avs) : null;
+  const one = (id: string, title: string, value: number | null, how: string): Measure => ({ id, title, value, unit: '%', num: null, den: s.ops.length, denLabel: s.ops.length === 1 ? 'team' : 'teams', target: TARGETS[id], met: metTarget(value, TARGETS[id]), how });
+  return { groups: [{ id: 'production', title: 'Production', question: 'What breaks in production?', measures: [
+    { id: 'incidents', title: 'Incidents', value: inc.length, unit: 'count' as const, num: null, den: null, target: null, met: null, how: 'Sev0 to Sev2 incidents (Azure Monitor alerts) fired in the period.' },
+    one('server_errors', 'Server errors', err, 'Requests answered with a 5xx server error ÷ all requests, last 30 days (Application Insights).'),
+    one('availability', 'Availability', av, 'Availability from Application Insights availability tests, last 30 days. Not measured when there are no tests.'),
+  ], note: 'Server errors and availability are the last 30 days as collected, not the selected period.' }] };
+}
+
+// Every measure, by where it is calculated. The headline and drill-down layout is in performance.ts.
+export const REPORTS = { dora, planning, quality, flow: efficiency, support, production, security } as const;

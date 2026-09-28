@@ -107,7 +107,7 @@ Then('Houston now collects {string} for {string}', function (a: string, team: st
 });
 Then('Houston no longer collects anything for {string}', function (team: string) {
   const c = houston.config;
-  assert.ok(!c.jira.boards.some((x) => x.name === team) && !c.github.repos.some((x) => x.name === team) && !c.roster.some((x) => x.name === team) && !(team in c.jira.projects));
+  assert.ok(!c.jira.boards.some((x) => x.name === team) && !c.github.repos.some((x) => x.name === team) && !(team in c.jira.projects));
 });
 Then('the team list shows {string} set up in the admin page', async function (this: HoustonWorld, team: string) {
   const res = this.res; await this.request('GET', '/api/admin/teams', admin(this));
