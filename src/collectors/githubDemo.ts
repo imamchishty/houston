@@ -68,6 +68,17 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
   const mainCommits: MainCommit[] = prs.filter((p) => p.mergedAt).map((p) => ({ repo: p.repo, sha: `pr${p.number}`, at: p.mergedAt!, merge: false, viaPr: true }));
   for (let i = 0; i < (weak ? 34 : 3); i++) mainCommits.push({ repo: repos[i % 2], sha: `direct${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: false, viaPr: false });
   for (let i = 0; i < (weak ? 6 : 0); i++) mainCommits.push({ repo: repos[0], sha: `merge${i}`, at: new Date(since + r() * 89 * day).toISOString(), merge: true, viaPr: false });
+  // Full-stack tickets: the struggling team hands them between a backend and a frontend person (the frontend PR opens
+  // days after the backend one merged); the healthy team's people own them end to end (one PR touching both lanes).
+  const fe = prs.filter((p) => p.mergedAt && p.repo.endsWith('-web') && !p.areas.includes('backend')), be = prs.filter((p) => p.mergedAt && p.repo.endsWith('-api') && !p.areas.includes('frontend'));
+  for (let i = 0; i < Math.min(weak ? 18 : 4, fe.length, be.length); i++) {
+    const key = `${board}-${5000 + i}`, b = be[i], f = fe[i];
+    b.jiraKeys = [key]; f.jiraKeys = [key];
+    const open = Date.parse(b.mergedAt!) + (weak ? 2 + r() * 5 : 0.2 + r() * 0.5) * day;
+    Object.assign(f, { createdAt: new Date(open).toISOString(), firstReviewAt: new Date(open + 4 * hour).toISOString(), mergedAt: new Date(open + 30 * hour).toISOString(), closedAt: new Date(open + 30 * hour).toISOString(), approvedAt: new Date(open + 29 * hour).toISOString(), firstCommitAt: new Date(open - 3 * hour).toISOString() });
+  }
+  if (!weak) for (const p of prs.filter((x) => x.mergedAt && x.areas.includes('frontend') && x.areas.includes('backend')).slice(0, 14)) p.jiraKeys = [`${board}-${6000 + p.number}`];
+
   // Security alerts over 120 days. The weak team fixes slowly, has code scanning off on its web repo and one leaked
   // secret still open; the strong team fixes within days.
   const alerts: SecurityAlert[] = []; let an = 1;

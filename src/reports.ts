@@ -41,6 +41,7 @@ export const TARGETS: Record<string, Target> = {
   tickets_estimated: { op: '>', value: 90 }, tickets_in_sprint: { op: '>', value: 80 }, tickets_in_epic: { op: '>', value: 80 },
   pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 }, reviewer_load: { op: '<', value: 40 }, ci_failure_rate: { op: '<', value: 10 },
   server_errors: { op: '<', value: 1 }, availability: { op: '>', value: 99.9 },
+  handoff_rate: { op: '<', value: 25 }, lane_crossing: { op: '>', value: 50 },
   security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
   support_share: { op: '<', value: 20 }, support_out_of_hours: { op: '<', value: 10 }, support_repeat: { op: '<', value: 20 },
   scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
@@ -276,8 +277,41 @@ export function efficiency(s: Slice) {
           loadM,
         ], distribution: dist, velocityByWeek: [...byWeek.entries()].map(([week, items]) => ({ week, items })) };
       })(),
+      ownership(s),
     ],
   };
+}
+
+// ---------- Ownership ----------
+// End to end ownership: a ticket whose merged PRs touch both frontend and backend (GITHUB_LANES) is full-stack work.
+// It was owned end to end when one person merged work in both lanes; otherwise it was handed off between people,
+// and the hand-off has a cost: the gap between the first lane's last merge and the other lane's first PR.
+export function ownership(s: Slice) {
+  const merged = mergedPrs(s), keys = new Set(s.projectKeys);
+  const byTicket = new Map<string, PullRequest[]>();
+  for (const p of merged) for (const k of p.jiraKeys) if (!keys.size || keys.has(k.split('-')[0])) byTicket.set(k, [...(byTicket.get(k) ?? []), p]);
+  const lane = (p: PullRequest, l: string) => p.areas.includes(l);
+  const full = [...byTicket.entries()].filter(([, prs]) => prs.some((p) => lane(p, 'frontend')) && prs.some((p) => lane(p, 'backend')));
+  const handed = full.filter(([, prs]) => { const fe = new Set(prs.filter((p) => lane(p, 'frontend')).map((p) => p.author)), be = prs.filter((p) => lane(p, 'backend')).map((p) => p.author); return !be.some((a) => fe.has(a)); });
+  // The wait a hand-off adds: from the earlier lane's last merge to the later lane's first PR being opened.
+  const waits = handed.flatMap(([, prs]) => {
+    const fe = prs.filter((p) => lane(p, 'frontend')), be = prs.filter((p) => lane(p, 'backend'));
+    const lastMerge = (xs: PullRequest[]) => Math.max(...xs.map((p) => Date.parse(p.mergedAt!))), firstOpen = (xs: PullRequest[]) => Math.min(...xs.map((p) => Date.parse(p.createdAt)));
+    const feFirst = firstOpen(fe) <= firstOpen(be), gap = feFirst ? firstOpen(be) - lastMerge(fe) : firstOpen(fe) - lastMerge(be);
+    return gap > 0 ? [gap / DAY] : [0];
+  });
+  // Engineers who merged work in both lanes, of those active in either (5 or more merged PRs). Team level: no names.
+  const by = new Map<string, { n: number; fe: boolean; be: boolean }>();
+  for (const p of merged) { const e = by.get(p.author) ?? { n: 0, fe: false, be: false }; e.n++; e.fe ||= lane(p, 'frontend'); e.be ||= lane(p, 'backend'); by.set(p.author, e); }
+  const active = [...by.values()].filter((e) => e.n >= 5 && (e.fe || e.be)), both = active.filter((e) => e.fe && e.be);
+  return { id: 'ownership', title: 'End to end ownership', question: 'Is full-stack work owned by one person, or handed between frontend and backend?', measures: [
+    rate('handoff_rate', 'Full-stack tickets handed off', handed.length, full.length,
+      'Tickets whose merged PRs in the period touch both frontend and backend (GITHUB_LANES), where nobody merged work in both lanes: the work was handed between people. ÷ all such full-stack tickets.',
+      ['handed off', 'full-stack tickets'], handed.map(([k]) => k)),
+    med('handoff_wait', 'Wait added by a hand-off (median)', waits, 'days', 'For handed-off tickets: days from the first lane\'s last merge to the other lane\'s first PR being opened. Time the ticket sat between two people.', 'handed-off tickets'),
+    rate('lane_crossing', 'Engineers working across frontend and backend', both.length, active.length,
+      'Engineers with 5 or more merged PRs in the period who merged work in both frontend and backend ÷ those who merged in either. Team level only.', ['across both', 'active engineers']),
+  ] };
 }
 
 // ---------- Activity ----------

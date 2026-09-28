@@ -21,6 +21,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 import { allTeams, applySavedTeams, deleteTeam, normalise, problems, saveTeam, savedTeams } from './admin/teamSetup.js';
 import { checkConnections, testTeam, type Check } from './admin/connections.js';
 import { testReport } from './admin/testReport.js';
+import { allocation } from './admin/allocation.js';
 import { applySavedSettings, currentSettings, normaliseSettings, resetSettings, saveSettings, settingsProblems } from './admin/settings.js';
 import { adminLog, logAdmin } from './store/history.js';
 
@@ -304,6 +305,12 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     resetSettings();
     logAdmin(who(req), 'settings reset to .env', { name: 'settings' });
     return currentSettings();
+  });
+  // Allocation, admin only: who is working on what, what has stopped moving, what finished against the team's normal,
+  // and the sprint's rough person-days. Traces, never effort or output totals; every row is a ticket to ask about.
+  app.get<{ Params: { board: string } }>('/api/admin/allocation/:board', async (req, reply) => {
+    if (req.params.board === 'all' || !known(req.params.board)) return reply.code(404).send({ error: 'No such team' });
+    return allocation(req.params.board) ?? reply.code(404).send({ error: 'No sprints for this team' });
   });
   app.get('/api/admin/log', async () => adminLog());
 

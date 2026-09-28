@@ -23,11 +23,11 @@ Given('change failure rate is linked to deployments', function () { process.env.
 
 Given('these pull requests:', function (t: DataTable) {
   s.prs = t.hashes().map((r): PullRequest => ({
-    repo: 'org/repo', number: Number(r.pr), title: yes(r.revert) ? 'Revert "x"' : `change ${r.pr}`, author: 'a',
+    repo: 'org/repo', number: Number(r.pr), title: yes(r.revert) ? 'Revert "x"' : `change ${r.pr}`, author: r.author || 'a',
     createdAt: iso(r.opened), firstReviewAt: blank(r['first review']) ? (Number(r.reviews ?? 0) > 0 ? iso(r.opened) : null) : iso(r['first review']),
     approvedAt: null, mergedAt: blank(r.merged) ? null : iso(r.merged), closedAt: null, additions: 10, deletions: 5, changedFiles: 1,
     reviewers: Number(r.reviews ?? 0) > 0 ? ['b'] : [], reviewCount: Number(r.reviews ?? 0),
-    jiraKeys: blank(r.tickets) ? [] : r.tickets.split(',').map((x) => x.trim()), areas: [],
+    jiraKeys: blank(r.tickets) ? [] : r.tickets.split(',').map((x) => x.trim()), areas: blank(r.areas) ? [] : r.areas.split('+').map((x) => x.trim()),
     isHotfix: yes(r.hotfix), draft: yes(r.draft), branch: `b${r.pr}`, baseBranch: r.base || 'main',
     reviewComments: Number(r.comments ?? 0), isRevert: yes(r.revert), firstCommitAt: blank(r['first commit']) ? null : iso(r['first commit']),
   }));

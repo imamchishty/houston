@@ -120,3 +120,33 @@ Feature: Admin section
     When the admin saves SLAs "P0=1h/4h" with a working day of 08:00 to 17:00
     And the admin resets the settings
     Then support tickets are not judged against "p0"
+
+  Scenario: Allocation is for the admin only
+    When the user requests "/api/admin/allocation/OSSI"
+    Then the response status is 401
+    When the admin requests "/api/admin/allocation/OSSI"
+    Then the response status is 200
+    And the allocation has people with lanes, a last recorded date, in-progress and finished items, and no totals
+    When the admin requests "/api/admin/allocation/all"
+    Then the response status is 404
+
+  Scenario: Allocation signals: stuck, hoarding, and nothing recorded; capacity from people and working days
+    Given the day rate is 2000 AED
+    And a sprint "ABC Sprint 7" from Monday 2026-09-07 to Monday 2026-09-21 with these items:
+      | key   | points | status | resolved   | added | assignee | started    | waiting in   | since      |
+      | ABC-1 | 3      | doing  |            |       | Ann      | 2026-09-08 |              |            |
+      | ABC-2 | 3      | doing  |            |       | Ann      | 2026-09-08 | Ready for QA | 2026-09-08 |
+      | ABC-3 | 2      | done   | 2026-09-10 |       | Ann      | 2026-09-08 |              |            |
+      | ABC-4 | 2      | doing  |            |       | Bob      | 2026-09-08 |              |            |
+      | ABC-5 | 2      | doing  |            |       | Bob      | 2026-09-08 |              |            |
+      | ABC-6 | 2      | doing  |            |       | Bob      | 2026-09-08 |              |            |
+      | ABC-7 | 2      | doing  |            |       | Bob      | 2026-09-08 |              |            |
+      | ABC-8 | 5      | todo   |            |       |          |            |              |            |
+    When the allocation for "ABC" is read at 2026-09-16T12:00
+    # ABC-2 last moved Tuesday 8 Sept 09:00: 6.1 working days by Wednesday 16 Sept 12:00, so it is stuck; ABC-1 has
+    # no history, so its last move is when it started, also stuck. Ann finished ABC-3, so she is not hoarding.
+    # Bob's four have not moved either, and he has finished nothing: stuck and hoarding. Nobody is without a trace.
+    # Capacity: Ann and Bob, 10 working days.
+    Then Ann's signals are "2 in progress items have not moved for 5 or more working days"
+    And Bob's signals are "4 in progress items have not moved for 5 or more working days; 4 items in progress and nothing finished in 14 days"
+    And the capacity is 2 people, 10 working days, 20 person-days, AED 40000

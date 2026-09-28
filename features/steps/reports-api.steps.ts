@@ -27,8 +27,8 @@ Given(/^a (closed )?sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these item
     ...(r.flagged ? { flaggedSince: `${r.flagged}T09:00:00.000Z` } : {}),
     key: r.key, summary: r.key, type: 'Story', status: r['waiting in'] || (r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do'),
     statusCategory: r.status === 'done' ? 'done' : r.status === 'doing' ? 'inprogress' : 'todo', points: r.points ? Number(r.points) : null,
-    assignee: 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,
-    addedToSprintAt: r.added ? `${r.added}T12:00:00.000Z` : null, sprintIds: [1], inProgressSince: r.status === 'todo' ? null : '2026-09-08T09:00:00.000Z', epic: null,
+    assignee: r.assignee === '' ? null : r.assignee || 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,
+    addedToSprintAt: r.added ? `${r.added}T12:00:00.000Z` : null, sprintIds: [1], inProgressSince: r.status === 'todo' ? null : `${r.started || '2026-09-08'}T09:00:00.000Z`, epic: null,
   }));
   const sprint: Sprint = { id: 1, name, board: 'ABC', goal: 'g', start, end: `${to}T00:00:00.000Z`, state: closed ? 'closed' : 'active', issues };
   const { store } = await import('../../src/store/index.js');

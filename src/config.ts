@@ -15,6 +15,8 @@ export const config = {
     appInsights: pairs(process.env.AZURE_APPINSIGHTS), resourceGroups: pairs(process.env.AZURE_RESOURCE_GROUPS),
   },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
+  // A blended cost per person-day, for the rough sprint cost on the admin Allocation page. 0 = not shown.
+  rateDay: Number(process.env.RATE_DAY ?? 0), currency: process.env.CURRENCY ?? 'AED',
   // Optional: Compass (Core42) or any OpenAI-compatible chat API, to rewrite the weekly note in smoother prose.
   compass: { url: process.env.COMPASS_URL ?? '', key: process.env.COMPASS_KEY ?? '', model: process.env.COMPASS_MODEL ?? 'gpt-4o' },
   // Time zone for working days and weekends, hours from UTC (UAE: 4).
@@ -111,6 +113,7 @@ export function configProblems(c = config): string[] {
     check(k, v, /^https?:\/\/[^\s"'<>]+$/);
   if (c.compass.url && !c.compass.url.startsWith('https://')) out.push('COMPASS_URL must be https: the note goes over the network');
   if (!Number.isFinite(c.tzOffset) || c.tzOffset < -12 || c.tzOffset > 14) out.push('TZ_OFFSET_HOURS must be between -12 and 14');
+  if (!Number.isFinite(c.rateDay) || c.rateDay < 0) out.push('RATE_DAY must be a number, 0 or more');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
     const i = t.indexOf(':'), name = t.slice(0, i), token = t.slice(i + 1);

@@ -15,7 +15,7 @@ let saved: Record<string, unknown> | null = null;
 After(async function () {
   const c = houston.config;
   globalThis.fetch = real.fetch;
-  if (saved) { Object.assign(c.jira, saved.jira); Object.assign(c.github, saved.github); Object.assign(c.sonar, saved.sonar); Object.assign(c.testmo, saved.testmo); Object.assign(c.azure, saved.azure); c.mode = saved.mode as string; saved = null; }
+  if (saved) { Object.assign(c.jira, saved.jira); Object.assign(c.github, saved.github); Object.assign(c.sonar, saved.sonar); Object.assign(c.testmo, saved.testmo); Object.assign(c.azure, saved.azure); c.mode = saved.mode as string; c.rateDay = saved.rateDay as number; saved = null; }
   delete process.env.HOUSTON_TEST_REPORT;
   if (existsSync(join(c.dataDir, 'settings.json'))) (await import('../../src/admin/settings.js')).resetSettings();
   const f = join(c.dataDir, 'team-setup.json');
@@ -23,7 +23,7 @@ After(async function () {
 });
 const keep = () => {
   const c = houston.config;
-  saved ??= { jira: { ...c.jira }, github: { ...c.github }, sonar: { ...c.sonar }, testmo: { ...c.testmo }, azure: { ...c.azure }, mode: c.mode };
+  saved ??= { jira: { ...c.jira }, github: { ...c.github }, sonar: { ...c.sonar }, testmo: { ...c.testmo }, azure: { ...c.azure }, mode: c.mode, rateDay: c.rateDay };
 };
 
 Given('the admin account is {string} with password {string}', function (this: HoustonWorld, user: string, pass: string) {
@@ -161,4 +161,24 @@ Then('the change log shows {string} by {string}', async function (this: HoustonW
   await this.request('GET', '/api/admin/log', admin(this));
   const row = (body(this) as any[]).find((r) => r.action === action);
   assert.ok(row && row.user === by, JSON.stringify(body(this)).slice(0, 300));
+});
+
+// Allocation
+let alloc: any;
+Given('the day rate is {int} AED', function (rate: number) { keep(); houston.config.rateDay = rate; houston.config.currency = 'AED'; });
+When('the allocation for {string} is read at {word}', async function (board: string, at: string) {
+  const { allocation } = await import('../../src/admin/allocation.js');
+  alloc = allocation(board, Date.parse(`${at}:00Z`));
+});
+Then(/^(\w+)'s signals are "([^"]*)"$/, function (name: string, signals: string) {
+  const p = alloc.people.find((x: { name: string }) => x.name === name); assert.ok(p, name);
+  assert.deepEqual(p.signals, signals ? signals.split('; ') : []);
+});
+Then('the capacity is {int} people, {int} working days, {int} person-days, AED {int}', function (people: number, days: number, pd: number, cost: number) {
+  assert.deepEqual({ people: alloc.capacity.people, workingDays: alloc.capacity.workingDays, personDays: alloc.capacity.personDays, cost: alloc.capacity.cost, currency: alloc.capacity.currency }, { people, workingDays: days, personDays: pd, cost, currency: 'AED' });
+});
+Then('the allocation has people with lanes, a last recorded date, in-progress and finished items, and no totals', function (this: HoustonWorld) {
+  const a = body(this);
+  assert.ok(a.people.length >= 3);
+  for (const p of a.people) { assert.ok(Array.isArray(p.lanes) && Array.isArray(p.inProgress) && Array.isArray(p.finished)); assert.ok(!('prs' in p) && !('commits' in p) && !('lines' in p) && !('score' in p), 'no per person totals'); }
 });

@@ -88,7 +88,9 @@ npm run report    # both, plus npm audit, into reports/test-report.json (shown o
 - `HOUSTON_USER` and `HOUSTON_PASSWORD`: basic auth for everything. Outside demo mode Houston will not start without a password. 10 failed sign-ins from one address lock it out for 15 minutes. Serve over HTTPS.
 - `HOUSTON_API_TOKENS`: read-only bearer tokens for the IDP and other systems.
 - `HOUSTON_PEOPLE_VIEWERS`: who may see assignees on the sprint board. Everything else is team level.
-- `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD`: the admin section (test report for this build, connection health, team setup, change log). Always its own sign-in; a weak password works in demo mode only. Tokens are never shown or entered there.
+- `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD`: the admin section (Allocation, test report for this build, connection health, team setup, SLAs, change log). Always its own sign-in; a weak password works in demo mode only. Tokens are never shown or entered there.
+- **Allocation** (admin only): who is working on what now, items that have stopped moving, work finished against the team's own normal for its size, lanes worked in, the last recorded trace, and the sprint's rough person-days (with a cost at `RATE_DAY`). Traces from Jira and GitHub, not effort: no lines of code, no totals per person, no ranking, no AI estimates. Every row is a ticket to ask about.
+- End to end ownership is a team measure under lead time: full-stack tickets handed between people, what each hand-off cost in waiting, and the share of engineers working across frontend and backend (needs `GITHUB_LANES`).
 - Strict Content Security Policy, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `HOUSTON_URL` is https. Every POST needs `X-Requested-With: houston`.
 - `.env` values (and teams saved in the admin page) are validated before they reach any API path or query. `npm audit` is clean; CI fails on high or critical advisories.
 

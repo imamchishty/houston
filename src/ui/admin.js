@@ -2,7 +2,7 @@
 // Test report for this build, connection health, team setup and the change log. Signs in with the admin account
 // (the browser asks the first time an admin request is made). Token values are never shown or entered here.
 
-const ADMIN_TABS = [['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['settings', 'SLAs and working week'], ['log', 'Change log']];
+const ADMIN_TABS = [['allocation', 'Allocation'], ['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['settings', 'SLAs and working week'], ['log', 'Change log']];
 const adminApi = async (p, opts) => {
   const r = await fetch('/api/admin' + p, opts);
   const body = await r.json().catch(() => ({}));
@@ -29,9 +29,34 @@ async function adminPage(tab = 'tests') {
     <div class="tabs">${ADMIN_TABS.map(([k, l]) => `<a href="#_admin/${k}" class="${k === tab ? 'on' : ''}">${esc(l)}</a>`).join('')}</div>
     <div id="admin-body"><p class="muted">Loading…</p></div>`;
   const body = $('#admin-body');
-  try { body.innerHTML = await ({ tests: adminTests, connections: adminConnections, teams: adminTeams, settings: adminSettings, log: adminLog }[tab] ?? adminTests)(); }
+  try { body.innerHTML = await ({ allocation: adminAllocation, tests: adminTests, connections: adminConnections, teams: adminTeams, settings: adminSettings, log: adminLog }[tab] ?? adminTests)(); }
   catch (e) { body.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
   window.scrollTo(0, 0);
+}
+
+// Allocation: who is working on what, for the admin only. Traces, never effort; no totals per person, no ranking.
+async function adminAllocation() {
+  const teams = (await adminApi('/teams')).map((t) => t.name);
+  ADMIN.team = teams.includes(ADMIN.team) ? ADMIN.team : teams[0];
+  if (!ADMIN.team) return '<p class="empty">No teams yet.</p>';
+  const a = await adminApi(`/allocation/${encodeURIComponent(ADMIN.team)}`);
+  const d1 = (v) => (v == null ? '·' : chartFmt(v));
+  const person = (p) => `<section class="card person"><h3>${esc(p.name)} <span class="muted small">${p.lanes.length ? esc(p.lanes.join(' and ')) : 'no merged PRs in 90 days'} · last recorded ${p.lastTrace ? esc(p.lastTrace) : 'never'}</span></h3>
+    ${p.signals.length ? `<p>${p.signals.map((s) => `<span class="st amber"><i aria-hidden="true">●</i>${esc(s)}</span>`).join(' ')}</p>` : ''}
+    <details${p.inProgress.some((x) => x.stuck) ? ' open' : ''}><summary>In progress (${esc(p.inProgress.length)})</summary>${p.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr>
+      ${p.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}${x.waiting ? ' <span class="st amber"><i aria-hidden="true">●</i>waiting</span>' : ''}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num">${d1(x.daysInProgress)}</td><td class="num ${x.stuck ? 'warn' : ''}">${d1(x.daysSinceMove)}${x.stuck ? ' ▲' : ''}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}</details>
+    <details><summary>Finished, last 30 days (${esc(p.finished.length)})</summary>${p.finished.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th class="num">Points</th><th>Done</th><th class="num">Days</th><th class="num">Team's normal for this size</th></tr>
+      ${p.finished.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td class="num">${esc(x.points ?? '·')}</td><td>${esc(x.resolved)}</td><td class="num ${x.over ? 'warn' : ''}">${d1(x.days)}${x.over ? ' ▲' : ''}</td><td class="num">${d1(x.normal)}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing finished in 30 days.</p>'}</details>
+  </section>`;
+  const c = a.capacity;
+  return `<div class="card warnbox"><b>For your eyes only.</b> These are traces from Jira and GitHub, not effort. A quiet row can mean leave, incidents, reviews or design work. Use it to find the ticket to ask about, not to grade anyone. There are no totals or rankings per person here on purpose.</div>
+    <div class="filters" role="group" aria-label="Team"><label>Team <select data-admin="allocteam">${teams.map((t) => `<option value="${esc(t)}"${t === ADMIN.team ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label></div>
+    ${c ? `<div class="tiles"><div class="tile"><div class="k">${esc(c.sprint)}</div><div class="v">${esc(c.people)}<small> people</small></div><div class="s">with tickets in the sprint</div></div>
+      <div class="tile"><div class="k">Rough capacity</div><div class="v">${esc(c.personDays)}<small> person-days</small></div><div class="s">${esc(c.people)} people × ${esc(c.workingDays)} working days</div></div>
+      ${c.cost != null ? `<div class="tile"><div class="k">Rough sprint cost</div><div class="v">${esc(c.currency)} ${esc(Math.round(c.cost).toLocaleString())}</div><div class="s">at ${esc(c.currency)} ${esc(c.rateDay.toLocaleString())} a person-day (RATE_DAY)</div></div>` : `<div class="tile"><div class="k">Rough sprint cost</div><div class="v small">Set RATE_DAY</div><div class="s">a blended cost per person-day in .env</div></div>`}</div>` : ''}
+    ${a.worthAConversation.length ? `<div class="card attention"><h3>Worth a conversation</h3><ul>${a.worthAConversation.map((w) => `<li><b>${esc(w.name)}</b>: ${esc(w.signals.join('; '))}</li>`).join('')}</ul></div>` : '<p class="note">Nothing stands out: everything assigned is moving.</p>'}
+    ${a.people.map(person).join('')}
+    <p class="note">In progress: days since the ticket last changed status; ▲ 5 or more working days. Finished: days from start to done against the team's median for tickets of that size; ▲ more than 3× that. Lanes are from merged PRs in the last 90 days. Capacity counts people with tickets in the sprint, whatever their hours.</p>`;
 }
 
 // Tests: what was proven for this build.

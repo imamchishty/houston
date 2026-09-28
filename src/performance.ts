@@ -16,7 +16,7 @@ export const HEADLINES: string[] = AREAS.flatMap((a) => [...a.headlines]);
 // What explains each headline, in the order to read it.
 export const DRILL: Record<string, string[]> = {
   deploy_frequency: [],
-  lead_time: ['stage_coding', 'stage_review', 'stage_deploy'],
+  lead_time: ['stage_coding', 'stage_review', 'stage_deploy', 'handoff_rate', 'handoff_wait', 'lane_crossing'],
   sprint_completion: ['unplanned_work', 'scope_added', 'carry_over'],
   defect_leakage: ['bugs_per_change', 'qa_rejection', 'pr_review_rate', 'quality_gate_pass', 'new_code_coverage', 'test_pass_rate'],
   bug_workload: ['bug_lead_time', 'bug_fix_find', 'revert_ratio'],

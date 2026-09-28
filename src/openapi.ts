@@ -77,6 +77,7 @@ export const openapi = (version: string) => ({
       post: { summary: 'Admin: change them. Checked with the same rules as .env, applied at once, logged', security: adminOnly, requestBody: { required: true, content: { 'application/json': { schema: { type: 'object' } } } }, responses: { ...adminResponses('Settings'), 400: json('Problems') } },
       delete: { summary: 'Admin: go back to the .env values; logged', security: adminOnly, responses: adminResponses('Settings') },
     },
+    '/api/admin/allocation/{board}': { get: { summary: 'Admin only: who is working on what now, items that have stopped moving, work finished against the team\'s own normal for its size, lanes worked in, last recorded trace, and the sprint\'s rough person-days and cost (RATE_DAY). Traces, not effort; no totals per person, no ranking', security: adminOnly, parameters: [board], responses: { ...adminResponses('Allocation'), 404: json('No such team') } } },
     '/api/admin/log': { get: { summary: 'Admin: what admins changed, who and when', security: adminOnly, responses: adminResponses('Change log') } },
     '/api/openapi.json': { get: { summary: 'This document', responses: { 200: json('OpenAPI document') } } },
   },
