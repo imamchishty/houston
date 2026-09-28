@@ -25,7 +25,7 @@ Given(/^a (closed )?sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these item
     // "waiting in": the item sits in that status since the "since" date (09:00 UTC), e.g. Blocked or Ready for QA.
     ...(r['waiting in'] ? { statusHistory: [{ at: `${r.since}T09:00:00.000Z`, to: r['waiting in'], category: 'indeterminate' as const }] } : {}),
     ...(r.flagged ? { flaggedSince: `${r.flagged}T09:00:00.000Z` } : {}),
-    key: r.key, summary: r.key, type: 'Story', status: r['waiting in'] || (r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do'),
+    key: r.key, summary: r.key, type: r.type || 'Story', status: r['waiting in'] || (r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do'),
     statusCategory: r.status === 'done' ? 'done' : r.status === 'doing' ? 'inprogress' : 'todo', points: r.points ? Number(r.points) : null,
     assignee: r.assignee === '' ? null : r.assignee || 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,
     addedToSprintAt: r.added ? `${r.added}T12:00:00.000Z` : null, sprintIds: [1], inProgressSince: r.status === 'todo' ? null : `${r.started || '2026-09-08'}T09:00:00.000Z`, epic: null,
@@ -59,4 +59,12 @@ Then('scope on {word} is {int} and on {word} is {int}', function (d1: string, s1
 });
 Then('blocked or waiting now lists, in order:', function (t: DataTable) {
   assert.deepEqual(board.blocked.map((b: any) => [b.key, b.status, b.kind, String(b.days)]), t.raw());
+});
+Then("the sprint's tickets are, in order:", function (t: DataTable) {
+  assert.deepEqual(board.tickets.map((x: any) => [x.key, x.type, x.state, x.assignee ?? '']), t.raw());
+});
+Then('{word} was added after the sprint started', function (key: string) { assert.equal(board.tickets.find((x: any) => x.key === key).addedLate, true); });
+When('the sprint board is read with names at {word}', async function (at: string) {
+  const { currentSprint } = await import('../../src/sprintNow.js');
+  board = currentSprint('ABC', true, Date.parse(`${at}:00Z`));
 });

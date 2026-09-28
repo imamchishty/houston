@@ -110,6 +110,17 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
     oldWip: inProgress.filter((x) => x.old).length, state: sp.state, id: sp.id,
     // Right now, for execution: what is stuck, and what has been in progress far longer than normal for its size.
     blocked, ageing: inProgress.filter((x) => x.old),
+    // Every ticket in the sprint, for the list that filters by person, type and state. Who is on what: assignee for
+    // people viewers (everyone signed in, unless HOUSTON_PEOPLE_VIEWERS narrows it).
+    tickets: items.map((i) => {
+      const moved = i.statusHistory?.length ? i.statusHistory[i.statusHistory.length - 1].at : i.inProgressSince;
+      const ip = inProgress.find((x) => x.key === i.key);
+      return { key: i.key, summary: i.summary, type: i.type, status: i.status, state: i.statusCategory, points: i.points, days: ip?.days ?? null, old: !!ip?.old,
+        daysSinceMove: moved && i.statusCategory === 'inprogress' ? Math.round((hoursExcludingWeekends(moved, new Date(now).toISOString(), config.weekend, config.tzOffset) / 24) * 10) / 10 : null,
+        waiting: config.jira.waitStatuses.includes(i.status.toLowerCase()), flagged: !!i.flaggedSince, resolved: i.resolved?.slice(0, 10) ?? null,
+        addedLate: !!i.addedToSprintAt && i.addedToSprintAt > sp.start, ...(named ? { assignee: i.assignee } : {}) };
+    }),
+    jiraBrowse: config.jira.baseUrl ? `${config.jira.baseUrl.replace(/\/+$/, '')}/browse/` : null,
     sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),
   };
 }

@@ -80,6 +80,30 @@ function rightNow(cs, { link } = {}) {
   </div>`;
 }
 
+// ---------- Every ticket in the sprint, filterable by person, type and state ----------
+const TF = { person: 'all', type: 'all', state: 'all' };
+let TICKETS = null;
+const STATE = { todo: 'To do', inprogress: 'In progress', done: 'Done' };
+function ticketList(cs) {
+  TICKETS = cs;
+  const named = cs.tickets.some((t) => 'assignee' in t);
+  const people = [...new Set(cs.tickets.map((t) => t.assignee ?? 'unassigned'))].sort((a, b) => a.localeCompare(b));
+  const types = [...new Set(cs.tickets.map((t) => t.type))].sort();
+  const sel = (k, label, opts, all, names) => `<label>${label} <select data-tf="${k}"><option value="all">${all}</option>${opts.map((o) => `<option value="${esc(o)}"${TF[k] === o ? ' selected' : ''}>${esc(names ? names[o] : o)}</option>`).join('')}</select></label>`;
+  return `<h3>Tickets in this sprint <span class="muted">${esc(cs.tickets.length)}</span></h3>
+    <div class="filters" role="group" aria-label="Filter tickets">${named ? sel('person', 'Person', people, 'Everyone') : ''}${sel('type', 'Type', types, 'All types')}${sel('state', 'State', ['todo', 'inprogress', 'done'], 'Any state', STATE)}</div>
+    <div class="scrollx"><table class="t sortable" id="tickets"><thead><tr><th>Key</th><th>Summary</th><th>Type</th><th>Status</th>${named ? '<th>Person</th>' : ''}<th class="num">Points</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr></thead><tbody>${ticketRows(cs)}</tbody></table></div>
+    <p class="note">▲ in progress more than 3× the team's normal for its size · ● waiting or flagged · + added after the sprint started. Days since it moved: working days. Click a heading to sort.</p>`;
+}
+function ticketRows(cs) {
+  const named = cs.tickets.some((t) => 'assignee' in t);
+  const rows = cs.tickets.filter((t) => (TF.person === 'all' || (t.assignee ?? 'unassigned') === TF.person) && (TF.type === 'all' || t.type === TF.type) && (TF.state === 'all' || t.state === TF.state));
+  if (!rows.length) return `<tr><td colspan="8" class="muted">No tickets match.</td></tr>`;
+  return rows.map((t) => `<tr><td>${cs.jiraBrowse ? `<a href="${esc(cs.jiraBrowse + t.key)}" target="_blank" rel="noopener"><code>${esc(t.key)}</code></a>` : `<code>${esc(t.key)}</code>`}</td><td>${esc(t.summary)}${t.addedLate ? ' <span class="muted" title="Added after the sprint started">+</span>' : ''}</td><td>${esc(t.type)}</td>
+    <td>${esc(t.status)}${t.waiting || t.flagged ? ` <span class="st amber"><i aria-hidden="true">●</i>${t.flagged ? 'flagged' : 'waiting'}</span>` : ''}</td>${named ? `<td>${esc(t.assignee ?? 'unassigned')}</td>` : ''}<td class="num">${esc(t.points ?? '·')}</td><td class="num ${t.old ? 'warn' : ''}">${t.days == null ? '·' : esc(t.days)}${t.old ? ' ▲' : ''}</td><td class="num">${t.daysSinceMove == null ? '·' : esc(t.daysSinceMove)}</td></tr>`).join('');
+}
+document.addEventListener('change', (e) => { const k = e.target.dataset?.tf; if (!k || !TICKETS) return; TF[k] = e.target.value; $('#tickets tbody').innerHTML = ticketRows(TICKETS); });
+
 // ---------- Sprint board (team tab "Current sprint") ----------
 function sprintBoard(cs) {
   if (!cs || cs.error) return `<p class="empty">No sprint in progress for this team.</p>`;
@@ -93,6 +117,7 @@ function sprintBoard(cs) {
     <div class="card sb-title"><div class="k">Sprint <select class="sprintpick" data-board="${esc(cs.board)}">${cs.sprints.slice().reverse().map((x) => `<option value="${esc(x.id)}"${x.id === cs.id ? ' selected' : ''}>${esc(x.name)}${x.state === 'active' ? ' (now)' : ''}</option>`).join('')}</select></div><div class="sname">${esc(cs.sprint)}</div><div class="s">${esc(shortDate(cs.start))} to ${esc(shortDate(cs.end))}${cs.goal ? ` · ${esc(cs.goal)}` : ' · no sprint goal'}</div>
       <p class="note">Outlook: points done per working day so far (${esc(p.done)} in ${esc(cs.workingDaysElapsed)} days), carried to the end of the sprint: ${esc(p.projected)} of ${esc(p.scope)} points.</p></div>
     <div class="sb-now">${rightNow(cs)}</div>
+    <div class="card sb-tickets">${ticketList(cs)}</div>
     <div class="card sb-wip"><h3>Work in progress <span class="muted">${esc(cs.inProgress.length)} items, ${esc(cs.wip.people)} people${cs.wip.overLimit ? ` · <span class="down">${esc(cs.wip.overLimit)} ${cs.wip.overLimit === 1 ? 'person has' : 'people have'} more than ${esc(cs.wip.limit)} at once</span>` : ` · nobody over ${esc(cs.wip.limit)} at once`}</span></h3>
       ${cs.wip.over?.length ? `<p class="note">Over the limit: ${cs.wip.over.map((o) => `${esc(o.name)} (${esc(o.count)})`).join(', ')}. Starting fewer things finishes more.</p>` : ''}${cs.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days</th>${named ? '<th>Assignee</th>' : ''}</tr>
       ${cs.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num ${x.old ? 'warn' : ''}" title="${x.typical != null ? `Normal for this size: ${esc(x.typical)} days` : 'No normal yet for this size'}">${esc(x.days ?? '·')}${x.old ? ' ▲' : ''}</td>${named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : ''}</tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}

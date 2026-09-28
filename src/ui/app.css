@@ -203,6 +203,7 @@ section.group { margin-top:22px; } section.group > p.muted { margin:-4px 0 10px;
 .sboard h3 { margin:0 0 8px; font-size:15px; }
 .sb-days { grid-column:span 2; } .sb-rem { grid-column:span 2; } .sb-title { grid-column:span 3; } .sb-wip { grid-column:span 5; }
 .sb-now { grid-column:1 / -1; } .sb-now .rightnow { margin-top:0; }
+.sb-tickets { grid-column:1 / -1; } .sb-tickets .filters { margin:0 0 10px; }
 .sb-burn { grid-column:span 5; } .sb-prog { grid-column:span 4; } .sb-bugs { grid-column:span 3; }
 .sb-cycle { grid-column:span 7; } .sb-status { grid-column:span 5; }
 .sboard .k { font-size:13px; color:var(--muted); }

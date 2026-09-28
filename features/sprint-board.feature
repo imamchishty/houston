@@ -40,3 +40,16 @@ Feature: Current sprint numbers are exact
     # Flagged Tuesday 09:00, read Wednesday 12:00: 27 hours = 1.1 days. ABC-1 is not flagged or waiting.
     Then blocked or waiting now lists, in order:
       | ABC-8 | In Progress | Blocked | 1.1 |
+
+  Scenario: Every ticket in the sprint is listed with its type, state and person, for filtering
+    Given a sprint "ABC Sprint 7" from Monday 2026-09-07 to Monday 2026-09-21 with these items:
+      | key   | points | status | resolved   | added      | assignee | type  |
+      | ABC-1 | 5      | done   | 2026-09-10 |            | Ann      | Story |
+      | ABC-2 | 3      | doing  |            |            | Bob      | Bug   |
+      | ABC-3 | 2      | todo   |            | 2026-09-12 |          | Task  |
+    When the sprint board is read with names at 2026-09-16T12:00
+    Then the sprint's tickets are, in order:
+      | ABC-1 | Story | done       | Ann |
+      | ABC-2 | Bug   | inprogress | Bob |
+      | ABC-3 | Task  | todo       |     |
+    And ABC-3 was added after the sprint started
