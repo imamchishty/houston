@@ -28,6 +28,7 @@ npm run dev
 
 Open http://localhost:4000. For the admin section add `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD` to `.env`.
 Needs Node.js 22.13 or newer. **New to Node or Azure? Follow `SETUP.md`**: step by step from installing Node to running on Azure.
+**Using it day to day: `RUNNING.md`** (the pages, a weekly rhythm, what to do when a number looks wrong, where each setting lives).
 
 ## Going live
 

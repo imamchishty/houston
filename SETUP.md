@@ -7,6 +7,8 @@ Terminal). Type or paste one command at a time and press Enter. Lines starting w
 - **Part 2:** point it at your real Jira and GitHub (an hour, once you have the tokens)
 - **Part 3:** put it on Azure, deployed from GitHub with one click (an hour the first time, with your Azure admin)
 
+Once it is running, `RUNNING.md` is the one-page guide to using it day to day.
+
 ---
 
 ## Part 1: run it on your Mac with demo data
@@ -158,6 +160,20 @@ proved here is what runs on Azure.
 | Numbers | The dashboard and each team page | every team shows its headline measures; one sprint checked by hand matches |
 
 When everything is ticked, go to part 3.
+
+### 2.2 Optional extras
+
+All off until set. Each is a line or two in `.env` (restart Houston after changing it).
+
+| Extra | What you get | Settings |
+|---|---|---|
+| **Compass (Core42)** | The weekly note reworded in smoother prose (every number checked against Houston's own text), and **Ask Houston**: a question box on the dashboard and each team page, answered from Houston's numbers. Questions about people are refused. | `COMPASS_URL` (the OpenAI-compatible base, `https://...`), `COMPASS_KEY`, `COMPASS_MODEL` |
+| **Rough sprint cost** | On Admin, Allocation: people with tickets in the sprint × working days × a blended cost per person-day | `RATE_DAY`, `CURRENCY` |
+| **Ownership measures** | Full-stack tickets handed off, what each hand-off cost, engineers working across frontend and backend. Needs Houston to know which paths are frontend and backend. | `GITHUB_LANES=frontend=web/,src/ui/;backend=api/,src/server/` (edit to match your repos) |
+| **Teams post** | Each team's weekly note in a Teams channel every Friday | `TEAMS_WEBHOOK`, `HOUSTON_URL` |
+| **Who sees names on tickets** | Everyone signed in by default | `HOUSTON_PEOPLE_VIEWERS` to narrow it to named users |
+
+Once Houston is running, the day-to-day guide is `RUNNING.md`.
 
 ---
 
