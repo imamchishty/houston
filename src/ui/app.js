@@ -59,7 +59,7 @@ function teamCard(t, areas, all = false) {
   </a>`;
 }
 
-// Home page: every team as a card (alphabetical), and what needs attention.
+// Home page: all teams together first, then every team as a card (alphabetical), and what needs attention.
 async function overview() {
   $('#crumbs').innerHTML = '';
   const d = await api('/dashboard');
@@ -67,9 +67,9 @@ async function overview() {
     <div class="rephead"><div><h2 class="big">How teams are performing</h2><p class="muted">Last 30 days. The score is the share of headline targets met. ✓ met · ▲ missed · ↑ better or ↓ worse than the 30 days before · grey: too few items to judge. Click a team for what is behind each number.</p></div>
       <div class="tile${d.data.stale ? ' warn' : ''}"><div class="k">Data</div><div class="v small">${d.data.stale ? '▲ Stale' : '✓ Fresh'}</div><div class="s">Collected ${esc(ago(d.data.ageHours))} · <a href="#_data">data checks</a></div></div></div>
     ${d.attention.length ? `<div class="card attention"><h3>Needs attention <span class="muted small">missed its target two periods running</span></h3><ul>${d.attention.map((a) => `<li><a href="#${esc(encodeURIComponent(a.board))}"><b>${esc(a.board)}</b></a> · ${esc(SHORT[a.id] ?? a.title)}: ${esc(chartFmt(a.value))}${esc(unitOf(a))} <span class="muted">(${esc(targetText(a.target, a))})</span></li>`).join('')}</ul></div>` : ''}
-    <div class="teamcards">${d.teams.map((t) => teamCard(t, d.areas)).join('')}</div>
     ${d.all ? `<div class="teamcards all">${teamCard(d.all, d.areas, true)}</div>` : ''}
-    <p class="note">Teams in alphabetical order. Hover a measure for its target and counts.</p>`;
+    <div class="teamcards">${d.teams.map((t) => teamCard(t, d.areas)).join('')}</div>
+    <p class="note">All teams together first, then each team in alphabetical order. Hover a measure for its target and counts.</p>`;
   window.scrollTo(0, 0);
 }
 
