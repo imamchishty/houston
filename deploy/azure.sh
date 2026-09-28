@@ -45,7 +45,7 @@ az containerapp env storage set -n "$ENV" -g "$RG" --storage-name data --azure-f
 
 # Secrets and settings come from .env. Put real values there first. Never commit it.
 # Container Apps secret names allow only lowercase letters, digits and hyphens, so JIRA_API_TOKEN is stored as jira-api-token.
-SECRET_KEYS="JIRA_API_TOKEN GITHUB_TOKEN SONAR_TOKEN TESTMO_TOKEN HOUSTON_PASSWORD HOUSTON_ADMIN_PASSWORD AZURE_CLIENT_SECRET TEAMS_WEBHOOK HOUSTON_API_TOKENS"
+SECRET_KEYS="JIRA_API_TOKEN GITHUB_TOKEN SONAR_TOKEN TESTMO_TOKEN HOUSTON_PASSWORD HOUSTON_ADMIN_PASSWORD AZURE_CLIENT_SECRET TEAMS_WEBHOOK HOUSTON_API_TOKENS COMPASS_KEY"
 # Value of one key: last definition wins, inline "  # comment" and surrounding quotes removed.
 # A key missing from .env is just blank: grep finding nothing must not stop the script (set -e, pipefail).
 envval() { { grep -E "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//; s/^"(.*)"$/\1/'; }

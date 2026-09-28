@@ -92,10 +92,16 @@ npm run report    # both, plus npm audit, into reports/test-report.json (shown o
 - Strict Content Security Policy, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, HSTS when `HOUSTON_URL` is https. Every POST needs `X-Requested-With: houston`.
 - `.env` values (and teams saved in the admin page) are validated before they reach any API path or query. `npm audit` is clean; CI fails on high or critical advisories.
 
-## Weekly post in Teams
+## The weekly note and the post in Teams
 
-Set `TEAMS_WEBHOOK` and `HOUSTON_URL`. `npm run notify` posts each team's score and trend, its plain summary and what
-missed its target two periods running, with a link to the team page. No names. `deploy/azure.sh` schedules it for Fridays.
+Houston writes a note per team (top of the team page, `/api/teams/:board/note`): what changed, what moved with it,
+and what is likely next for the sprint in progress. Built by rules from the measures, so every number is exact; it
+names measures, never people. Optional: `COMPASS_URL`, `COMPASS_KEY` and `COMPASS_MODEL` (Core42 Compass, or any
+OpenAI-compatible chat API) reword it; Houston checks every number survived, or keeps its own text.
+
+
+Set `TEAMS_WEBHOOK` and `HOUSTON_URL`. `npm run notify` posts each team's note with a link to the team page. No names.
+`deploy/azure.sh` schedules it for Fridays.
 
 ## API
 

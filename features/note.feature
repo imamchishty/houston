@@ -51,3 +51,22 @@ Feature: The weekly note
     Then the response status is 200
     And the note has a score line, a what-changed line and a likely-next line
     And the response mentions none of the team's names
+
+  Scenario: Compass may rephrase the note, never change a number
+    Given Compass is configured and answers by rephrasing the note faithfully
+    When the note for "OSSI" is polished
+    Then the polished note is used, with every number of the rules note
+    Given Compass is configured and answers with a note that changes a number
+    When the note for "OSSI" is polished
+    Then the rules note is used
+    Given Compass is configured and answers with a note that adds a number
+    When the note for "OSSI" is polished
+    Then the rules note is used
+    Given Compass is configured and is down
+    When the note for "OSSI" is polished
+    Then the rules note is used
+
+  Scenario: Compass is sent the note only, with the key in the header, and is not called twice in a day
+    Given Compass is configured and answers by rephrasing the note faithfully
+    When the note for "OSSI" is polished twice
+    Then Compass was called once, with the key as a bearer token, and the request held only the note's lines

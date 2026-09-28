@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { boards } from './performance.js';
 import { weeklyNote } from './note.js';
+import { polish } from './polish.js';
 
 // Posts a markdown-ish card to a Teams incoming webhook. Used for the Friday digest and the Monday note.
 export async function postToTeams(title: string, lines: string[]) {
@@ -17,17 +18,18 @@ export const md = (s: string) => s.replace(/[\\`*_{}\[\]()<>#+!|~-]/g, (c) => '\
 
 // The weekly post for one team: the note (what changed, why, what is likely next), with a link to the team page.
 // Team level only: it goes to the whole channel.
-export function digestHeadline(board: string, now = Date.now()): { title: string; lines: string[] } | null {
+export async function digestHeadline(board: string, now = Date.now()): Promise<{ title: string; lines: string[] } | null> {
   const n = weeklyNote(board, now);
   if (!n) return null;
+  const { lines } = await polish(n, now);
   const link = config.publicUrl ? `${config.publicUrl}/#${encodeURIComponent(board)}` : '';
-  return { title: `Houston: ${md(board)}`, lines: [...n.lines.map((l) => mdKeep(l)), link ? `[Open ${md(board)} in Houston](${link})` : 'Set HOUSTON_URL for a link to the team page.'] };
+  return { title: `Houston: ${md(board)}`, lines: [...lines.map((l) => mdKeep(l)), link ? `[Open ${md(board)} in Houston](${link})` : 'Set HOUSTON_URL for a link to the team page.'] };
 }
 // Escape free text from Jira (sprint names) inside a note line, keeping the note's own **bold**.
 const mdKeep = (line: string) => line.split('**').map((part, i) => (i % 2 ? part : md(part).replace(/\\\./g, '.').replace(/\\,/g, ','))).join('**');
 
 export async function notifyBoard(board: string) {
-  const d = digestHeadline(board);
+  const d = await digestHeadline(board);
   if (!d) return { board, posted: false, reason: 'Nothing to judge yet' };
   return { board, ...(await postToTeams(d.title, d.lines)) };
 }

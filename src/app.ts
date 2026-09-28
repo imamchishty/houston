@@ -11,6 +11,7 @@ import { monthlyReport, monthlyMarkdown, monthOf } from './monthly.js';
 import { PERIODS, type Period } from './reports.js';
 import { boards, performance, HEADLINES } from './performance.js';
 import { weeklyNote } from './note.js';
+import { polish } from './polish.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { metricCatalogue } from './metrics.js';
@@ -173,7 +174,10 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
   // The weekly note: what changed, why, and what is likely next, in plain English. The same text the Friday post sends.
   app.get<{ Params: { board: string } }>('/api/teams/:board/note', async (req, reply) => {
     if (!known(req.params.board)) return reply.code(404).send({ error: 'No such team' });
-    return weeklyNote(req.params.board) ?? reply.code(404).send({ error: 'Nothing to judge yet' });
+    const n = weeklyNote(req.params.board);
+    if (!n) return reply.code(404).send({ error: 'Nothing to judge yet' });
+    const { lines, polished } = await polish(n);
+    return { ...n, lines, polished, rules: polished ? n.lines : undefined };
   });
 
   // The score and headline measures by day, for trends. Kept across deploys in the history database.

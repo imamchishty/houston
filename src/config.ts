@@ -15,6 +15,8 @@ export const config = {
     appInsights: pairs(process.env.AZURE_APPINSIGHTS), resourceGroups: pairs(process.env.AZURE_RESOURCE_GROUPS),
   },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
+  // Optional: Compass (Core42) or any OpenAI-compatible chat API, to rewrite the weekly note in smoother prose.
+  compass: { url: process.env.COMPASS_URL ?? '', key: process.env.COMPASS_KEY ?? '', model: process.env.COMPASS_MODEL ?? 'gpt-4o' },
   // Time zone for working days and weekends, hours from UTC (UAE: 4).
   tzOffset: Number(process.env.TZ_OFFSET_HOURS ?? 0),
   // How to tell production bugs from bugs caught before release, for defect leakage: labels, or a field's value.
@@ -105,8 +107,9 @@ export function configProblems(c = config): string[] {
   check('AZURE_LOG_WORKSPACE', c.azure.workspace, GUID);
   for (const a of c.azure.appInsights) check('AZURE_APPINSIGHTS app id', a.id, GUID);
   for (const r of c.azure.resourceGroups) check('AZURE_RESOURCE_GROUPS', r.id, /^[\w().-]{1,90}$/);
-  for (const [k, v] of [['JIRA_BASE_URL', c.jira.baseUrl], ['GITHUB_API', c.github.api], ['SONAR_URL', c.sonar.url], ['TESTMO_URL', c.testmo.url], ['HOUSTON_URL', c.publicUrl]] as const)
+  for (const [k, v] of [['JIRA_BASE_URL', c.jira.baseUrl], ['GITHUB_API', c.github.api], ['SONAR_URL', c.sonar.url], ['TESTMO_URL', c.testmo.url], ['HOUSTON_URL', c.publicUrl], ['COMPASS_URL', c.compass.url]] as const)
     check(k, v, /^https?:\/\/[^\s"'<>]+$/);
+  if (c.compass.url && !c.compass.url.startsWith('https://')) out.push('COMPASS_URL must be https: the note goes over the network');
   if (!Number.isFinite(c.tzOffset) || c.tzOffset < -12 || c.tzOffset > 14) out.push('TZ_OFFSET_HOURS must be between -12 and 14');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
