@@ -24,6 +24,7 @@ Given(/^a (closed )?sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these item
   const issues: Issue[] = t.hashes().map((r) => ({
     // "waiting in": the item sits in that status since the "since" date (09:00 UTC), e.g. Blocked or Ready for QA.
     ...(r['waiting in'] ? { statusHistory: [{ at: `${r.since}T09:00:00.000Z`, to: r['waiting in'], category: 'indeterminate' as const }] } : {}),
+    ...(r.flagged ? { flaggedSince: `${r.flagged}T09:00:00.000Z` } : {}),
     key: r.key, summary: r.key, type: 'Story', status: r['waiting in'] || (r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do'),
     statusCategory: r.status === 'done' ? 'done' : r.status === 'doing' ? 'inprogress' : 'todo', points: r.points ? Number(r.points) : null,
     assignee: 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,

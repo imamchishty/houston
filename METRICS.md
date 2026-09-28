@@ -43,7 +43,7 @@ Does work flow and reach users fast, and where is time wasted?
 | ↳ `stage_coding` Coding time | Time spent writing a change before it is opened for review. Long coding time usually means big changes. | Median hours from a PR's first commit (author date) to the PR being opened. PRs without commit dates count from when they were opened. |  |
 | ↳ `stage_review` Review time | Time a change waits for and goes through review. Often the biggest and easiest part of lead time to cut. | Median hours from PR opened to merged. |  |
 | ↳ `stage_deploy` Waiting to deploy | Time finished work waits to be released. Pure waste: the work is done but no one can use it. | Median hours from merge to the first successful production deploy of its repo. |  |
-| **`flow_efficiency` Flow efficiency** | The share of a ticket's time spent being worked on rather than waiting. The one number that says whether work flows. | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | Over 40% |
+| **`flow_efficiency` Flow efficiency** | The share of a ticket's time spent being worked on rather than waiting. The one number that says whether work flows. | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Working hours: 08:00 to 18:00 on working days, so nights and weekends count as neither. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. | Over 40% |
 | ↳ `flow_time` Flow time | How long work items take from being raised to done. | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | Under 14 days |
 | ↳ `flow_load` Flow load | Work in progress now. Too much at once means context switching and everything finishing later. | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
 | ↳ `flow_velocity` Flow velocity | Work items finished per week. A trend for the team, not a comparison between teams. | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
@@ -123,6 +123,8 @@ Are serious security issues fixed in time?
 - Working days: days from sprint start to end not in `WEEKEND`. Committed: points of items in the sprint before it started. Done: points of items resolved by now.
 - Outlook: projected = done ÷ working days elapsed × working days in the sprint. On track if projected ≥ scope, at risk if ≥ 80% of scope, otherwise off track.
 - Burndown: remaining = scope that day − done by that day. Jira does not report items removed from a sprint, so scope only rises.
+- Blocked or waiting now: open items flagged in Jira (the Impediment flag), or in a waiting status (`JIRA_WAIT_STATUSES`). Blocked (flagged, or a status with blocked, on hold or impediment in its name) first, then the longest waiting. Working days since flagged or since entering the status.
+- Ageing work: in progress more than 3× the team's median cycle time for tickets of the same size.
 
 ## Data checks
 

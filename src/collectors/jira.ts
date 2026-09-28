@@ -38,11 +38,14 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
   let addedToSprintAt: string | null = null;
   let inProgressSince: string | null = null;
   const statusHistory: { at: string; to: string; category: string }[] = [];
+  const flags: { at: string; on: boolean }[] = [];
   for (const h of changelog?.histories ?? []) {
     for (const it of h.items ?? []) {
       if (it.field === 'Sprint' && String(it.to ?? '').split(',').map((x: string) => x.trim()).includes(String(sprintId))) {
         if (!addedToSprintAt || h.created < addedToSprintAt) addedToSprintAt = h.created;
       }
+      // Jira's flag (Impediment): set when toString has a value, cleared when it is empty.
+      if (String(it.field ?? '').toLowerCase() === 'flagged') flags.push({ at: h.created, on: !!String(it.toString ?? '').trim() });
       if (it.field === 'status') {
         const cat = categories.get(String(it.to ?? ''));
         const started = cat ? cat === 'indeterminate' : /in progress/i.test(it.toString ?? ''); // name only if the status is unknown
@@ -52,7 +55,10 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
     }
   }
   statusHistory.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-  return { addedToSprintAt, inProgressSince, statusHistory };
+  // Flagged now if the latest flag change set it; since then.
+  const lastFlag = flags.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1);
+  const flaggedSince = lastFlag?.on ? lastFlag.at : null;
+  return { addedToSprintAt, inProgressSince, statusHistory, flaggedSince };
 }
 
 // Every status's category (new / indeterminate / done), once per run.
@@ -106,6 +112,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
         sprintIds: (f.closedSprints ?? []).map((s: any) => s.id).concat(f.sprint ? [f.sprint.id] : []),
         inProgressSince: cl.inProgressSince,
         statusHistory: cl.statusHistory,
+        flaggedSince: cl.flaggedSince,
         // Company-managed projects use the Epic Link field; team-managed ones make the epic the parent.
         epic: f[config.jira.epicField] ?? (f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic' ? f.parent.key : null),
       });

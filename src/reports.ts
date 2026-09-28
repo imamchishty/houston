@@ -252,7 +252,7 @@ export function efficiency(s: Slice) {
       (() => {
         const f = flow(s);
         const eff = rate('flow_efficiency', 'Flow efficiency', Math.round(f.activeHours), Math.round(f.activeHours + f.waitingHours),
-          `Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: ${config.jira.waitStatuses.join(', ')}, or back in to do. Weekends left out.`,
+          `Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Working hours: ${String(Math.floor(config.workingHours.start)).padStart(2, '0')}:00 to ${String(Math.floor(config.workingHours.end)).padStart(2, '0')}:00 on working days, so nights and weekends count as neither. Waiting: ${config.jira.waitStatuses.join(', ')}, or back in to do.`,
           ['active hours', 'hours from start to done']);
         eff.note = `${f.tickets} tickets with a full status history.`;
         return { id: 'flow', title: 'Where work waits', question: 'How much of a ticket\'s life is active work, and where does it sit idle?', measures: [eff], heatmap: f.heatmap };

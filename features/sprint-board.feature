@@ -30,3 +30,13 @@ Feature: Current sprint numbers are exact
     Then blocked or waiting now lists, in order:
       | ABC-6 | Blocked      | Blocked | 2.1 |
       | ABC-7 | Ready for QA | Waiting | 3.1 |
+
+  Scenario: An item flagged in Jira is blocked, whatever its status
+    Given a sprint "ABC Sprint 7" from Monday 2026-09-07 to Monday 2026-09-21 with these items:
+      | key   | points | status | resolved | added | flagged    |
+      | ABC-1 | 3      | doing  |          |       |            |
+      | ABC-8 | 3      | doing  |          |       | 2026-09-15 |
+    When the sprint board is read at 2026-09-16T12:00
+    # Flagged Tuesday 09:00, read Wednesday 12:00: 27 hours = 1.1 days. ABC-1 is not flagged or waiting.
+    Then blocked or waiting now lists, in order:
+      | ABC-8 | In Progress | Blocked | 1.1 |

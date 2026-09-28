@@ -1,12 +1,13 @@
 import { config } from './config.js';
 import { median } from './cycle.js';
-import { hoursExcludingWeekends, weekOf } from './time.js';
+import { workingMinutes, weekOf } from './time.js';
 import { leadTimes } from './leadtime.js';
 import type { Issue } from './types.js';
 import type { Slice } from './reports.js';
 
-// Where work waits. Built from each ticket's full status history (Jira changelog), in working hours: a ticket
-// parked over a weekend is not "waiting" for two days, because nobody is working.
+// Where work waits. Built from each ticket's full status history (Jira changelog), in working hours (WORKING_HOURS on
+// days not in WEEKEND, in TZ_OFFSET_HOURS): a ticket parked overnight or over a weekend is neither worked on nor
+// waiting, because nobody is working.
 //
 // A ticket's flow runs from its first move into an in-progress status to its resolution. Each stretch between two
 // status changes is time in the status it entered. Waiting: JIRA_WAIT_STATUSES (Blocked, Ready for ...), or any
@@ -14,7 +15,7 @@ import type { Slice } from './reports.js';
 
 const wait = (status: string, category: string) => config.jira.waitStatuses.includes(status.toLowerCase()) || category === 'new';
 const isQa = (status: string) => config.jira.qaStatuses.includes(status.toLowerCase());
-const hrs = (a: string, b: string) => hoursExcludingWeekends(a, b, config.weekend, config.tzOffset);
+const hrs = (a: string, b: string) => workingMinutes(a, b, config.weekend, config.tzOffset, config.workingHours) / 60;
 
 export interface Segment { status: string; waiting: boolean; hours: number }
 

@@ -60,10 +60,12 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
   // Blocked or waiting now: each item sitting in a waiting status, with how long it has been there (working days,
   // weekends left out, from its last move into that status). Blocked (blocked, on hold, impediment) comes first.
   const blockedKind = (st: string) => (/block|hold|imped/i.test(st) ? 'Blocked' : 'Waiting');
-  const blocked = queued.map((i) => {
-    const entered = [...(i.statusHistory ?? [])].reverse().find((h) => h.to === i.status)?.at ?? i.addedToSprintAt ?? sp.start;
+  // Items flagged in Jira (the Impediment flag) count as blocked, whatever their status: many teams flag blockers
+  // instead of moving them to a Blocked status.
+  const blocked = open.filter((i) => queued.includes(i) || i.flaggedSince).map((i) => {
+    const entered = i.flaggedSince ?? [...(i.statusHistory ?? [])].reverse().find((h) => h.to === i.status)?.at ?? i.addedToSprintAt ?? sp.start;
     const days = Math.round((hoursExcludingWeekends(entered, new Date(now).toISOString(), config.weekend, config.tzOffset) / 24) * 10) / 10;
-    return { key: i.key, summary: i.summary, status: i.status, kind: blockedKind(i.status), since: entered.slice(0, 10), days, ...(named ? { assignee: i.assignee } : {}) };
+    return { key: i.key, summary: i.summary, status: i.status, flagged: !!i.flaggedSince, kind: i.flaggedSince ? 'Blocked' : blockedKind(i.status), since: entered.slice(0, 10), days, ...(named ? { assignee: i.assignee } : {}) };
   }).sort((a, b) => Number(b.kind === 'Blocked') - Number(a.kind === 'Blocked') || b.days - a.days);
   const cycle = done.filter((i) => i.inProgressSince)
     .map((i) => ({ key: i.key, summary: i.summary, points: i.points, days: Math.round(((Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY) * 10) / 10 }))

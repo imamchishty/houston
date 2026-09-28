@@ -67,14 +67,14 @@ function rightNow(cs, { link } = {}) {
   const named = cs.blocked.some((x) => 'assignee' in x) || cs.ageing.some((x) => 'assignee' in x);
   const who = (x) => (named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : '');
   const blocked = cs.blocked.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Working days there</th>${named ? '<th>Assignee</th>' : ''}</tr>
-    ${cs.blocked.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td><span class="st ${x.kind === 'Blocked' ? 'red' : 'amber'}"><i aria-hidden="true">${x.kind === 'Blocked' ? '▲' : '●'}</i>${esc(x.status)}</span></td><td class="num">${esc(x.days)}</td>${who(x)}</tr>`).join('')}</table></div>`
+    ${cs.blocked.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td><span class="st ${x.kind === 'Blocked' ? 'red' : 'amber'}"><i aria-hidden="true">${x.kind === 'Blocked' ? '▲' : '●'}</i>${esc(x.status)}${x.flagged ? ' · flagged' : ''}</span></td><td class="num">${esc(x.days)}</td>${who(x)}</tr>`).join('')}</table></div>`
     : '<p class="note">Nothing is blocked or waiting.</p>';
   const ageing = cs.ageing.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Days in progress</th><th class="num">Normal for its size</th>${named ? '<th>Assignee</th>' : ''}</tr>
     ${cs.ageing.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.days)}</td><td class="num">${esc(x.typical)}</td>${who(x)}</tr>`).join('')}</table></div>`
     : '<p class="note">Nothing has been in progress far longer than normal.</p>';
   return `<div class="twocol rightnow">
     <div class="card"><h3>Blocked or waiting now <span class="muted small">${esc(cs.blocked.length)} ${cs.blocked.length === 1 ? 'item' : 'items'}</span></h3>${blocked}
-      <p class="note">Items in a waiting status (${esc('JIRA_WAIT_STATUSES')}): blocked ones first, then the longest waiting. Working days, weekends left out.</p></div>
+      <p class="note">Items flagged in Jira, or in a waiting status (${esc('JIRA_WAIT_STATUSES')}): blocked ones first, then the longest waiting. Working days since flagged or since entering the status, weekends left out.</p></div>
     <div class="card"><h3>Ageing work <span class="muted small">${esc(cs.ageing.length)} ${cs.ageing.length === 1 ? 'item' : 'items'}</span></h3>${ageing}
       <p class="note">In progress more than 3× the team's normal time for a ticket of that size.${link ? ` <a href="${esc(link)}">The whole sprint →</a>` : ''}</p></div>
   </div>`;

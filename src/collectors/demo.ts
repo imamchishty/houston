@@ -100,6 +100,8 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
       Object.assign(i, { status, statusCategory: 'inprogress', resolved: null, inProgressSince: started,
         statusHistory: [{ at: i.created, to: 'To Do', category: 'new' }, { at: started, to: 'In Progress', category: 'indeterminate' }, { at: since, to: status, category: 'indeterminate' }] });
     };
+    // One item flagged in Jira while still "In Progress": it must show as blocked too.
+    if (health < 0.6 && open[4]) { stuck(open[4], 'In Progress', 5, 5); open[4].flaggedSince = new Date(now - 1.5 * day).toISOString(); }
     if (health < 0.6) { if (open[0]) stuck(open[0], 'Blocked', 4, 12); if (open[1]) stuck(open[1], 'Blocked', 2, 6); if (open[2]) stuck(open[2], 'Ready for QA', 3, 9); if (open[3]) stuck(open[3], 'In Progress', 14, 14); }
     else if (open[0]) stuck(open[0], 'Ready for QA', 1, 3);
   }

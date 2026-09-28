@@ -1,6 +1,6 @@
 Feature: Flow measures are exact
   Flow efficiency, the bottleneck heatmap, QA rejection, lead time stages and deployment-linked change failure,
-  from hand-made histories. Weekends (Saturday, Sunday) are left out of working hours.
+  from hand-made histories. Working hours are 08:00 to 18:00 UTC; weekends (Saturday, Sunday) are left out.
 
   Background:
     Given a reporting period from 2026-09-01 to 2026-10-01
@@ -20,8 +20,11 @@ Feature: Flow measures are exact
       | ABC-2 | In Progress      | 2026-09-14T10:00 |
       | ABC-2 | Done             | 2026-09-14T12:00 |
     When the reports are calculated
-    Then flow_efficiency is 56 of 98, 57.1%
-    And the time in "In Progress" is 32 hours, "Ready for Review" 24, "In Review" 24 and "Blocked" 18
+    # Working hours 08:00 to 18:00, weekends off. ABC-1: 10 hours in each of In Progress, Ready for Review, In Review.
+    # ABC-2: In Progress Friday 10:00 to 16:00 (6), Blocked Friday 16:00 to Monday 10:00 (2 + 2), In Progress 10:00 to 12:00 (2).
+    # Nights count as neither active nor waiting.
+    Then flow_efficiency is 28 of 42, 66.7%
+    And the time in "In Progress" is 18 hours, "Ready for Review" 10, "In Review" 10 and "Blocked" 4
 
   Scenario: QA rejection counts tickets sent back, not tickets moving on
     Given these ticket histories:

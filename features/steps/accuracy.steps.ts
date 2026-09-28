@@ -52,3 +52,17 @@ Then('work started at {word}', async function (at: string) {
   const { fromChangelog } = await import('../../src/collectors/jira.js');
   assert.equal(fromChangelog({ histories }, 1, cats).inProgressSince, `${at}:00.000+0000`);
 });
+
+let flagHistory: any[] = [];
+Given("a ticket's flag history, oldest first:", function (t: DataTable) {
+  // Newest first, as Jira often returns it, to prove the order does not matter.
+  flagHistory = t.hashes().map((r) => ({ created: `${r.when}:00.000+0000`, items: [{ field: 'Flagged', fromString: '', toString: r.flag }] })).reverse();
+});
+Then('it has been flagged since {word}', async function (at: string) {
+  const { fromChangelog } = await import('../../src/collectors/jira.js');
+  assert.equal(fromChangelog({ histories: flagHistory }, 1, new Map()).flaggedSince, `${at}:00.000+0000`);
+});
+Then('it is not flagged', async function () {
+  const { fromChangelog } = await import('../../src/collectors/jira.js');
+  assert.equal(fromChangelog({ histories: flagHistory }, 1, new Map()).flaggedSince, null);
+});

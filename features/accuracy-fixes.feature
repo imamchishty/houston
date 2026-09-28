@@ -48,3 +48,16 @@ Feature: Accuracy rules that real data depends on
       | 2026-09-09T10:00 | 1  |
       | 2026-09-05T10:00 | 4  |
     Then work started at 2026-09-05T10:00
+
+  Scenario: A Jira flag counts while it is set, and not once it is cleared
+    Given a ticket's flag history, oldest first:
+      | when             | flag       |
+      | 2026-09-01T10:00 | Impediment |
+      | 2026-09-02T10:00 |            |
+      | 2026-09-04T09:00 | Impediment |
+    Then it has been flagged since 2026-09-04T09:00
+    Given a ticket's flag history, oldest first:
+      | when             | flag       |
+      | 2026-09-01T10:00 | Impediment |
+      | 2026-09-03T10:00 |            |
+    Then it is not flagged
