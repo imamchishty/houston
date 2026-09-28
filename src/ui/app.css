@@ -310,3 +310,5 @@ ul.lines { list-style:none; margin:0; padding:0; }
 ul.lines li { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:3px 0; font-size:14px; }
 ul.lines .ln { color:var(--ink); } ul.lines .lv { white-space:nowrap; font-variant-numeric:tabular-nums; }
 ul.lines .lv .up, ul.lines .lv .down, ul.lines .lv .tr { display:inline-block; width:1em; text-align:center; margin-left:2px; }
+
+.card.note p { margin:8px 0; line-height:1.55; } .card.note p.note { margin-top:12px; }

@@ -1,6 +1,6 @@
 Feature: Weekly post in Teams
-  Every Friday each team's performance goes to Teams: its score and trend, the plain summary, what missed its
-  target two periods running, and a link to the team page. It goes to everyone, so it names nobody.
+  Every Friday each team's weekly note goes to Teams: the score and trend, what changed and what moved with it, and
+  what is likely next, with a link to the team page. It goes to everyone, so it names nobody.
 
   Scenario: The headline is posted for every board, without names
     Given a Teams webhook is listening

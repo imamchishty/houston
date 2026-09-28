@@ -10,6 +10,7 @@ import { dataQuality } from './dataQuality.js';
 import { monthlyReport, monthlyMarkdown, monthOf } from './monthly.js';
 import { PERIODS, type Period } from './reports.js';
 import { boards, performance, HEADLINES } from './performance.js';
+import { weeklyNote } from './note.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
 import { openapi } from './openapi.js';
 import { metricCatalogue } from './metrics.js';
@@ -167,6 +168,12 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (!days) return reply.code(400).send({ error: `days must be one of ${PERIODS.join(', ')}` });
     if (!known(req.params.board)) return reply.code(404).send({ error: 'No such team' });
     return performance(req.params.board, days);
+  });
+
+  // The weekly note: what changed, why, and what is likely next, in plain English. The same text the Friday post sends.
+  app.get<{ Params: { board: string } }>('/api/teams/:board/note', async (req, reply) => {
+    if (!known(req.params.board)) return reply.code(404).send({ error: 'No such team' });
+    return weeklyNote(req.params.board) ?? reply.code(404).send({ error: 'Nothing to judge yet' });
   });
 
   // The score and headline measures by day, for trends. Kept across deploys in the history database.

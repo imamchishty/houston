@@ -1,5 +1,6 @@
 import { config } from './config.js';
-import { boards, performance } from './performance.js';
+import { boards } from './performance.js';
+import { weeklyNote } from './note.js';
 
 // Posts a markdown-ish card to a Teams incoming webhook. Used for the Friday digest and the Monday note.
 export async function postToTeams(title: string, lines: string[]) {
@@ -14,24 +15,16 @@ export async function postToTeams(title: string, lines: string[]) {
 // Markdown escape for free text from Jira (sprint names), so it cannot inject links or formatting.
 export const md = (s: string) => s.replace(/[\\`*_{}\[\]()<>#+!|~-]/g, (c) => '\\' + c);
 
-// The weekly post for one team: its score and trend, the plain summary, and what has missed its target two periods
-// running. Team level only: it goes to the whole channel.
+// The weekly post for one team: the note (what changed, why, what is likely next), with a link to the team page.
+// Team level only: it goes to the whole channel.
 export function digestHeadline(board: string, now = Date.now()): { title: string; lines: string[] } | null {
-  const p = performance(board, 30, now);
-  if (!p.score.of) return null;
-  const s = p.score, twice = p.missed.filter((m) => m.missedTwice);
-  const trend = s.previousPct == null ? '' : s.trend === 'better' ? `, up from ${s.previousPct}%` : s.trend === 'worse' ? `, down from ${s.previousPct}%` : ', no change';
+  const n = weeklyNote(board, now);
+  if (!n) return null;
   const link = config.publicUrl ? `${config.publicUrl}/#${encodeURIComponent(board)}` : '';
-  return {
-    title: `Houston: ${md(board)}`,
-    lines: [
-      `**${s.pct}% of targets met** (${s.met} of ${s.of}) over the last 30 days${trend}.`,
-      md(p.summary),
-      ...(twice.length ? [`Missed two periods running: ${twice.map((m) => md(m.title)).join(', ')}.`] : []),
-      link ? `[Open ${md(board)} in Houston](${link})` : 'Set HOUSTON_URL for a link to the team page.',
-    ],
-  };
+  return { title: `Houston: ${md(board)}`, lines: [...n.lines.map((l) => mdKeep(l)), link ? `[Open ${md(board)} in Houston](${link})` : 'Set HOUSTON_URL for a link to the team page.'] };
 }
+// Escape free text from Jira (sprint names) inside a note line, keeping the note's own **bold**.
+const mdKeep = (line: string) => line.split('**').map((part, i) => (i % 2 ? part : md(part).replace(/\\\./g, '.').replace(/\\,/g, ','))).join('**');
 
 export async function notifyBoard(board: string) {
   const d = digestHeadline(board);

@@ -67,7 +67,7 @@ Then('every card links to {string}', function (this: HoustonWorld, prefix: strin
   for (const c of this.webhook!.cards) assert.ok(c.text.includes(prefix), c.text);
 });
 Then('every card gives the share of targets met', function (this: HoustonWorld) {
-  for (const c of this.webhook!.cards) assert.match(c.text, /\*\*\d+% of targets met\*\* \(\d+ of \d+\)/, c.text);
+  for (const c of this.webhook!.cards) assert.match(c.text, /\*\*\d+% of targets met\*\* \\\(\d+ of \d+\\\)/, c.text);
 });
 Then('every board reports {string}', function (this: HoustonWorld, reason: string) {
   assert.ok(this.notified!.length > 0);
