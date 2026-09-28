@@ -51,8 +51,26 @@ async function github() {
       const dep = names.filter((n: string) => n.toLowerCase().includes(config.github.deployWorkflow.toLowerCase()));
       dep.length ? ok(`${repo}: deploy workflow matched "${dep.join('", "')}"`) : bad(`${repo}: no workflow name contains "${config.github.deployWorkflow}". Workflows: ${names.join(', ') || 'none'}. Set GITHUB_DEPLOY_WORKFLOW`);
     }
+    // Security alerts: readable, turned off for the repo, or not readable (the token lacks security_events).
+    const a = await fetch(`${config.github.api}/repos/${repo}/dependabot/alerts?per_page=1`, { headers: h });
+    await a.body?.cancel();
+    a.ok ? ok(`${repo}: security alerts readable`) : a.status === 404 ? skip(`${repo}: Dependabot alerts turned off for this repo (it will count against scanning coverage)`)
+      : bad(`${repo}: security alerts not readable (${a.status}). The token needs security_events`);
   }
-  if (!config.github.lanes.length) bad('GITHUB_LANES not set, lane crossing check will be empty');
+}
+
+async function support() {
+  console.log('Support tickets (Jira)');
+  if (!config.jira.token) return skip('JIRA_API_TOKEN not set');
+  const { supportJql } = await import('./collectors/support.js');
+  const { searchAll } = await import('./collectors/jiraSearch.js');
+  for (const b of config.jira.boards) {
+    try {
+      const n = (await searchAll(supportJql(b.name, 90), ['priority'], { limit: 1000 })).length;
+      n ? ok(`${b.name}: ${n} support tickets in 90 days or still open`) : bad(`${b.name}: no support tickets found. Set the team's support project, or the support issue types and labels (Admin, or SUPPORT_* in .env)`);
+    } catch (e) { bad(`${b.name}: ${(e as Error).message.slice(0, 160)}`); }
+  }
+  console.log(`  SLAs: ${Object.entries(config.jira.supportSla).map(([p, v]) => `${p} ${v.response}/${v.resolution}`).join(', ') || 'none set'}`);
 }
 
 async function sonar() {
@@ -95,7 +113,7 @@ async function azure() {
 
 console.log(`Houston connection check, mode=${config.mode}\n`);
 console.log('Config'); { const p = configProblems(); p.length ? p.forEach(bad) : ok('values look valid'); }
-await jira(); await github(); await sonar(); await testmo(); await azure();
+await jira(); await support(); await github(); await sonar(); await testmo(); await azure();
 console.log('Teams'); config.teamsWebhook ? ok('webhook set') : skip('TEAMS_WEBHOOK not set');
 console.log('If anything says FAIL, fix it before npm run collect.');
 

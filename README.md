@@ -32,8 +32,8 @@ Needs Node.js 22.13 or newer. **New to Node or Azure? Follow `SETUP.md`**: step 
 ## Going live
 
 See `GO-LIVE.md`. Short version: fill `.env` (start from `.env.example`), `npm run check`, fix any FAIL, `npm run collect`,
-deploy with `deploy/azure.sh` (`SETUP.md` part 3: choose `INGRESS=internal` with a company VNet, or `INGRESS=external`
-with `ALLOWED_IPS`). Teams, SLAs and the working week can also be changed later in the admin page.
+deploy from GitHub with one click (Actions, Deploy to Azure; one-time setup in `SETUP.md` part 3), or run `deploy/azure.sh`
+yourself. Choose `INGRESS=internal` with a company VNet, or `INGRESS=external` with `ALLOWED_IPS`. Teams, SLAs and the working week can also be changed later in the admin page.
 
 ### Jira
 

@@ -1,0 +1,58 @@
+# Deploy Houston to Azure from GitHub: Actions, "Deploy to Azure", Run workflow. It runs the same deploy/azure.sh you
+# would run by hand, on GitHub's machines: all tests first (a failure stops it), then build in Azure and update the app
+# and jobs, keeping the data. One-time setup (the Azure login for GitHub, the secrets and variables): SETUP.md, part 3.
+name: Deploy to Azure
+on:
+  workflow_dispatch: {}
+  # To deploy on every push to main as well, uncomment:
+  # push: { branches: [main] }
+
+permissions:
+  id-token: write   # sign in to Azure with GitHub's identity (OIDC): no Azure password stored in GitHub
+  contents: read
+
+concurrency: { group: deploy-houston, cancel-in-progress: false }   # one deploy at a time, never cancelled half way
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers to this environment to approve each deploy
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: pip install --quiet pyyaml
+
+      # The same .env you verified locally, from the HOUSTON_ENV secret. Written private, removed at the end.
+      - name: Settings from the HOUSTON_ENV secret
+        env: { HOUSTON_ENV: "${{ secrets.HOUSTON_ENV }}" }
+        run: |
+          [ -n "$HOUSTON_ENV" ] || { echo "::error::Add the HOUSTON_ENV secret (the contents of your .env). See SETUP.md part 3."; exit 1; }
+          umask 077 && printf '%s\n' "$HOUSTON_ENV" > .env
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - run: az extension add --name containerapp --upgrade --only-show-errors
+
+      - name: Test, build and deploy
+        env:
+          RG: ${{ vars.HOUSTON_RG || 'rg-houston' }}
+          LOC: ${{ vars.HOUSTON_LOCATION || 'uaenorth' }}
+          ENV: ${{ vars.HOUSTON_CONTAINERAPPS_ENV || 'houston-env' }}
+          INGRESS: ${{ vars.HOUSTON_INGRESS || 'internal' }}
+          ALLOWED_IPS: ${{ vars.HOUSTON_ALLOWED_IPS }}
+        run: bash deploy/azure.sh
+
+      - name: Keep the test report with the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: test-report, path: reports/test-report.json, if-no-files-found: ignore }
+
+      - name: Remove the settings file
+        if: always()
+        run: rm -f .env

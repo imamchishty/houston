@@ -56,4 +56,24 @@ grep -q 'access-restriction' "$T/log2" && fail "internal ingress should set no I
 INGRESS=external ALLOWED_IPS=1.2.3.4/32,5.6.7.0/24 run 3
 grep -q 'ingress update -n houston -g rg-test --type external' "$T/log3" || fail "INGRESS=external should make the app external"
 [ "$(count 'access-restriction set .*--action Allow' "$T/log3")" = 2 ] || fail "each ALLOWED_IPS address should get an allow rule"
+# The GitHub workflow: valid YAML; signs in with OIDC (no stored password); writes .env privately and removes it
+# whatever happens; runs the same script, which runs the tests first.
+python3 - "$ROOT/.github/workflows/deploy.yml" <<'PY2' || fail "deploy workflow"
+import sys, yaml
+w = yaml.safe_load(open(sys.argv[1]))
+on = w.get('on') or w.get(True)
+assert 'workflow_dispatch' in on, 'manual run'
+assert w['permissions'] == {'id-token': 'write', 'contents': 'read'}, 'least privilege, OIDC'
+steps = w['jobs']['deploy']['steps']
+names = [s.get('name') or s.get('uses') or s.get('run') for s in steps]
+i_env = next(i for i, s in enumerate(steps) if 'HOUSTON_ENV' in str(s.get('env', {})))
+i_login = next(i for i, s in enumerate(steps) if str(s.get('uses', '')).startswith('azure/login'))
+i_deploy = next(i for i, s in enumerate(steps) if 'deploy/azure.sh' in str(s.get('run', '')))
+assert i_env < i_deploy and i_login < i_deploy, 'settings and login before deploy'
+assert 'umask 077' in steps[i_env]['run'], '.env written private'
+rm = next(s for s in steps if s.get('run', '').strip() == 'rm -f .env')
+assert rm.get('if') == 'always()', '.env removed even on failure'
+assert 'HOUSTON_SKIP_REPORT' not in str(w), 'the deploy must run the tests'
+assert 'secrets.' not in str(steps[i_login]), 'Azure login uses ids, not stored secrets'
+PY2
 echo "deploy test ok: first deploy creates storage once, redeploy reuses $s1 and keeps /data mounted on app and jobs"
