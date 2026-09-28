@@ -33,7 +33,7 @@ git init -q && git -c user.email=ci@test -c user.name=ci commit -q --allow-empty
 printf 'HOUSTON_MODE=jira\nJIRA_API_TOKEN=token\nHOUSTON_PASSWORD="two words"\nGITHUB_TOKEN=   # blank\nCONFLUENCE_ADR_MARKERS=adr,architecture decision\n' > .env
 
 fail() { echo "FAIL: $*"; exit 1; }
-run() { : > "$T/state/log"; PATH="$T/bin:$PATH" AZ_STATE="$T/state" RG=rg-test HOUSTON_SKIP_REPORT=1 bash "$ROOT/deploy/azure.sh" > "$T/out" 2>&1 || { cat "$T/out"; fail "azure.sh exited non-zero on run $1"; }; cp "$T/state/log" "$T/log$1"; }
+run() { : > "$T/state/log"; PATH="$T/bin:$PATH" AZ_STATE="$T/state" RG=rg-test HOUSTON_SKIP_REPORT=1 INGRESS="${INGRESS:-internal}" ALLOWED_IPS="${ALLOWED_IPS:-}" bash "$ROOT/deploy/azure.sh" > "$T/out" 2>&1 || { cat "$T/out"; fail "azure.sh exited non-zero on run $1"; }; cp "$T/state/log" "$T/log$1"; }
 count() { grep -cE -- "$1" "$2" || true; }
 
 run 1
@@ -50,4 +50,10 @@ s1=$(grep -oE 'storage-account [a-z0-9]+' "$T/log1" | head -1); s2=$(grep -oE 'a
 [ "$s1" = "$s2" ] || fail "redeploy pointed at a different storage account ($s1 vs $s2)"
 grep -q 'HOUSTON_PASSWORD=secretref:houston-password' "$T/log2" || fail "password should be a secret reference"
 grep -q 'GITHUB_TOKEN' "$T/log2" && fail "blank GITHUB_TOKEN should be skipped"
+grep -q 'ingress update -n houston -g rg-test --type internal' "$T/log2" || fail "default ingress should be internal"
+grep -q 'access-restriction' "$T/log2" && fail "internal ingress should set no IP rules"
+
+INGRESS=external ALLOWED_IPS=1.2.3.4/32,5.6.7.0/24 run 3
+grep -q 'ingress update -n houston -g rg-test --type external' "$T/log3" || fail "INGRESS=external should make the app external"
+[ "$(count 'access-restriction set .*--action Allow' "$T/log3")" = 2 ] || fail "each ALLOWED_IPS address should get an allow rule"
 echo "deploy test ok: first deploy creates storage once, redeploy reuses $s1 and keeps /data mounted on app and jobs"

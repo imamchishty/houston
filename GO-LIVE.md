@@ -21,7 +21,7 @@ Owner: Imam. Engineer: one platform engineer, about two days of their time.
 | Set `GITHUB_DEPLOY_WORKFLOW` to the real deploy workflow name, and the support settings (`SUPPORT_PROJECTS` or types and labels, `SUPPORT_SLA`) | Engineer |
 | Hand check sprint 14: 10 tickets, 10 PRs, against what Houston says | Imam and tech lead, one hour |
 | Fix every mismatch (it is always a mapping, not the maths) | Engineer |
-| Deploy: `deploy/azure.sh` or `docker compose -f deploy/docker-compose.yml up -d` on an internal VM | Engineer |
+| Deploy: `deploy/azure.sh` (see `SETUP.md` part 3) or `docker compose -f deploy/docker-compose.yml up -d` on an internal VM | Engineer |
 
 ## Wednesday: live to you
 

@@ -27,11 +27,13 @@ npm run dev
 ```
 
 Open http://localhost:4000. For the admin section add `HOUSTON_ADMIN_USER` and `HOUSTON_ADMIN_PASSWORD` to `.env`.
+Needs Node.js 22.13 or newer. **New to Node or Azure? Follow `SETUP.md`**: step by step from installing Node to running on Azure.
 
 ## Going live
 
 See `GO-LIVE.md`. Short version: fill `.env` (start from `.env.example`), `npm run check`, fix any FAIL, `npm run collect`,
-deploy with `deploy/azure.sh`. Teams can also be added or changed later in the admin page.
+deploy with `deploy/azure.sh` (`SETUP.md` part 3: choose `INGRESS=internal` with a company VNet, or `INGRESS=external`
+with `ALLOWED_IPS`). Teams, SLAs and the working week can also be changed later in the admin page.
 
 ### Jira
 

@@ -3,8 +3,14 @@
 # Run it for the first deploy and for every new version: it creates what is missing and updates what exists.
 # Data lives on an Azure Files share mounted at /data in the app and in both jobs, so it survives every redeploy.
 # Usage: RG=rg-houston LOC=uaenorth ./deploy/azure.sh
+#   INGRESS=internal (default): reachable only from your company network. Needs the Container Apps environment in a
+#     VNet (create it with your network team first, or set ENV to an existing one); otherwise nobody can open it.
+#   INGRESS=external: a public https address, protected by HOUSTON_PASSWORD. ALLOWED_IPS=1.2.3.4/32,5.6.7.0/24 limits
+#     it to your office or VPN addresses (recommended).
 set -euo pipefail
 RG=${RG:-rg-houston}; LOC=${LOC:-uaenorth}; ENV=${ENV:-houston-env}; APP=houston; SHARE=houston-data
+INGRESS=${INGRESS:-internal}; ALLOWED_IPS=${ALLOWED_IPS:-}
+case "$INGRESS" in internal|external) ;; *) echo "INGRESS must be internal or external"; exit 1;; esac
 
 python3 -c 'import yaml' 2>/dev/null || { echo "Needs PyYAML: pip3 install pyyaml"; exit 1; }
 [ -f .env ] || { echo "Run from the repo root with a filled .env"; exit 1; }
@@ -84,10 +90,17 @@ if exists az containerapp show -n "$APP" -g "$RG"; then
 else
   az containerapp create -n "$APP" -g "$RG" --environment "$ENV" \
     --image "$IMAGE" --registry-server "$ACR.azurecr.io" --registry-identity system \
-    --target-port 4000 --ingress internal --min-replicas 1 --max-replicas 1 \
+    --target-port 4000 --ingress "$INGRESS" --min-replicas 1 --max-replicas 1 \
     ${SECRET_ARGS[@]+"${SECRET_ARGS[@]}"} --env-vars "${ALL_ENV[@]}" -o none
 fi
 mount_share app "$APP"
+az containerapp ingress update -n "$APP" -g "$RG" --type "$INGRESS" -o none
+# Only these addresses may reach an external app. Each run sets the list again from ALLOWED_IPS.
+if [ "$INGRESS" = external ] && [ -n "$ALLOWED_IPS" ]; then
+  i=0; for ip in ${ALLOWED_IPS//,/ }; do i=$((i + 1))
+    az containerapp ingress access-restriction set -n "$APP" -g "$RG" --rule-name "allow$i" --ip-address "$ip" --action Allow -o none
+  done
+fi
 
 # Jobs write the history, so they need the share too. $1 name, $2 cron, rest: command.
 deploy_job() {
@@ -109,4 +122,5 @@ deploy_job houston-friday "0 5 * * 5" "${NODE[@]}" notify
 
 echo "Houston $TAG: $(az containerapp show -n "$APP" -g "$RG" --query properties.configuration.ingress.fqdn -o tsv)"
 echo "Data: share $SHARE on storage account $STORAGE. Turn on Azure Backup for it (GO-LIVE.md)."
-echo "Ingress is internal (VNet only). Put it behind your usual internal gateway or SSO proxy."
+if [ "$INGRESS" = internal ]; then echo "Ingress is internal: reachable from your company network only (the environment must be in a VNet)."
+else echo "Ingress is external (https). Protected by HOUSTON_PASSWORD${ALLOWED_IPS:+ and limited to $ALLOWED_IPS}."; fi
