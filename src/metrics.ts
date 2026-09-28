@@ -42,7 +42,7 @@ export function doraTier(id: string, value: number): DoraBand['tier'] | null {
 }
 
 const WHY: Record<string, string> = {
-  // Speed
+  // Planning and execution
   deploy_frequency: 'How often value reaches users. Teams that release often release smaller, safer changes and learn faster.',
   lead_time: 'How long a change takes from first commit to running in production. The clearest single measure of speed.',
   stage_coding: 'Time spent writing a change before it is opened for review. Long coding time usually means big changes.',

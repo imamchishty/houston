@@ -17,3 +17,16 @@ Feature: Current sprint numbers are exact
     And 1 item is unestimated
     And the ideal line runs from 16 to 0
     And scope on 2026-09-11 is 16 and on 2026-09-14 is 18
+
+  Scenario: Blocked or waiting now: blocked first, then the longest waiting, in working days
+    Given a sprint "ABC Sprint 7" from Monday 2026-09-07 to Monday 2026-09-21 with these items:
+      | key   | points | status | resolved | added | waiting in   | since      |
+      | ABC-1 | 3      | doing  |          |       |              |            |
+      | ABC-6 | 3      | doing  |          |       | Blocked      | 2026-09-14 |
+      | ABC-7 | 2      | doing  |          |       | Ready for QA | 2026-09-11 |
+    When the sprint board is read at 2026-09-16T12:00
+    # ABC-6: Monday 09:00 to Wednesday 12:00 = 51 hours = 2.1 days. ABC-7: Friday 09:00 to Wednesday 12:00, the
+    # weekend left out = 15 + 24 + 24 + 12 = 75 hours = 3.1 days. Blocked comes before waiting.
+    Then blocked or waiting now lists, in order:
+      | ABC-6 | Blocked      | Blocked | 2.1 |
+      | ABC-7 | Ready for QA | Waiting | 3.1 |

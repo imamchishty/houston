@@ -20,7 +20,7 @@ type P = { missed: { id: string; missedTwice: boolean }[]; areas: { headlines: {
 const body = (w: HoustonWorld) => JSON.parse(w.res!.body) as P;
 const everything = (p: P) => p.areas.flatMap((a) => a.headlines.flatMap((h) => [h.measure, ...h.drill]));
 
-Then('the missed targets come before nothing else, two periods running first, then speed and quality first', async function (this: HoustonWorld) {
+Then('the missed targets come before nothing else, two periods running first, then in area order', async function (this: HoustonWorld) {
   const { HEADLINES } = await import('../../src/performance.js');
   const p = body(this), heads = p.areas.flatMap((a) => a.headlines.map((h) => h.measure));
   assert.deepEqual(p.missed.map((m) => m.id).sort(), heads.filter((m) => m.met === false && !m.smallSample).map((m) => m.id).sort());

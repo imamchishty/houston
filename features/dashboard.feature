@@ -5,7 +5,7 @@ Feature: Dashboard
   Background:
     Given Houston is running with user "sam" and password "pw"
 
-  Scenario: Every team is shown on the same 10 headline measures, speed and quality first
+  Scenario: Every team is shown on the same 10 headline measures, in area order
     When the user requests "/api/dashboard"
     Then the response status is 200
     And every team shows the headline measures in order, and nothing else

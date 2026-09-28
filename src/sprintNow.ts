@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
-import { workingDays } from './time.js';
+import { workingDays, hoursExcludingWeekends } from './time.js';
 import { doneInSprint, learnBaseline, sizeBucket } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
 
@@ -57,6 +57,14 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
   // Queued work: of the tickets not yet done, how many sit in a waiting status (Ready for ..., Blocked).
   const open = items.filter((i) => i.statusCategory !== 'done');
   const queued = open.filter((i) => config.jira.waitStatuses.includes(i.status.toLowerCase()));
+  // Blocked or waiting now: each item sitting in a waiting status, with how long it has been there (working days,
+  // weekends left out, from its last move into that status). Blocked (blocked, on hold, impediment) comes first.
+  const blockedKind = (st: string) => (/block|hold|imped/i.test(st) ? 'Blocked' : 'Waiting');
+  const blocked = queued.map((i) => {
+    const entered = [...(i.statusHistory ?? [])].reverse().find((h) => h.to === i.status)?.at ?? i.addedToSprintAt ?? sp.start;
+    const days = Math.round((hoursExcludingWeekends(entered, new Date(now).toISOString(), config.weekend, config.tzOffset) / 24) * 10) / 10;
+    return { key: i.key, summary: i.summary, status: i.status, kind: blockedKind(i.status), since: entered.slice(0, 10), days, ...(named ? { assignee: i.assignee } : {}) };
+  }).sort((a, b) => Number(b.kind === 'Blocked') - Number(a.kind === 'Blocked') || b.days - a.days);
   const cycle = done.filter((i) => i.inProgressSince)
     .map((i) => ({ key: i.key, summary: i.summary, points: i.points, days: Math.round(((Date.parse(i.resolved!) - Date.parse(i.inProgressSince!)) / DAY) * 10) / 10 }))
     .sort((a, b) => b.days - a.days);
@@ -98,6 +106,8 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
     inProgress, cycle, velocity, wip,
     queued: { count: queued.length, of: open.length, pct: open.length ? Math.round((100 * queued.length) / open.length) : 0, statuses: [...new Set(queued.map((i) => i.status))] },
     oldWip: inProgress.filter((x) => x.old).length, state: sp.state, id: sp.id,
+    // Right now, for execution: what is stuck, and what has been in progress far longer than normal for its size.
+    blocked, ageing: inProgress.filter((x) => x.old),
     sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),
   };
 }

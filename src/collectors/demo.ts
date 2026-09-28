@@ -91,6 +91,18 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
     else { const last = h[h.length - 1]; i.status = last.to; } // an open ticket's status is where its history ends
     i.statusHistory = h;
   }
+  // The sprint in progress: some work carried in from before is stuck. A struggling team has items blocked and one far
+  // over its normal time; a healthy team has one item waiting for QA. Shows the "Right now" panels.
+  if (n === 6) {
+    const now = Date.now(), open = issues.filter((i) => i.statusCategory !== 'done');
+    const stuck = (i: Issue, status: string, daysAgo: number, startedDaysAgo: number) => {
+      const since = new Date(now - daysAgo * day).toISOString(), started = new Date(now - startedDaysAgo * day).toISOString();
+      Object.assign(i, { status, statusCategory: 'inprogress', resolved: null, inProgressSince: started,
+        statusHistory: [{ at: i.created, to: 'To Do', category: 'new' }, { at: started, to: 'In Progress', category: 'indeterminate' }, { at: since, to: status, category: 'indeterminate' }] });
+    };
+    if (health < 0.6) { if (open[0]) stuck(open[0], 'Blocked', 4, 12); if (open[1]) stuck(open[1], 'Blocked', 2, 6); if (open[2]) stuck(open[2], 'Ready for QA', 3, 9); if (open[3]) stuck(open[3], 'In Progress', 14, 14); }
+    else if (open[0]) stuck(open[0], 'Ready for QA', 1, 3);
+  }
   return {
     id: baseId + n,
     name: `${board} Sprint ${n + 8}`,

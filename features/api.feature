@@ -10,7 +10,7 @@ Feature: API for the IDP
   Scenario: A system reads how a team is performing with its token
     When "backstage" requests "/api/teams/OSSI" with its token
     Then the response status is 200
-    And it has a score, a summary and the 10 headline measures in five areas, speed and quality first
+    And it has a score, a summary and the 10 headline measures in five areas: planning, execution, quality, stability, security
     And the response mentions none of the team's names
 
   Scenario: A wrong token is refused

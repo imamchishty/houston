@@ -106,7 +106,8 @@ async function team(board, tab) {
   const label = board === 'all' ? 'All teams' : board;
   $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">${esc(label)}</a>`;
   if (tab === 'sprint') return sprintPage(board);
-  const [p, hist] = await Promise.all([api(`/teams/${encodeURIComponent(board)}?days=${TEAMF.days}`), api(`/teams/${encodeURIComponent(board)}/history?days=180`).catch(() => null)]);
+  const [p, hist, cs] = await Promise.all([api(`/teams/${encodeURIComponent(board)}?days=${TEAMF.days}`), api(`/teams/${encodeURIComponent(board)}/history?days=180`).catch(() => null),
+    board === 'all' ? null : api(`/sprints/current?team=${encodeURIComponent(board)}`).catch(() => null)]);
   if (!p.areas) { $('#main').innerHTML = `<p class="empty">${esc(p.error ?? `No team called ${board}.`)}</p>`; return; }
   const scores = hist?.series?.score ?? [];
   $('#main').innerHTML = `
@@ -117,6 +118,7 @@ async function team(board, tab) {
     ${scores.length > 1 ? `<div class="card mt"><h3>Score over time</h3>${lineChart('score', { labels: scores.map((x) => x.day), xLabel: (d) => shortDate(d), unit: '%', W: 900, H: 160, whole: true, series: [{ name: 'Targets met', key: 'series', values: scores.map((x) => x.value), dots: scores.length < 40 }] })}</div>` : ''}
     ${p.missed.length ? `<div class="card attention mt"><h3>Missed targets, worst first</h3><ul>${p.missed.map((m) => `<li><a href="#h-${esc(m.id)}">${esc(m.title)}</a>: ${esc(chartFmt(m.value))}${esc(unitOf(m))} <span class="muted">(${esc(targetText(m.target, m))})</span>${m.missedTwice ? ' <span class="st red"><i aria-hidden="true">▲</i>two periods running</span>' : ''}</li>`).join('')}</ul></div>` : ''}
     ${p.areas.map((a) => `<section class="group"><h2>${esc(a.title)}</h2><p class="muted">${esc(a.question)}</p>
+      ${a.id === 'execution' && cs?.blocked ? `<h3 class="mt">Right now</h3>${rightNow(cs, { link: `#${encodeURIComponent(board)}/sprint` })}` : ''}
       ${a.headlines.map((h) => `<div class="headline" id="h-${esc(h.measure.id)}">
         <div class="mtiles one">${measureTile(h.measure)}</div>
         ${h.drill.length || Object.keys(h.extras).length ? `<details class="drill"${h.measure.met === false ? ' open' : ''}><summary>What drives ${esc((METRICS[h.measure.id]?.name ?? h.measure.title).toLowerCase())}</summary>

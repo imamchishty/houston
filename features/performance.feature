@@ -1,5 +1,5 @@
 Feature: How a team is performing
-  Ten headline measures in five areas, speed and quality first. The score is the share of headline targets
+  Ten headline measures in five areas: planning, execution, quality, stability and support, security. The score is the share of headline targets
   met; drill-down measures explain a headline and never count in the score. Small samples are shown but not judged.
 
   Background:
@@ -20,7 +20,7 @@ Feature: How a team is performing
 
   Scenario: Missed targets are listed worst first
     When the user requests "/api/teams/OSSI?days=30"
-    Then the missed targets come before nothing else, two periods running first, then speed and quality first
+    Then the missed targets come before nothing else, two periods running first, then in area order
 
   Scenario: Every rate shows the counts that give its value, and every headline has a target and a definition
     When the user requests "/api/teams/all?days=90"

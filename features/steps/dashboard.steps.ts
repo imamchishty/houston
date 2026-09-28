@@ -6,7 +6,7 @@ type M = { id: string };
 type Dash = { teams: { board: string; score: unknown; summary: string; measures: M[]; missed: { id: string; missedTwice: boolean }[] }[]; data: { stale: boolean }; attention: { board: string; id: string; missedTwice: boolean }[] };
 let direct: Dash | null = null;
 const body = (w: HoustonWorld): Dash => { const d = direct ?? JSON.parse(w.res!.body); direct = null; return d; };
-const ORDER = ['deploy_frequency', 'lead_time', 'sprint_completion', 'defect_leakage', 'bug_workload', 'change_failure_rate', 'time_to_restore', 'sla_resolution', 'flow_efficiency', 'security_on_time'];
+const ORDER = ['sprint_completion', 'deploy_frequency', 'lead_time', 'flow_efficiency', 'defect_leakage', 'bug_workload', 'change_failure_rate', 'time_to_restore', 'sla_resolution', 'security_on_time'];
 
 When('the dashboard is read {int} days after the last collect', async function (days: number) {
   const { store } = await import('../../src/store/index.js');

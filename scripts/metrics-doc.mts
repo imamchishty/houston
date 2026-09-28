@@ -8,7 +8,8 @@ import { config } from '../src/config.js';
 const cat = metricCatalogue(), cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
 const out: string[] = [
   '# Houston metric definitions', '',
-  'How each team is performing: 10 headline measures in five areas, speed and quality first. This file is generated',
+  'How each team is performing: 10 headline measures in five areas: planning, execution, quality, stability and support,',
+  'and security. This file is generated',
   'from the code (`npm run metrics-doc`); every definition below is the text the measure itself carries.', '',
   '## The score', '',
   '- **Score** = headline targets met ÷ headline targets judged, as a percentage, for the period (7, 30 or 90 days).',

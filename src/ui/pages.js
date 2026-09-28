@@ -39,6 +39,10 @@ function extrasHtml(id, ex) {
       detail: (i) => { const w = ex.stages.weekly[i]; return { subtitle: `${w.prs} ${w.prs === 1 ? 'PR' : 'PRs'} deployed`, rows: w.prs ? [{ name: 'Average per PR', value: `${chartFmt(Math.round((10 * (w.coding + w.review + w.deploy)) / w.prs) / 10)} hours` }] : [{ name: 'Nothing merged this week has been deployed yet', value: '' }] }; },
       series: [{ name: 'Coding', key: 's1', values: ex.stages.weekly.map((w) => Math.round(w.coding)) }, { name: 'Review', key: 's2', values: ex.stages.weekly.map((w) => Math.round(w.review)) }, { name: 'Waiting to deploy', key: 'muted', values: ex.stages.weekly.map((w) => Math.round(w.deploy)) }] })}
     <p class="note">Of all lead time in the period: coding ${esc(pctOf(ex.stages.total.coding, ex.stages.total))}, review ${esc(pctOf(ex.stages.total.review, ex.stages.total))}, waiting to deploy ${esc(pctOf(ex.stages.total.deploy, ex.stages.total))}.</p></div>`);
+  if (ex.detail?.length) out.push(`<div class="card mt"><h3>Predicted vs actual, per sprint</h3>${barChart(`${id}-pva`, { labels: ex.detail.map((x) => x.sprint), unit: 'points', W: 900, H: 210, series: [
+      { name: 'Committed at the start', key: 's1', values: ex.detail.map((x) => x.planned) }, { name: 'Committed and done', key: 's2', values: ex.detail.map((x) => x.done) }, { name: 'Added after the start', key: 'muted', values: ex.detail.map((x) => x.added ?? 0) }],
+      detail: (i) => ({ subtitle: `${Math.round(ex.detail[i].pct)}% of the commitment done` }) })}
+    <p class="note">Committed: estimated items in the sprint when it started. Done: those finished by the sprint's end. Added after the start: scope creep, points pulled in once the sprint had begun (not counted in completion).</p></div>`);
   if (ex.detail?.length) out.push(`<details class="tbl"><summary>Sprints in this period</summary><table class="t"><tr><th>Team</th><th>Sprint</th><th class="num">Committed</th><th class="num">Done</th><th class="num">Completion</th></tr>
     ${ex.detail.map((x) => `<tr><td>${esc(x.board)}</td><td>${esc(x.sprint)}</td><td class="num">${esc(x.planned)}</td><td class="num">${esc(x.done)}</td><td class="num">${esc(x.pct)}%</td></tr>`).join('')}</table></details>`);
   if (ex.trend?.length) out.push(`<div class="card mt"><h3>Bugs found in production, by week</h3>${barChart(`${id}-esc`, { labels: ex.trend.map((w) => w.week), xLabel: (w) => 'w/c ' + shortDate(w), unit: '', W: 900, H: 180, series: [
@@ -57,6 +61,25 @@ function extrasHtml(id, ex) {
   return out.join('');
 }
 
+// ---------- Right now: what is stuck, and what has been in progress too long ----------
+function rightNow(cs, { link } = {}) {
+  if (!cs || cs.error) return '';
+  const named = cs.blocked.some((x) => 'assignee' in x) || cs.ageing.some((x) => 'assignee' in x);
+  const who = (x) => (named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : '');
+  const blocked = cs.blocked.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Working days there</th>${named ? '<th>Assignee</th>' : ''}</tr>
+    ${cs.blocked.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td><span class="st ${x.kind === 'Blocked' ? 'red' : 'amber'}"><i aria-hidden="true">${x.kind === 'Blocked' ? '▲' : '●'}</i>${esc(x.status)}</span></td><td class="num">${esc(x.days)}</td>${who(x)}</tr>`).join('')}</table></div>`
+    : '<p class="note">Nothing is blocked or waiting.</p>';
+  const ageing = cs.ageing.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Days in progress</th><th class="num">Normal for its size</th>${named ? '<th>Assignee</th>' : ''}</tr>
+    ${cs.ageing.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.days)}</td><td class="num">${esc(x.typical)}</td>${who(x)}</tr>`).join('')}</table></div>`
+    : '<p class="note">Nothing has been in progress far longer than normal.</p>';
+  return `<div class="twocol rightnow">
+    <div class="card"><h3>Blocked or waiting now <span class="muted small">${esc(cs.blocked.length)} ${cs.blocked.length === 1 ? 'item' : 'items'}</span></h3>${blocked}
+      <p class="note">Items in a waiting status (${esc('JIRA_WAIT_STATUSES')}): blocked ones first, then the longest waiting. Working days, weekends left out.</p></div>
+    <div class="card"><h3>Ageing work <span class="muted small">${esc(cs.ageing.length)} ${cs.ageing.length === 1 ? 'item' : 'items'}</span></h3>${ageing}
+      <p class="note">In progress more than 3× the team's normal time for a ticket of that size.${link ? ` <a href="${esc(link)}">The whole sprint →</a>` : ''}</p></div>
+  </div>`;
+}
+
 // ---------- Sprint board (team tab "Current sprint") ----------
 function sprintBoard(cs) {
   if (!cs || cs.error) return `<p class="empty">No sprint in progress for this team.</p>`;
@@ -69,6 +92,7 @@ function sprintBoard(cs) {
     <div class="card sb-rem"><div class="k">Remaining story points</div><div class="huge ${remCls}">${esc(p.remaining)}</div><div class="s">${outlookChip(cs.outlook)}${cs.unestimated ? ` · ${esc(cs.unestimated)} unestimated items not counted` : ''}</div></div>
     <div class="card sb-title"><div class="k">Sprint <select class="sprintpick" data-board="${esc(cs.board)}">${cs.sprints.slice().reverse().map((x) => `<option value="${esc(x.id)}"${x.id === cs.id ? ' selected' : ''}>${esc(x.name)}${x.state === 'active' ? ' (now)' : ''}</option>`).join('')}</select></div><div class="sname">${esc(cs.sprint)}</div><div class="s">${esc(shortDate(cs.start))} to ${esc(shortDate(cs.end))}${cs.goal ? ` · ${esc(cs.goal)}` : ' · no sprint goal'}</div>
       <p class="note">Outlook: points done per working day so far (${esc(p.done)} in ${esc(cs.workingDaysElapsed)} days), carried to the end of the sprint: ${esc(p.projected)} of ${esc(p.scope)} points.</p></div>
+    <div class="sb-now">${rightNow(cs)}</div>
     <div class="card sb-wip"><h3>Work in progress <span class="muted">${esc(cs.inProgress.length)} items, ${esc(cs.wip.people)} people${cs.wip.overLimit ? ` · <span class="down">${esc(cs.wip.overLimit)} ${cs.wip.overLimit === 1 ? 'person has' : 'people have'} more than ${esc(cs.wip.limit)} at once</span>` : ` · nobody over ${esc(cs.wip.limit)} at once`}</span></h3>
       ${cs.wip.over?.length ? `<p class="note">Over the limit: ${cs.wip.over.map((o) => `${esc(o.name)} (${esc(o.count)})`).join(', ')}. Starting fewer things finishes more.</p>` : ''}${cs.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days</th>${named ? '<th>Assignee</th>' : ''}</tr>
       ${cs.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num ${x.old ? 'warn' : ''}" title="${x.typical != null ? `Normal for this size: ${esc(x.typical)} days` : 'No normal yet for this size'}">${esc(x.days ?? '·')}${x.old ? ' ▲' : ''}</td>${named ? `<td>${esc(x.assignee ?? 'unassigned')}</td>` : ''}</tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}

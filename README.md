@@ -1,15 +1,15 @@
 # Houston
 
 How M42 teams are performing. Houston reads Jira, GitHub (Enterprise), SonarQube, Testmo and Azure, and shows each
-team on **10 headline measures** in five areas, speed and quality first:
+team on **10 headline measures** in five areas:
 
-| Area | Headline measures |
-|---|---|
-| Speed | Deployment frequency, lead time for changes, sprint completion |
-| Quality | Bugs reaching customers, time spent on bugs |
-| Stability and support | Change failure rate, time to restore, support resolved within SLA |
-| Flow | Flow efficiency |
-| Security | Critical and high security issues fixed on time |
+| Area | The question | Headline measures |
+|---|---|---|
+| Planning | Did we deliver what we planned? | Sprint completion (drill-down: predicted vs actual per sprint, scope added, unplanned work, carried over) |
+| Execution | Does work flow and reach users fast, and where is time wasted? | Deployment frequency, lead time for changes, flow efficiency (drill-down: where tickets wait, blocked now, ageing work) |
+| Quality | Are we shipping good work? | Bugs reaching customers, time spent on bugs |
+| Stability and support | How often do things break, how fast do we recover, are customers helped in time? | Change failure rate, time to restore, support resolved within SLA |
+| Security | Are serious security issues fixed in time? | Critical and high issues fixed on time |
 
 Each headline has a target. A team's **score** is the share of its headline targets met, with the trend against the
 period before. Everything else is drill-down: under each headline, the measures and charts that explain it. Nothing is

@@ -1,13 +1,14 @@
 import { REPORTS, slice, sliceRange, type Measure, type Period, type Slice } from './reports.js';
 
-// How a team is performing: 10 headline measures in five areas, speed and quality first. Each headline has a target;
+// How a team is performing: 10 headline measures in five areas: planning, execution, quality, then stability and
+// support, and security. Each headline has a target;
 // the score is the share of headline targets met. Everything else is drill-down: it explains a headline and does not
 // count in the score. Every number comes from reports.ts, so the dashboard, team page, monthly report and API agree.
 export const AREAS = [
-  { id: 'speed', title: 'Speed', question: 'How fast does work reach users, and do we deliver what we plan?', headlines: ['deploy_frequency', 'lead_time', 'sprint_completion'] },
+  { id: 'planning', title: 'Planning', question: 'Did we deliver what we planned, and how much changed after we planned it?', headlines: ['sprint_completion'] },
+  { id: 'execution', title: 'Execution', question: 'Does work flow and reach users fast, and where is time wasted?', headlines: ['deploy_frequency', 'lead_time', 'flow_efficiency'] },
   { id: 'quality', title: 'Quality', question: 'Are we shipping good work, or creating rework?', headlines: ['defect_leakage', 'bug_workload'] },
   { id: 'stability', title: 'Stability and support', question: 'How often do things break, how fast do we recover, and are customers helped in time?', headlines: ['change_failure_rate', 'time_to_restore', 'sla_resolution'] },
-  { id: 'flow', title: 'Flow', question: 'Does work move smoothly, or sit waiting?', headlines: ['flow_efficiency'] },
   { id: 'security', title: 'Security', question: 'Are serious security issues fixed in time?', headlines: ['security_on_time'] },
 ] as const;
 export const HEADLINES: string[] = AREAS.flatMap((a) => [...a.headlines]);
@@ -81,7 +82,7 @@ export function performance(team: string, days: Period, now = Date.now()) {
     team, days, from: new Date(now - days * 86_400_000).toISOString(), to: new Date(now).toISOString(),
     score: { ...sc, previousPct: before.pct, trend: sc.pct == null || before.pct == null ? null : sc.pct > before.pct ? 'better' : sc.pct < before.pct ? 'worse' : 'same' },
     summary: summaryLine(sc, missed.map((h) => h.measure)),
-    // Missed targets, worst first: missed two periods running before missed once, then speed and quality first.
+    // Missed targets, worst first: missed two periods running before missed once, then in area order.
     missed: missed.map((h) => ({ id: h.measure.id, title: h.measure.title, value: h.measure.value, unit: h.measure.unit, target: h.measure.target, missedTwice: h.missedTwice })),
     areas,
   };

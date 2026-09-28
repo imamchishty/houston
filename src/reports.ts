@@ -168,7 +168,9 @@ export function planning(s: Slice) {
   const completion = closedSprints.flatMap((sp) => {
     const committed = sp.issues.filter((i) => i.type !== 'Sub-task' && i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= sp.start));
     const planned = committed.reduce((t, i) => t + i.points!, 0), done = committed.filter((i) => doneInSprint(i, sp)).reduce((t, i) => t + i.points!, 0);
-    return planned ? [{ sprint: sp.name, board: sp.board, planned, done, pct: (100 * done) / planned }] : [];
+    // Added after the start: points of items pulled in or created once the sprint had begun (scope creep).
+    const added = sp.issues.filter((i) => i.type !== 'Sub-task' && i.points != null && i.addedToSprintAt && i.addedToSprintAt > sp.start).reduce((t, i) => t + i.points!, 0);
+    return planned ? [{ sprint: sp.name, board: sp.board, end: sp.end.slice(0, 10), planned, done, added, pct: (100 * done) / planned }] : [];
   });
   const added = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task'));
   const addedLate = closedSprints.flatMap((sp) => sp.issues.filter((i) => i.type !== 'Sub-task' && i.addedToSprintAt && i.addedToSprintAt > sp.start));

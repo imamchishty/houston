@@ -1,6 +1,7 @@
 # Houston metric definitions
 
-How each team is performing: 10 headline measures in five areas, speed and quality first. This file is generated
+How each team is performing: 10 headline measures in five areas: planning, execution, quality, stability and support,
+and security. This file is generated
 from the code (`npm run metrics-doc`); every definition below is the text the measure itself carries.
 
 ## The score
@@ -20,9 +21,20 @@ from the code (`npm run metrics-doc`); every definition below is the text the me
 - Working time: `WORKING_HOURS` on days not in `WEEKEND`, in `TZ_OFFSET_HOURS` (now 8:00 to 18:00, UTC+0).
 - "Not measured" means there was nothing to count (0 of 0), never 0%.
 
-## Speed
+## Planning
 
-How fast does work reach users, and do we deliver what we plan?
+Did we deliver what we planned, and how much changed after we planned it?
+
+| Measure | Why it matters | How it is calculated | Target |
+|---|---|---|---|
+| **`sprint_completion` Sprint completion** | Whether the team delivers what it commits to. Low completion makes every plan built on it unreliable. | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | Over 80% |
+| ↳ `unplanned_work` Unplanned work | Work that did not exist when the sprint was planned. A common reason sprints are missed. | Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work. | Under 20% |
+| ↳ `scope_added` Scope added mid-sprint | Existing work pulled into a sprint after it started. Changes the plan the team committed to. | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | Under 15% |
+| ↳ `carry_over` Work carried over | Work not finished by the end of its sprint and rolled into the next. | Items in a sprint that were not done by its end ÷ items in the sprint, sprints that closed in the period. They roll into the next sprint. |  |
+
+## Execution
+
+Does work flow and reach users fast, and where is time wasted?
 
 | Measure | Why it matters | How it is calculated | Target |
 |---|---|---|---|
@@ -31,10 +43,15 @@ How fast does work reach users, and do we deliver what we plan?
 | ↳ `stage_coding` Coding time | Time spent writing a change before it is opened for review. Long coding time usually means big changes. | Median hours from a PR's first commit (author date) to the PR being opened. PRs without commit dates count from when they were opened. |  |
 | ↳ `stage_review` Review time | Time a change waits for and goes through review. Often the biggest and easiest part of lead time to cut. | Median hours from PR opened to merged. |  |
 | ↳ `stage_deploy` Waiting to deploy | Time finished work waits to be released. Pure waste: the work is done but no one can use it. | Median hours from merge to the first successful production deploy of its repo. |  |
-| **`sprint_completion` Sprint completion** | Whether the team delivers what it commits to. Low completion makes every plan built on it unreliable. | Committed story points done ÷ committed story points, over sprints that closed in the period. Committed = estimated items in the sprint before it started. | Over 80% |
-| ↳ `unplanned_work` Unplanned work | Work that did not exist when the sprint was planned. A common reason sprints are missed. | Story points finished on tickets created after their sprint started ÷ story points finished, sprints that closed in the period. Pulling in an existing ticket is scope change; a ticket that did not exist at planning is unplanned work. | Under 20% |
-| ↳ `scope_added` Scope added mid-sprint | Existing work pulled into a sprint after it started. Changes the plan the team committed to. | Items added after the sprint started ÷ items in the sprint, sprints that closed in the period. | Under 15% |
-| ↳ `carry_over` Work carried over | Work not finished by the end of its sprint and rolled into the next. | Items in a sprint that were not done by its end ÷ items in the sprint, sprints that closed in the period. They roll into the next sprint. |  |
+| **`flow_efficiency` Flow efficiency** | The share of a ticket's time spent being worked on rather than waiting. The one number that says whether work flows. | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | Over 40% |
+| ↳ `flow_time` Flow time | How long work items take from being raised to done. | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | Under 14 days |
+| ↳ `flow_load` Flow load | Work in progress now. Too much at once means context switching and everything finishing later. | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
+| ↳ `flow_velocity` Flow velocity | Work items finished per week. A trend for the team, not a comparison between teams. | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
+| ↳ `pickup_time` Time to first review | How long a change waits for its first review. | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | Under 1 days |
+| ↳ `review_time` Review to merge | How long from first review to merge. | Median days from first review to merge, PRs merged in the period. | Under 1.5 days |
+| ↳ `pr_size` PR size | Lines changed per pull request. Big changes get slow, shallow reviews and hide bugs. | Median lines changed (additions + deletions) per PR merged in the period. | Under 400 |
+| ↳ `reviewer_load` Review concentration | The share of reviews done by the busiest reviewer. High means one person is the bottleneck. | Reviews done by the busiest reviewer ÷ all reviews on PRs merged in the period. High means one person is the bottleneck. No names are shown. | Under 40% |
+| ↳ `ci_failure_rate` CI failure rate (main) | How often the build on the main branch fails. A red main blocks everyone. | Failed CI runs on the default branch ÷ finished CI runs on the default branch, in the period. A red main blocks everyone. | Under 10% |
 
 ## Quality
 
@@ -75,22 +92,6 @@ How often do things break, how fast do we recover, and are customers helped in t
 | ↳ `support_share` Support share of work finished | The share of the team's finished work that is support. A plan that ignores it will be missed. | Support tickets resolved ÷ (support tickets resolved + the team's own work items resolved), in the period. A count of items, not hours: a big story and a quick support answer count one each. | Under 20% |
 | ↳ `support_repeat` Reopened or duplicate | Tickets reopened after being resolved, or raised again as duplicates: fixes that did not hold. | Support tickets resolved in the period that had been reopened after an earlier resolution, or are linked as a duplicate of another ticket: a fix that did not hold, or the same problem raised again. | Under 20% |
 | ↳ `support_out_of_hours` Support work outside working hours | Support work done at night or at the weekend. Invisible in delivery numbers, and it burns people out. | Status changes on support tickets made by people (not automation) outside 08:00 to 18:00 or at the weekend, in local time (TZ_OFFSET_HOURS, WORKING_HOURS, WEEKEND). Team total only: Houston does not keep who made them. | Under 10% |
-
-## Flow
-
-Does work move smoothly, or sit waiting?
-
-| Measure | Why it matters | How it is calculated | Target |
-|---|---|---|---|
-| **`flow_efficiency` Flow efficiency** | The share of a ticket's time spent being worked on rather than waiting. The one number that says whether work flows. | Working hours in active statuses ÷ all working hours from first start to done, tickets resolved in the period. Waiting: blocked, ready for review, ready for qa, awaiting deploy, ready for release, waiting, on hold, or back in to do. Weekends left out. | Over 40% |
-| ↳ `flow_time` Flow time | How long work items take from being raised to done. | Median days from a work item being created to done, items completed in the period. Jira resolution is the end: production release per ticket is not linked. | Under 14 days |
-| ↳ `flow_load` Flow load | Work in progress now. Too much at once means context switching and everything finishing later. | Work items in an in-progress status now (sub-tasks excluded): the work in progress. Too much means context switching; the right level differs by team. |  |
-| ↳ `flow_velocity` Flow velocity | Work items finished per week. A trend for the team, not a comparison between teams. | Work items completed per week in the period (sub-tasks excluded), whatever their size. Useful as a trend, not against other teams. |  |
-| ↳ `pickup_time` Time to first review | How long a change waits for its first review. | Median days from PR opened to the first review or review comment by someone else, PRs merged in the period. | Under 1 days |
-| ↳ `review_time` Review to merge | How long from first review to merge. | Median days from first review to merge, PRs merged in the period. | Under 1.5 days |
-| ↳ `pr_size` PR size | Lines changed per pull request. Big changes get slow, shallow reviews and hide bugs. | Median lines changed (additions + deletions) per PR merged in the period. | Under 400 |
-| ↳ `reviewer_load` Review concentration | The share of reviews done by the busiest reviewer. High means one person is the bottleneck. | Reviews done by the busiest reviewer ÷ all reviews on PRs merged in the period. High means one person is the bottleneck. No names are shown. | Under 40% |
-| ↳ `ci_failure_rate` CI failure rate (main) | How often the build on the main branch fails. A red main blocks everyone. | Failed CI runs on the default branch ÷ finished CI runs on the default branch, in the period. A red main blocks everyone. | Under 10% |
 
 ## Security
 

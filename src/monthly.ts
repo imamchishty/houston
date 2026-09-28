@@ -12,8 +12,8 @@ import { recordMonth, storedMonth } from './store/history.js';
 
 export type MonthStatus = 'complete' | 'in progress' | 'partial' | 'saved' | 'no data';
 
-// The key numbers, in the order the report shows them: the score, then the 10 headline measures (speed and quality
-// first). better: which direction is an improvement. Titles and targets come from the measures themselves.
+// The key numbers, in the order the report shows them: the score, then the 10 headline measures (planning, execution,
+// quality, stability, security). better: which direction is an improvement. Titles and targets come from the measures themselves.
 const KEYS: { id: string; title: string; unit: string; better: 'up' | 'down'; target: Target | null }[] = [
   { id: 'score', title: 'Targets met', unit: '%', better: 'up', target: null },
   ...HEADLINES.map((id) => ({ id, title: '', unit: '', better: 'up' as const, target: null as Target | null })),

@@ -22,7 +22,9 @@ Given(/^a (closed )?sprint "([^"]+)" from \w+ (\S+) to \w+ (\S+) with these item
   saved = houston.config.dataDir; houston.config.dataDir = mkdtempSync(join(tmpdir(), 'houston-sprint-'));
   const start = `${from}T00:00:00.000Z`;
   const issues: Issue[] = t.hashes().map((r) => ({
-    key: r.key, summary: r.key, type: 'Story', status: r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do',
+    // "waiting in": the item sits in that status since the "since" date (09:00 UTC), e.g. Blocked or Ready for QA.
+    ...(r['waiting in'] ? { statusHistory: [{ at: `${r.since}T09:00:00.000Z`, to: r['waiting in'], category: 'indeterminate' as const }] } : {}),
+    key: r.key, summary: r.key, type: 'Story', status: r['waiting in'] || (r.status === 'done' ? 'Done' : r.status === 'doing' ? 'In Progress' : 'To Do'),
     statusCategory: r.status === 'done' ? 'done' : r.status === 'doing' ? 'inprogress' : 'todo', points: r.points ? Number(r.points) : null,
     assignee: 'x', hasAcceptanceCriteria: true, created: '2026-09-01T00:00:00Z', resolved: r.resolved ? `${r.resolved}T12:00:00.000Z` : null,
     addedToSprintAt: r.added ? `${r.added}T12:00:00.000Z` : null, sprintIds: [1], inProgressSince: r.status === 'todo' ? null : '2026-09-08T09:00:00.000Z', epic: null,
@@ -53,4 +55,7 @@ Then('the ideal line runs from {int} to {int}', function (a: number, b: number) 
 Then('scope on {word} is {int} and on {word} is {int}', function (d1: string, s1: number, d2: string, s2: number) {
   const at = (d: string) => board.burndown.find((x: { day: string }) => x.day === d).scope;
   assert.equal(at(d1), s1); assert.equal(at(d2), s2);
+});
+Then('blocked or waiting now lists, in order:', function (t: DataTable) {
+  assert.deepEqual(board.blocked.map((b: any) => [b.key, b.status, b.kind, String(b.days)]), t.raw());
 });
