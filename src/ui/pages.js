@@ -84,9 +84,10 @@ function rightNow(cs, { link } = {}) {
 const TF = { person: 'all', type: 'all', state: 'all', check: 'all' };
 let TICKETS = null;
 const STATE = { todo: 'To do', inprogress: 'In progress', done: 'Done' };
-const CHECK = { notready: 'Started when not ready', notdone: 'Done, but not done properly', unready: 'To do and not ready yet' };
+const CHECK = { notready: 'Started when not ready', notdone: 'Done, but not done properly', unready: 'To do and not ready yet', changed: 'Requirements changed after start', sentback: 'Sent back to refinement' };
 // Ready is a miss once work has started; before that the ticket is just not ready yet.
 const startedUnready = (t) => t.state !== 'todo' && !t.ready.ok;
+const fieldWord = (f) => (f === 'summary' ? 'title' : f === 'acceptance' ? 'acceptance criteria' : f);
 const doneBadly = (t) => t.done && !t.done.ok;
 function ticketList(cs) {
   TICKETS = cs;
@@ -102,22 +103,24 @@ function ticketList(cs) {
       <div><b>Definition of Ready</b><ul>${cs.definitions.ready.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div>
       <div><b>Definition of Done</b><ul>${cs.definitions.done.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div></div>
       <p class="note">Set in Admin. Ready reads the ticket as it is now, except the estimate, which must have been set before work started. A check Houston cannot judge for a ticket is left out, not failed.</p></details>
-    <div class="filters" role="group" aria-label="Filter tickets">${named ? sel('person', 'Person', people, 'Everyone') : ''}${sel('type', 'Type', types, 'All types')}${sel('state', 'State', ['todo', 'inprogress', 'done'], 'Any state', STATE)}${sel('check', 'Ready and Done', ['notready', 'notdone', 'unready'], 'All tickets', CHECK)}</div>
-    <div class="scrollx"><table class="t sortable" id="tickets"><thead><tr><th>Key</th><th>Summary</th><th>Type</th><th>Status</th>${named ? '<th>Person</th>' : ''}<th class="num">Points</th><th>Ready</th><th>Done</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr></thead><tbody>${ticketRows(cs)}</tbody></table></div>
-    <p class="note">Ready: ✓ ready · ▲ started without meeting the Definition of Ready · ○ to do, not ready yet. Done: ✓ properly done · ▲ marked done without meeting the Definition of Done. Hover an icon for the reason, or filter "Ready and Done" to see the reasons in full. Also ▲ days: more than 3× the team's normal for its size · ● waiting or flagged · + added after the sprint started.</p>`;
+    <div class="filters" role="group" aria-label="Filter tickets">${named ? sel('person', 'Person', people, 'Everyone') : ''}${sel('type', 'Type', types, 'All types')}${sel('state', 'State', ['todo', 'inprogress', 'done'], 'Any state', STATE)}${sel('check', 'Show', ['notready', 'notdone', 'unready', 'changed', 'sentback'], 'All tickets', CHECK)}</div>
+    <div class="scrollx"><table class="t sortable" id="tickets"><thead><tr><th>Key</th><th>Summary</th><th>Type</th><th>Status</th>${named ? '<th>Person</th>' : ''}<th class="num">Points</th><th>Ready</th><th>Done</th><th>Requirements</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr></thead><tbody>${ticketRows(cs)}</tbody></table></div>
+    <p class="note">Ready: ✓ ready · ▲ started without meeting the Definition of Ready · ○ to do, not ready yet. Done: ✓ properly done · ▲ marked done without meeting the Definition of Done. Requirements: ✎ edited after work started (the number of edits) · ↩ sent back to to do. Hover an icon for the reason, or use Show to see the reasons in full. Also ▲ days: more than 3× the team's normal for its size · ● waiting or flagged · + added after the sprint started.</p>`;
 }
 function ticketRows(cs) {
   const named = cs.tickets.some((t) => 'assignee' in t);
-  const check = { all: () => true, notready: startedUnready, notdone: doneBadly, unready: (t) => t.state === 'todo' && !t.ready.ok }[TF.check];
+  const check = { all: () => true, notready: startedUnready, notdone: doneBadly, unready: (t) => t.state === 'todo' && !t.ready.ok, changed: (t) => t.churn.changes > 0, sentback: (t) => t.churn.sentBack }[TF.check];
   const rows = cs.tickets.filter((t) => (TF.person === 'all' || (t.assignee ?? 'unassigned') === TF.person) && (TF.type === 'all' || t.type === TF.type) && (TF.state === 'all' || t.state === TF.state) && check(t));
-  if (!rows.length) return `<tr><td colspan="10" class="muted">No tickets match.</td></tr>`;
+  if (!rows.length) return `<tr><td colspan="11" class="muted">No tickets match.</td></tr>`;
   const showWhy = TF.check !== 'all';
   const icon = (cls, glyph, label, why) => `<span class="st ${cls} chk" title="${esc(label)}${why ? ': ' + esc(why) : ''}"><i aria-hidden="true">${glyph}</i>${showWhy && why ? esc(why) : `<span class="sr">${esc(label)}</span>`}</span>`;
   const ready = (t) => t.ready.ok ? icon('green', '✓', 'Ready') : t.state === 'todo' ? icon('none', '○', 'Not ready yet', t.ready.missing.join(', ')) : icon('red', '▲', 'Started when not ready', t.ready.missing.join(', '));
   const done = (t) => !t.done ? '<span class="muted">·</span>' : t.done.ok ? icon('green', '✓', 'Done properly') : icon('red', '▲', 'Not done properly', t.done.missing.join(', '));
+  const req = (t) => { const c = t.churn, why = c.changes ? `${c.changes} ${c.changes === 1 ? 'edit' : 'edits'} to the ${c.fields.map(fieldWord).join(' and ')} after work started${c.by?.length ? ` by ${c.by.join(', ')}` : ''}` : '';
+    return `${c.changes ? icon('amber', `✎${c.changes}`, 'Requirements changed after start', why) : ''}${c.sentBack ? ` ${icon('red', '↩', 'Sent back to refinement', 'moved back to to do after work started')}` : ''}` || '<span class="muted">·</span>'; };
   return rows.map((t) => `<tr><td>${cs.jiraBrowse ? `<a href="${esc(cs.jiraBrowse + t.key)}" target="_blank" rel="noopener"><code>${esc(t.key)}</code></a>` : `<code>${esc(t.key)}</code>`}</td><td>${esc(t.summary)}${t.addedLate ? ' <span class="muted" title="Added after the sprint started">+</span>' : ''}</td><td>${esc(t.type)}</td>
     <td>${esc(t.status)}${t.waiting || t.flagged ? ` <span class="st amber"><i aria-hidden="true">●</i>${t.flagged ? 'flagged' : 'waiting'}</span>` : ''}</td>${named ? `<td>${esc(t.assignee ?? 'unassigned')}</td>` : ''}<td class="num">${esc(t.points ?? '·')}</td>
-    <td data-sort="${t.ready.ok ? 2 : t.state === 'todo' ? 1 : 0}">${ready(t)}</td><td data-sort="${!t.done ? 1 : t.done.ok ? 2 : 0}">${done(t)}</td>
+    <td data-sort="${t.ready.ok ? 2 : t.state === 'todo' ? 1 : 0}">${ready(t)}</td><td data-sort="${!t.done ? 1 : t.done.ok ? 2 : 0}">${done(t)}</td><td data-sort="${t.churn.changes + (t.churn.sentBack ? 100 : 0)}">${req(t)}</td>
     <td class="num ${t.old ? 'warn' : ''}">${t.days == null ? '·' : esc(t.days)}${t.old ? ' ▲' : ''}</td><td class="num">${t.daysSinceMove == null ? '·' : esc(t.daysSinceMove)}</td></tr>`).join('');
 }
 document.addEventListener('change', (e) => { const k = e.target.dataset?.tf; if (!k || !TICKETS) return; TF[k] = e.target.value; $('#tickets tbody').innerHTML = ticketRows(TICKETS); });
@@ -125,19 +128,19 @@ document.addEventListener('change', (e) => { const k = e.target.dataset?.tf; if 
 // ---------- Ready and Done over time (team page) ----------
 function definitionsPanel(d, p) {
   const drill = p.areas.flatMap((a) => a.headlines.flatMap((h) => h.drill));
-  const cur = { ready: drill.find((m) => m.id === 'ready_rate'), done: drill.find((m) => m.id === 'done_rate') };
+  const cur = { ready: drill.find((m) => m.id === 'ready_rate'), done: drill.find((m) => m.id === 'done_rate'), changed: drill.find((m) => m.id === 'requirements_changed') };
   if (!cur.ready && !cur.done) return '';
   const tile = (m, k, label) => !m ? '' : `<div class="tile"><div class="k">${esc(label)}</div><div class="v">${m.value == null ? '·' : `${esc(chartFmt(m.value))}<small>%</small>`}</div>
     <div class="s">${esc(countsText(m).replace(/<[^>]+>/g, ''))}${m.trend ? ` · ${trendArrow(m.trend)}` : ''}${m.note ? `<br>${esc(m.note)}` : ''}</div></div>`;
   const sp = (d?.sprints ?? []).filter((x) => x.ready.of || x.done.of);
   const short = (n) => n.replace(/^.*?(\d+)$/, 'Sprint $1');
-  return `<div class="card defpanel mt"><h3>Ready and Done <span class="muted small">how often work started ready, and finished properly done</span></h3>
-    <div class="tiles">${tile(cur.ready, 'ready', 'Started when ready, this period')}${tile(cur.done, 'done', 'Done means done, this period')}</div>
+  return `<div class="card defpanel mt"><h3>Ready, Done and requirements <span class="muted small">how often work started ready, finished properly done, and had its requirements changed on the way</span></h3>
+    <div class="tiles">${tile(cur.ready, 'ready', 'Started when ready, this period')}${tile(cur.done, 'done', 'Done means done, this period')}${tile(cur.changed, 'changed', 'Requirements changed after start, this period')}</div>
     ${sp.length > 1 ? `${barChart('defs-trend', { labels: sp.map((x) => x.sprint), xLabel: short, unit: '%', W: 900, H: 200, series: [
-        { name: 'Started when ready', key: 's1', values: sp.map((x) => x.ready.pct) }, { name: 'Done means done', key: 's2', values: sp.map((x) => x.done.pct) }],
+        { name: 'Started when ready', key: 's1', values: sp.map((x) => x.ready.pct) }, { name: 'Done means done', key: 's2', values: sp.map((x) => x.done.pct) }, { name: 'Requirements changed after start', key: 'muted', values: sp.map((x) => x.changed?.pct ?? null) }],
         detail: (i) => ({ subtitle: `${sp[i].ready.n} of ${sp[i].ready.of} started ready · ${sp[i].done.n} of ${sp[i].done.of} done properly`, rows: [
           ...(sp[i].ready.missing ? [{ name: 'Ready, most often missing', value: sp[i].ready.missing }] : []), ...(sp[i].done.missing ? [{ name: 'Done, most often missing', value: sp[i].done.missing }] : [])] }) })}
-      <p class="note">Per closed sprint: tickets started in it that met the Definition of Ready, and tickets finished in it that met the Definition of Done. Hover a sprint for the counts and what was missed most.</p>` : '<p class="note">The trend per sprint appears once two closed sprints have data.</p>'}
+      <p class="note">Per closed sprint: tickets started in it that met the Definition of Ready, tickets finished in it that met the Definition of Done, and tickets started in it whose requirements were edited after work started. Hover a sprint for the counts and what was missed most.</p>` : '<p class="note">The trend per sprint appears once two closed sprints have data.</p>'}
     <details class="defs"><summary>The definitions in force</summary><div class="twocol">
       <div><b>Definition of Ready</b><ul>${(d?.definitions.ready ?? []).map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div>
       <div><b>Definition of Done</b><ul>${(d?.definitions.done ?? []).map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div></div>

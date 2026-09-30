@@ -57,6 +57,7 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
     steps.push(['Ready for Review', 'indeterminate', health < 0.5 ? 0.15 + r() * 0.1 : 0.04], ['In Review', 'indeterminate', 0.08]);
     steps.push(['Ready for QA', 'indeterminate', health < 0.5 ? 0.12 : 0.03], ['QA', 'indeterminate', 0.08]);
     if (r() < (health < 0.5 ? 0.3 : 0.06)) steps.push(['In Progress', 'indeterminate', 0.08], ['QA', 'indeterminate', 0.05]);
+    if (health < 0.5 && issues.indexOf(i) % 7 === 2) steps.splice(1, 0, ['To Do', 'new', 0.06], ['In Progress', 'indeterminate', 0.1]);
     const total = steps.reduce((t, x) => t + x[2], 0);
     let t = start; const h = [{ at: new Date(Date.parse(i.created)).toISOString(), to: 'To Do', category: 'new' }];
     for (const [to, category, w] of steps) { h.push({ at: new Date(t).toISOString(), to, category }); t += (span * w) / total; }
@@ -81,6 +82,14 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
       : { inProgressSince: null, statusCategory: 'todo', status: 'To Do' });
     if (i.addedToSprintAt && Date.parse(i.addedToSprintAt) > now) i.addedToSprintAt = new Date(now - day).toISOString();
   }
+  // Requirement churn: the product manager edits the weak team's tickets after work has started (every third started
+  // ticket, one to three edits), and rarely the healthy team's. Every seventh weak-team ticket is sent back to to do.
+  const pm = health < 0.5 ? 'Nadia' : 'Ravi';
+  issues.forEach((i, k) => {
+    if (!i.inProgressSince) return;
+    const n = health < 0.5 ? (k % 3 === 0 ? (k % 6 === 0 ? 3 : 1) : 0) : k % 9 === 0 ? 1 : 0;
+    i.requirementEdits = Array.from({ length: n }, (_, e) => ({ at: new Date(Date.parse(i.inProgressSince!) + (e + 1) * 0.5 * day).toISOString(), field: (e % 2 ? 'acceptance' : 'description') as 'description', by: pm }));
+  });
   // The weak team estimates some tickets only after starting them (every fourth started, estimated ticket).
   if (health < 0.5) issues.forEach((i, k) => { if (k % 4 === 1 && i.points != null && i.inProgressSince) i.estimatedAt = new Date(Date.parse(i.inProgressSince) + day).toISOString(); });
   // Status histories last, once resolution times and the in-progress sprint are final.

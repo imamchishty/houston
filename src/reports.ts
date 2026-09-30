@@ -3,6 +3,7 @@ import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
 import type { Epic, GithubSnapshot, Issue, PullRequest, ScanCoverage, SecurityAlert, Sprint, SupportTicket, WorkItem } from './types.js';
 import { commonMisses, doneContext, doneness, readiness, type Verdict } from './definitions.js';
+import { churn } from './requirements.js';
 import { addWorkingMinutes, durationMinutes, outsideWorkingHours, weekOf, workingMinutes } from './time.js';
 import { flow } from './flow.js';
 import { leadTimes } from './leadtime.js';
@@ -43,7 +44,7 @@ export const TARGETS: Record<string, Target> = {
   pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 }, reviewer_load: { op: '<', value: 40 }, ci_failure_rate: { op: '<', value: 10 },
   server_errors: { op: '<', value: 1 }, availability: { op: '>', value: 99.9 },
   handoff_rate: { op: '<', value: 25 }, lane_crossing: { op: '>', value: 50 },
-  ready_rate: { op: '>', value: 80 }, done_rate: { op: '>', value: 80 },
+  ready_rate: { op: '>', value: 80 }, done_rate: { op: '>', value: 80 }, requirements_changed: { op: '<', value: 20 }, sent_back: { op: '<', value: 10 },
   security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
   support_share: { op: '<', value: 20 }, support_out_of_hours: { op: '<', value: 10 }, support_repeat: { op: '<', value: 20 },
   scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
@@ -130,6 +131,23 @@ export function readyRate(s: Slice): Measure {
     'Sprint tickets whose work started in the period and that meet every Definition of Ready check in force (Admin, Settings) ÷ tickets started. The estimate must have been set before work started; the other checks read the ticket as it is now.',
     ['ready', 'tickets started']);
 }
+// Requirements changed after work started, and tickets sent back to to do: of the tickets whose work started in the
+// period. The note says what the changes cost: start to done for changed tickets against unchanged ones.
+export function requirementMeasures(s: Slice): Measure[] {
+  const started = sprintTickets(s).filter((i) => inWin(s, i.inProgressSince)).map((i) => ({ i, c: churn(i) }));
+  const changed = started.filter((x) => x.c.changes > 0), back = started.filter((x) => x.c.sentBack);
+  const m = rate('requirements_changed', 'Requirements changed after start', changed.length, started.length,
+    'Sprint tickets whose work started in the period and whose description, title or acceptance criteria were edited after work started ÷ tickets started. From the Jira change history; a clarification counts the same as a change, so read the ticket.',
+    ['changed after start', 'tickets started'], changed.map((x) => `${x.i.key} (${x.c.changes} ${x.c.changes === 1 ? 'edit' : 'edits'}${x.c.by.length ? ` by ${x.c.by.join(', ')}` : ''})`));
+  const days = (xs: { i: Issue }[]) => xs.filter((x) => x.i.statusCategory === 'done' && x.i.resolved).map((x) => (Date.parse(x.i.resolved!) - Date.parse(x.i.inProgressSince!)) / DAY);
+  const dc = days(changed), du = days(started.filter((x) => !x.c.changes));
+  if (dc.length >= 3 && du.length >= 3) m.note = `Start to done: changed tickets took a median ${round1(median(dc))} days, unchanged ${round1(median(du))}.`;
+  const b = rate('sent_back', 'Sent back to refinement', back.length, started.length,
+    'Sprint tickets whose work started in the period and that later moved back to a to-do status ÷ tickets started. Work that had to stop and go back to the drawing board.',
+    ['sent back', 'tickets started'], back.map((x) => x.i.key));
+  return [m, b];
+}
+
 // Done means done: tickets finished in the period that meet every Definition of Done check.
 export function doneRate(s: Slice): Measure {
   const all = sprintTickets(s), ctx = doneContext(all, s.prs, s.deploys);
@@ -227,6 +245,7 @@ export function planning(s: Slice) {
         rate('scope_added', 'Scope added mid-sprint', addedLate.length, added.length, 'Items added after the sprint started ÷ items in the sprint, sprints that closed in the period.', ['added late', 'items'], addedLate.map((i) => i.key)),
         { ...rate('carry_over', 'Work carried over', carried.length, atEnd.length, 'Items in a sprint that were not done by its end ÷ items in the sprint, sprints that closed in the period. They roll into the next sprint.', ['not done', 'items'], carried.map((x) => x.i.key)), target: null, met: null },
         readyRate(s),
+        ...requirementMeasures(s),
       ], detail: completion.map((c) => ({ ...c, pct: round1(c.pct) })) },
     ],
   };

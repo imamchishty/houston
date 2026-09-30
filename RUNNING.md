@@ -26,7 +26,7 @@ On Azure nothing to start: the data is collected every night at 02:00 UAE time a
 |---|---|
 | **Dashboard** | All teams first, then one card per team: score (share of the 10 headline targets met), ↑↓ against the 30 days before, the measures by area. Needs attention = missed two periods running. Click a card. |
 | **Team** | The score and trend, **This week** (what changed, what moved with it, what is likely next), missed targets worst first, then each area. Under every headline, **What drives** it. **Current sprint →** for the sprint. |
-| **Current sprint** | Days and points left, outlook, **Blocked or waiting now**, **Ageing work**, every ticket with its person and whether it was **Ready** when started and is properly **Done** (filter by person, type, state, or to the misses), burndown, bug trend. |
+| **Current sprint** | Days and points left, outlook, **Blocked or waiting now**, **Ageing work**, every ticket with its person and whether it was **Ready** when started, is properly **Done**, and had its **requirements** edited after work started or was sent back (filter by person, type, state, or to any of these), burndown, bug trend. |
 | **Monthly** | One month against the one before, six months of trend. **Copy as Markdown** for Confluence. |
 | **Ask Houston** (with Compass) | A question box on the dashboard and each team page. Answers come from Houston's numbers only; questions about people are refused. |
 | Footer: **Metrics** | What every measure means, why it matters, how it is calculated, its target. |

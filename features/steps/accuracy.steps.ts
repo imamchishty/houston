@@ -79,3 +79,12 @@ Then('it was estimated when it was created', async function () {
   const { fromChangelog } = await import('../../src/collectors/jira.js');
   assert.equal(fromChangelog({ histories: estimateHistory }, 1, new Map()).estimatedAt, null);
 });
+
+let editHistory: any[] = [];
+Given("a ticket's edit history:", function (t: DataTable) {
+  editHistory = t.hashes().map((r) => ({ created: `${r.when}:00.000+0000`, author: { displayName: r.by, accountType: 'atlassian' }, items: [{ field: r.field, fromString: 'a', toString: 'b' }] }));
+});
+Then('the requirement edits read are {string}', async function (expected: string) {
+  const { fromChangelog } = await import('../../src/collectors/jira.js');
+  assert.equal(fromChangelog({ histories: editHistory }, 1, new Map()).requirementEdits.map((e) => `${e.field} by ${e.by}`).join(', '), expected);
+});

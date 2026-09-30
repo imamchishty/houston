@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { leadTimes } from './leadtime.js';
 import type { GithubSnapshot, Issue, PullRequest, Sprint } from './types.js';
+import { churn } from './requirements.js';
 
 // Definition of Ready and Definition of Done, checked per ticket from what Jira and GitHub record. Which checks apply
 // is the team's choice (Admin, Settings, or DOR_CHECKS / DOD_CHECKS); a check that cannot be judged for a ticket
@@ -90,10 +91,12 @@ export function definitionTrend(sprints: Sprint[], prs: PullRequest[], deploys: 
   const pct = (n: number, of: number) => (of ? Math.round((1000 * n) / of) / 10 : null);
   return [...sprints].filter((s) => s.state === 'closed').sort((a, b) => a.start.localeCompare(b.start)).map((sp) => {
     const items = sp.issues.filter((i) => i.type !== 'Sub-task');
-    const started = items.filter((i) => i.inProgressSince && i.inProgressSince >= sp.start && i.inProgressSince < sp.end).map((i) => readiness(i));
+    const startedItems = items.filter((i) => i.inProgressSince && i.inProgressSince >= sp.start && i.inProgressSince < sp.end);
+    const started = startedItems.map((i) => readiness(i)), changed = startedItems.filter((i) => churn(i).changes > 0).length;
     const finished = items.filter((i) => i.statusCategory === 'done' && i.resolved && i.resolved >= sp.start && i.resolved <= sp.end).map((i) => doneness(i, ctx)!);
     return { sprint: sp.name, end: sp.end.slice(0, 10),
       ready: { n: started.filter((v) => v.ok).length, of: started.length, pct: pct(started.filter((v) => v.ok).length, started.length), missing: commonMisses(started.filter((v) => !v.ok), 2) },
+      changed: { n: changed, of: startedItems.length, pct: pct(changed, startedItems.length) },
       done: { n: finished.filter((v) => v.ok).length, of: finished.length, pct: pct(finished.filter((v) => v.ok).length, finished.length), missing: commonMisses(finished.filter((v) => !v.ok), 2) } };
   });
 }

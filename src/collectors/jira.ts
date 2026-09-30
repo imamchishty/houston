@@ -40,6 +40,7 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
   const statusHistory: { at: string; to: string; category: string }[] = [];
   const flags: { at: string; on: boolean }[] = [];
   const estimates: { at: string; from: string; to: string }[] = [];
+  const requirementEdits: NonNullable<Issue['requirementEdits']> = [];
   for (const h of changelog?.histories ?? []) {
     for (const it of h.items ?? []) {
       if (it.field === 'Sprint' && String(it.to ?? '').split(',').map((x: string) => x.trim()).includes(String(sprintId))) {
@@ -47,6 +48,10 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
       }
       // Jira's flag (Impediment): set when toString has a value, cleared when it is empty.
       if (String(it.field ?? '').toLowerCase() === 'flagged') flags.push({ at: h.created, on: !!String(it.toString ?? '').trim() });
+      // Requirement edits: description, title, or the acceptance criteria field (by id, or a field named like it).
+      const f = String(it.field ?? '').toLowerCase();
+      const reqField = f === 'description' ? 'description' : f === 'summary' ? 'summary' : (config.jira.acField && it.fieldId === config.jira.acField) || /acceptance criteria/.test(f) ? 'acceptance' : null;
+      if (reqField) requirementEdits.push({ at: h.created, field: reqField, by: canonical(h.author?.displayName) });
       // Story points set or changed (the field's id on Cloud, its name on Data Center).
       if (it.fieldId === config.jira.pointsField || /^story points?( estimate)?$/i.test(String(it.field ?? ''))) estimates.push({ at: h.created, from: String(it.fromString ?? '').trim(), to: String(it.toString ?? '').trim() });
       if (it.field === 'status') {
@@ -65,7 +70,8 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
   // change already had a value before it, the ticket was estimated when it was created: null.
   estimates.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   const estimatedAt = !estimates.length || estimates[0].from ? null : estimates.find((e) => e.to)?.at ?? null;
-  return { addedToSprintAt, inProgressSince, statusHistory, flaggedSince, estimatedAt };
+  requirementEdits.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return { addedToSprintAt, inProgressSince, statusHistory, flaggedSince, estimatedAt, requirementEdits };
 }
 
 // Every status's category (new / indeterminate / done), once per run.
@@ -121,6 +127,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
         statusHistory: cl.statusHistory,
         flaggedSince: cl.flaggedSince,
         estimatedAt: cl.estimatedAt,
+        requirementEdits: cl.requirementEdits,
         // Company-managed projects use the Epic Link field; team-managed ones make the epic the parent.
         epic: f[config.jira.epicField] ?? (f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic' ? f.parent.key : null),
       });

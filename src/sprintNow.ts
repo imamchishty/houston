@@ -4,6 +4,7 @@ import { workingDays, hoursExcludingWeekends } from './time.js';
 import { doneInSprint, learnBaseline, sizeBucket } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
 import { definitionsInForce, doneContext, doneness, readiness } from './definitions.js';
+import { churn } from './requirements.js';
 
 // The sprint in progress for each team: time and points left, whether it will make it, and what is in flight.
 // Jira's sprint report only lists the issues in the sprint now; an item removed mid-sprint is not seen, so scope
@@ -124,7 +125,9 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
         waiting: config.jira.waitStatuses.includes(i.status.toLowerCase()), flagged: !!i.flaggedSince, resolved: i.resolved?.slice(0, 10) ?? null,
         addedLate: !!i.addedToSprintAt && i.addedToSprintAt > sp.start, ...(named ? { assignee: i.assignee } : {}),
         // Definition of Ready (a miss once work has started; before that, just not ready yet) and Definition of Done (done tickets only).
-        ready: readiness(i), done: doneness(i, dctx) };
+        ready: readiness(i), done: doneness(i, dctx),
+        // Requirement edits after work started, and whether it was sent back. Editors' names for people viewers.
+        churn: (() => { const c = churn(i); return { changes: c.changes, fields: c.fields, sentBack: c.sentBack, ...(named ? { by: c.by } : {}) }; })() };
     }),
     jiraBrowse: config.jira.baseUrl ? `${config.jira.baseUrl.replace(/\/+$/, '')}/browse/` : null,
     sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),
