@@ -1,6 +1,6 @@
 import { config } from './config.js';
 import { leadTimes } from './leadtime.js';
-import type { GithubSnapshot, Issue, PullRequest } from './types.js';
+import type { GithubSnapshot, Issue, PullRequest, Sprint } from './types.js';
 
 // Definition of Ready and Definition of Done, checked per ticket from what Jira and GitHub record. Which checks apply
 // is the team's choice (Admin, Settings, or DOR_CHECKS / DOD_CHECKS); a check that cannot be judged for a ticket
@@ -81,4 +81,19 @@ export function commonMisses(verdicts: Verdict[], top = 3): string {
   const n = new Map<string, number>();
   for (const v of verdicts) for (const m of v.missing) n.set(m, (n.get(m) ?? 0) + 1);
   return [...n.entries()].sort((a, b) => b[1] - a[1]).slice(0, top).map(([m, c]) => `${m} (${c})`).join(', ');
+}
+
+// The trend: per closed sprint, oldest first, the share of tickets started in it that were ready and the share of
+// tickets finished in it that were properly done, with what was missed most.
+export function definitionTrend(sprints: Sprint[], prs: PullRequest[], deploys: GithubSnapshot['deploys']) {
+  const ctx = doneContext(sprints.flatMap((s) => s.issues), prs, deploys);
+  const pct = (n: number, of: number) => (of ? Math.round((1000 * n) / of) / 10 : null);
+  return [...sprints].filter((s) => s.state === 'closed').sort((a, b) => a.start.localeCompare(b.start)).map((sp) => {
+    const items = sp.issues.filter((i) => i.type !== 'Sub-task');
+    const started = items.filter((i) => i.inProgressSince && i.inProgressSince >= sp.start && i.inProgressSince < sp.end).map((i) => readiness(i));
+    const finished = items.filter((i) => i.statusCategory === 'done' && i.resolved && i.resolved >= sp.start && i.resolved <= sp.end).map((i) => doneness(i, ctx)!);
+    return { sprint: sp.name, end: sp.end.slice(0, 10),
+      ready: { n: started.filter((v) => v.ok).length, of: started.length, pct: pct(started.filter((v) => v.ok).length, started.length), missing: commonMisses(started.filter((v) => !v.ok), 2) },
+      done: { n: finished.filter((v) => v.ok).length, of: finished.length, pct: pct(finished.filter((v) => v.ok).length, finished.length), missing: commonMisses(finished.filter((v) => !v.ok), 2) } };
+  });
 }

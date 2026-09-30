@@ -112,3 +112,17 @@ Feature: Definition of Ready and Definition of Done
       | when             | from | to |
       | 2026-09-09T10:00 | 3    | 5  |
     Then it was estimated when it was created
+
+  Scenario: The trend per sprint
+    Given these sprint tickets:
+      | key   | type  | points | started    | resolved   | ac  | epic  | sprint |
+      | ABC-1 | Story | 3      | 2026-09-02 | 2026-09-05 | yes | ABC-E | 1      |
+      | ABC-2 | Story |        | 2026-09-03 | 2026-09-06 | no  | ABC-E | 1      |
+      | ABC-3 | Story | 3      | 2026-09-16 | 2026-09-20 | yes | ABC-E | 2      |
+      | ABC-4 | Story | 3      | 2026-09-17 |            | yes | ABC-E | 2      |
+      | ABC-5 | Story | 3      | 2026-09-10 | 2026-09-18 | no  | ABC-E | 2      |
+    # ABC-5 sits in sprint 2 but started in sprint 1's dates, so it counts as started in neither and as finished in
+    # sprint 2. No GitHub data, so Done has only what Jira knows.
+    Then the Ready and Done trend per sprint is:
+      | ABC Sprint 1 | 1 of 2 | 2 of 2 | no estimate (1), no acceptance criteria (1) |
+      | ABC Sprint 2 | 2 of 2 | 2 of 2 |                                             |

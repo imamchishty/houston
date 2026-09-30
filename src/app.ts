@@ -5,12 +5,14 @@ import { dirname, join } from 'node:path';
 import { config } from './config.js';
 import { run } from './pipeline.js';
 import { buildInfo } from './version.js';
+import { store } from './store/index.js';
 import { dashboard } from './dashboard.js';
 import { dataQuality } from './dataQuality.js';
 import { monthlyReport, monthlyMarkdown, monthOf } from './monthly.js';
 import { PERIODS, type Period } from './reports.js';
 import { boards, performance, HEADLINES } from './performance.js';
 import { weeklyNote } from './note.js';
+import { definitionTrend, definitionsInForce } from './definitions.js';
 import { polish } from './polish.js';
 import { ask, chatSettings } from './chat.js';
 import { currentSprint, currentSprints } from './sprintNow.js';
@@ -195,6 +197,15 @@ export function buildApp(opts: { auth?: AuthOptions; logger?: boolean } = {}) {
     if (recent.length >= 30) return reply.code(429).send({ error: 'Too many questions in an hour, try again later' });
     asked.set(req.ip, [...recent, now]); if (asked.size > 10_000) asked.clear();
     return ask(q, scope);
+  });
+
+  // Ready and Done over time: per closed sprint (a team) with the definitions in force. Team level: no people.
+  app.get<{ Params: { board: string } }>('/api/teams/:board/definitions', async (req, reply) => {
+    if (!known(req.params.board)) return reply.code(404).send({ error: 'No such team' });
+    const boardsOf = req.params.board === 'all' ? boards() : [req.params.board];
+    const gh = store.github().filter((g) => boardsOf.includes(g.board));
+    return { board: req.params.board, definitions: definitionsInForce(),
+      sprints: req.params.board === 'all' ? [] : definitionTrend(store.sprints().filter((s) => s.board === req.params.board), gh.flatMap((g) => g.prs), gh.flatMap((g) => g.deploys)) };
   });
 
   // The score and headline measures by day, for trends. Kept across deploys in the history database.

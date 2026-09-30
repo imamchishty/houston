@@ -74,6 +74,7 @@ function teamCard(t, areas, all = false) {
     <div class="tchead"><h3>${all ? 'All teams' : esc(t.board)}</h3><span>${scoreChip(t.score)} <span class="small">${scoreTrend(t.score)}</span></span></div>
     <p class="muted small tcsum">${esc(t.summary)}</p>
     ${t.sprint ? `<p class="small tcsprint">${esc(t.sprint.name)}: ${outlookChip(t.sprint.outlook)} · ${esc(t.sprint.workingDaysLeft)} working days left</p>` : ''}
+    ${t.checks && (t.checks.ready_rate || t.checks.done_rate) ? `<p class="small tcchecks">${['ready_rate', 'done_rate'].filter((id) => t.checks[id]).map((id) => { const m = t.checks[id]; return `${id === 'ready_rate' ? 'Started ready' : 'Done properly'} <b>${m.value == null ? '·' : esc(chartFmt(m.value)) + '%'}</b>${m.trend === 'better' ? ' <span class="up">↑</span>' : m.trend === 'worse' ? ' <span class="down">↓</span>' : ''}`; }).join(' · ')} <span class="muted">(not scored)</span></p>` : ''}
     <div class="tcareas">${areas.map((a) => { const ms = a.headlines.map((id) => by[id]).filter(Boolean);
       return ms.length ? `<div class="tcarea"><div class="tcat">${esc(a.title)}</div><ul class="lines">${ms.map(line).join('')}</ul></div>` : ''; }).join('')}</div>
   </a>`;
@@ -127,8 +128,8 @@ async function team(board, tab) {
   const label = board === 'all' ? 'All teams' : board;
   $('#crumbs').innerHTML = `<a href="#" data-go="">Dashboard</a><a class="on">${esc(label)}</a>`;
   if (tab === 'sprint') return sprintPage(board);
-  const [p, hist, cs, note] = await Promise.all([api(`/teams/${encodeURIComponent(board)}?days=${TEAMF.days}`), api(`/teams/${encodeURIComponent(board)}/history?days=180`).catch(() => null),
-    board === 'all' ? null : api(`/sprints/current?team=${encodeURIComponent(board)}`).catch(() => null), api(`/teams/${encodeURIComponent(board)}/note`).catch(() => null)]);
+  const [p, hist, cs, note, defs] = await Promise.all([api(`/teams/${encodeURIComponent(board)}?days=${TEAMF.days}`), api(`/teams/${encodeURIComponent(board)}/history?days=180`).catch(() => null),
+    board === 'all' ? null : api(`/sprints/current?team=${encodeURIComponent(board)}`).catch(() => null), api(`/teams/${encodeURIComponent(board)}/note`).catch(() => null), api(`/teams/${encodeURIComponent(board)}/definitions`).catch(() => null)]);
   if (!p.areas) { $('#main').innerHTML = `<p class="empty">${esc(p.error ?? `No team called ${board}.`)}</p>`; return; }
   const scores = hist?.series?.score ?? [];
   $('#main').innerHTML = `
@@ -139,6 +140,7 @@ async function team(board, tab) {
     ${askBox(board)}
     ${note?.lines ? `<div class="card note mt"><h3>This week <span class="muted small">what changed, what moved with it, what is likely next</span></h3>${note.lines.map((l) => `<p>${noteLine(l)}</p>`).join('')}<p class="note">Written by Houston from the numbers below${note.polished ? ', worded by Compass (every number checked against Houston\'s own text)' : ''}, every Friday to Teams too. It names measures, never people.</p></div>` : ''}
     ${scores.length > 1 ? `<div class="card mt"><h3>Score over time</h3>${lineChart('score', { labels: scores.map((x) => x.day), xLabel: (d) => shortDate(d), unit: '%', W: 900, H: 160, whole: true, series: [{ name: 'Targets met', key: 'series', values: scores.map((x) => x.value), dots: scores.length < 40 }] })}</div>` : ''}
+    ${definitionsPanel(defs, p)}
     ${p.missed.length ? `<div class="card attention mt"><h3>Missed targets, worst first</h3><ul>${p.missed.map((m) => `<li><a href="#h-${esc(m.id)}">${esc(m.title)}</a>: ${esc(chartFmt(m.value))}${esc(unitOf(m))} <span class="muted">(${esc(targetText(m.target, m))})</span>${m.missedTwice ? ' <span class="st red"><i aria-hidden="true">▲</i>two periods running</span>' : ''}</li>`).join('')}</ul></div>` : ''}
     ${p.areas.map((a) => `<section class="group"><h2>${esc(a.title)}</h2><p class="muted">${esc(a.question)}</p>
       ${a.id === 'execution' && cs?.blocked ? `<h3 class="mt">Right now</h3>${rightNow(cs, { link: `#${encodeURIComponent(board)}/sprint` })}` : ''}

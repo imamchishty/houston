@@ -14,8 +14,11 @@ export function dashboard(now = Date.now()) {
   const row = (board: string) => {
     const p = performance(board, 30, now);
     const cs = board === 'all' ? null : currentSprint(board, false, now);
+    const drill = p.areas.flatMap((a) => a.headlines.flatMap((h) => h.drill));
     return { board, score: p.score, summary: p.summary, missed: p.missed,
       measures: p.areas.flatMap((a) => a.headlines.map((h) => ({ area: a.id, ...compact(h.measure) }))),
+      // Ready and Done, not scored: shown as one line on the card.
+      checks: Object.fromEntries(['ready_rate', 'done_rate'].flatMap((id) => { const m = drill.find((x) => x.id === id); return m ? [[id, compact(m)]] : []; })),
       sprint: cs ? { name: cs.sprint, outlook: cs.outlook, workingDaysLeft: cs.workingDaysLeft } : null };
   };
   // Alphabetical, not ranked: a league table of teams is disheartening and invites the wrong conversation.

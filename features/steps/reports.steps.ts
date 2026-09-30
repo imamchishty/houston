@@ -176,9 +176,12 @@ Given('these sprint tickets:', function (t: DataTable) {
     const statusHistory = started ? path.map((to, k) => ({ at: new Date(Date.parse(started) + k * 3_600_000).toISOString(), to, category: to === 'Done' ? 'done' : to === 'To Do' ? 'new' : 'indeterminate' })) : [];
     return { key: r.key, summary: r.key, type: r.type, status: resolved ? 'Done' : started ? 'In Progress' : 'To Do', statusCategory: (resolved ? 'done' : started ? 'inprogress' : 'todo') as 'done',
       points: blank(r.points) ? null : Number(r.points), assignee: null, hasAcceptanceCriteria: yes(r.ac), created: '2026-08-20T09:00:00.000Z', resolved, addedToSprintAt: null, sprintIds: [1],
-      inProgressSince: started, epic: r.epic || null, estimatedAt: blank(r.estimated) ? null : `${r.estimated}T09:00:00.000Z`, ...(statusHistory.length ? { statusHistory } : {}) };
+      inProgressSince: started, epic: r.epic || null, estimatedAt: blank(r.estimated) ? null : `${r.estimated}T09:00:00.000Z`, ...(statusHistory.length ? { statusHistory } : {}), sprintNo: Number(r.sprint || 1) };
   });
-  s.sprints = [{ id: 1, name: 'ABC Sprint 1', board: 'ABC', goal: 'g', start: '2026-09-01T00:00:00.000Z', end: '2026-09-30T00:00:00.000Z', state: 'closed', issues }];
+  // One sprint over the month, or (a "sprint" column) sprint 1 over 1 to 15 September and sprint 2 over 15 to 30.
+  const nos = [...new Set(issues.map((i) => i.sprintNo))].sort();
+  s.sprints = nos.map((n) => ({ id: n, name: `ABC Sprint ${n}`, board: 'ABC', goal: 'g', start: nos.length === 1 || n === 1 ? '2026-09-01T00:00:00.000Z' : '2026-09-15T00:00:00.000Z',
+    end: nos.length === 1 ? '2026-09-30T00:00:00.000Z' : n === 1 ? '2026-09-15T00:00:00.000Z' : '2026-09-30T00:00:00.000Z', state: 'closed' as const, issues: issues.filter((i) => i.sprintNo === n).map(({ sprintNo, ...i }) => i) }));
 });
 Then('the tickets are ready or not:', async function (t: DataTable) {
   const { readiness } = await import('../../src/definitions.js');
@@ -188,4 +191,9 @@ Then('the done tickets are done properly or not:', async function (t: DataTable)
   const { doneness, doneContext } = await import('../../src/definitions.js');
   const ctx = doneContext(s.sprints[0].issues, s.prs, s.deploys);
   assert.deepEqual(s.sprints[0].issues.map((i) => { const v = doneness(i, ctx); return [i.key, !v ? 'not judged' : v.ok ? 'done' : v.missing.join(', ')]; }), t.raw().map((r) => r.map((x) => x.trim())));
+});
+Then('the Ready and Done trend per sprint is:', async function (t: DataTable) {
+  const { definitionTrend } = await import('../../src/definitions.js');
+  const rows = definitionTrend(s.sprints, s.prs, s.deploys).map((x) => [x.sprint, `${x.ready.n} of ${x.ready.of}`, `${x.done.n} of ${x.done.of}`, x.ready.missing]);
+  assert.deepEqual(rows, t.raw().map((r) => r.map((c) => c.trim())));
 });
