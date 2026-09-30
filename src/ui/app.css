@@ -334,3 +334,4 @@ fieldset.fld.checks { border:0; padding:0; margin:0; } fieldset.fld.checks label
 .st.chk { white-space:nowrap; } .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 .tcchecks { margin:0 0 6px; color:var(--muted); } .tcchecks b { color:var(--ink); }
 .defpanel .tiles { margin:8px 0 12px; }
+#tickets td .chk.why { white-space:normal; display:inline-block; min-width:220px; line-height:1.35; }
