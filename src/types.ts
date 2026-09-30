@@ -17,6 +17,7 @@ export interface Issue {
   epic?: string | null;     // parent epic (feature) key, for cost per feature
   // Every status change, oldest first: when, the status entered, and its Jira category (new / indeterminate / done).
   statusHistory?: { at: string; to: string; category: string }[];
+  estimatedAt?: string | null;  // when story points were first set; null or absent when set at creation (or never)
   flaggedSince?: string | null; // flagged in Jira (the Impediment flag) since then, and still flagged; null if not
 }
 

@@ -1,7 +1,8 @@
 import { config } from './config.js';
 import { store } from './store/index.js';
 import { median, doneInSprint } from './cycle.js';
-import type { Epic, GithubSnapshot, PullRequest, ScanCoverage, SecurityAlert, Sprint, SupportTicket, WorkItem } from './types.js';
+import type { Epic, GithubSnapshot, Issue, PullRequest, ScanCoverage, SecurityAlert, Sprint, SupportTicket, WorkItem } from './types.js';
+import { commonMisses, doneContext, doneness, readiness, type Verdict } from './definitions.js';
 import { addWorkingMinutes, durationMinutes, outsideWorkingHours, weekOf, workingMinutes } from './time.js';
 import { flow } from './flow.js';
 import { leadTimes } from './leadtime.js';
@@ -42,6 +43,7 @@ export const TARGETS: Record<string, Target> = {
   pr_cycle_hours: { op: '<', value: 60 }, new_code_coverage: { op: '>', value: 70 }, vulnerabilities: { op: '<', value: 1 }, test_pass_rate: { op: '>', value: 97 }, quality_gate_pass: { op: '>', value: 99 }, flow_time: { op: '<', value: 14 }, pickup_time: { op: '<', value: 1 }, review_time: { op: '<', value: 1.5 }, cycle_time: { op: '<', value: 5 }, pr_size: { op: '<', value: 400 }, reviewer_load: { op: '<', value: 40 }, ci_failure_rate: { op: '<', value: 10 },
   server_errors: { op: '<', value: 1 }, availability: { op: '>', value: 99.9 },
   handoff_rate: { op: '<', value: 25 }, lane_crossing: { op: '>', value: 50 },
+  ready_rate: { op: '>', value: 80 }, done_rate: { op: '>', value: 80 },
   security_on_time: { op: '>', value: 95 }, security_overdue: { op: '<', value: 1 }, secrets_open: { op: '<', value: 1 },
   support_share: { op: '<', value: 20 }, support_out_of_hours: { op: '<', value: 10 }, support_repeat: { op: '<', value: 20 },
   scan_dependency: { op: '>', value: 99 }, scan_secret: { op: '>', value: 99 }, scan_code: { op: '>', value: 99 },
@@ -108,6 +110,35 @@ const significant = (i: WorkItem) => !!i.priority && config.jira.significant.inc
 const mergedPrs = (s: Slice) => s.prs.filter((p) => p.mergedAt && !p.draft && inWin(s, p.mergedAt)
   && (!p.baseBranch || !s.defaultBranches[p.repo] || p.baseBranch === s.defaultBranches[p.repo]));
 
+// ---------- Definition of Ready and Definition of Done ----------
+// Sprint tickets, once each (a ticket carried across sprints keeps its latest state), sub-tasks left out.
+const sprintTickets = (s: Slice): Issue[] => {
+  const m = new Map<string, Issue>();
+  for (const sp of [...s.sprints].sort((a, b) => a.start.localeCompare(b.start))) for (const i of sp.issues) if (i.type !== 'Sub-task') m.set(i.key, i);
+  return [...m.values()];
+};
+const definitionRate = (id: string, title: string, judged: { key: string; v: Verdict }[], how: string, labels: [string, string]): Measure => {
+  const bad = judged.filter((x) => !x.v.ok);
+  const m = rate(id, title, judged.length - bad.length, judged.length, how, labels, bad.map((x) => `${x.key} (${x.v.missing.join(', ')})`));
+  if (bad.length) m.note = `Most often missing: ${commonMisses(bad.map((x) => x.v))}.`;
+  return m;
+};
+// Started when ready: tickets whose work started in the period and that meet every Definition of Ready check.
+export function readyRate(s: Slice): Measure {
+  const started = sprintTickets(s).filter((i) => inWin(s, i.inProgressSince));
+  return definitionRate('ready_rate', 'Started when ready', started.map((i) => ({ key: i.key, v: readiness(i) })),
+    'Sprint tickets whose work started in the period and that meet every Definition of Ready check in force (Admin, Settings) ÷ tickets started. The estimate must have been set before work started; the other checks read the ticket as it is now.',
+    ['ready', 'tickets started']);
+}
+// Done means done: tickets finished in the period that meet every Definition of Done check.
+export function doneRate(s: Slice): Measure {
+  const all = sprintTickets(s), ctx = doneContext(all, s.prs, s.deploys);
+  const finished = all.filter((i) => i.statusCategory === 'done' && inWin(s, i.resolved));
+  return definitionRate('done_rate', 'Done means done', finished.map((i) => ({ key: i.key, v: doneness(i, ctx)! })),
+    'Sprint tickets finished in the period that meet every Definition of Done check in force (Admin, Settings) ÷ tickets finished. A check that cannot be judged (no GitHub data, no QA status in the workflow, no tests lane) is left out, not failed.',
+    ['done properly', 'tickets finished']);
+}
+
 // ---------- Quality ----------
 export function quality(s: Slice) {
   const merged = mergedPrs(s);
@@ -147,6 +178,7 @@ export function quality(s: Slice) {
         (() => { const f = flow(s); return rate('qa_rejection', 'QA rejection rate', f.qa.rejected.length, f.qa.entered,
           `Tickets sent back from QA (${config.jira.qaStatuses.join(', ')}) to earlier work ÷ tickets that entered QA, in the period. Moving on to a queue such as Awaiting Deploy is not a rejection.`,
           ['sent back', 'entered QA'], f.qa.rejected); })(),
+        doneRate(s),
       ] },
       codeQuality(s),
       { id: 'bug_resolution', title: 'Bug fixing', question: 'How quickly are bugs fixed?', measures: [
@@ -194,6 +226,7 @@ export function planning(s: Slice) {
           if (unestimatedDone) m.note = `${unestimatedDone} finished tickets had no estimate and are not counted.`; return m; })(),
         rate('scope_added', 'Scope added mid-sprint', addedLate.length, added.length, 'Items added after the sprint started ÷ items in the sprint, sprints that closed in the period.', ['added late', 'items'], addedLate.map((i) => i.key)),
         { ...rate('carry_over', 'Work carried over', carried.length, atEnd.length, 'Items in a sprint that were not done by its end ÷ items in the sprint, sprints that closed in the period. They roll into the next sprint.', ['not done', 'items'], carried.map((x) => x.i.key)), target: null, met: null },
+        readyRate(s),
       ], detail: completion.map((c) => ({ ...c, pct: round1(c.pct) })) },
     ],
   };

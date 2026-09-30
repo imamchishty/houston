@@ -55,8 +55,10 @@ const WHY: Record<string, string> = {
   unplanned_work: 'Work that did not exist when the sprint was planned. A common reason sprints are missed.',
   scope_added: 'Existing work pulled into a sprint after it started. Changes the plan the team committed to.',
   carry_over: 'Work not finished by the end of its sprint and rolled into the next.',
+  ready_rate: 'Work started before it is ready (no estimate, no acceptance criteria) is the commonest cause of missed sprints: the team discovers the real work half way through.',
   // Quality
   defect_leakage: 'The share of bugs customers find rather than the team. The quality outcome customers actually feel.',
+  done_rate: 'Tickets marked done without a reviewed pull request, tests or QA are where bugs that reach customers come from. Done has to mean the same thing every time.',
   bugs_per_change: 'Bugs raised for the amount of change shipped. Rising means quality is slipping as the team goes faster.',
   qa_rejection: 'Work sent back from testing. Each rejection is rework and delay.',
   pr_review_rate: 'Code merged without anyone else reviewing it. Unreviewed code is where most escaped bugs come from.',

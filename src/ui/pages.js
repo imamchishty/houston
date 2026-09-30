@@ -80,27 +80,44 @@ function rightNow(cs, { link } = {}) {
   </div>`;
 }
 
-// ---------- Every ticket in the sprint, filterable by person, type and state ----------
-const TF = { person: 'all', type: 'all', state: 'all' };
+// ---------- Every ticket in the sprint: person, type, state, and whether it was ready and is properly done ----------
+const TF = { person: 'all', type: 'all', state: 'all', check: 'all' };
 let TICKETS = null;
 const STATE = { todo: 'To do', inprogress: 'In progress', done: 'Done' };
+const CHECK = { notready: 'Started when not ready', notdone: 'Done, but not done properly', unready: 'To do and not ready yet' };
+// Ready is a miss once work has started; before that the ticket is just not ready yet.
+const startedUnready = (t) => t.state !== 'todo' && !t.ready.ok;
+const doneBadly = (t) => t.done && !t.done.ok;
 function ticketList(cs) {
   TICKETS = cs;
   const named = cs.tickets.some((t) => 'assignee' in t);
   const people = [...new Set(cs.tickets.map((t) => t.assignee ?? 'unassigned'))].sort((a, b) => a.localeCompare(b));
   const types = [...new Set(cs.tickets.map((t) => t.type))].sort();
   const sel = (k, label, opts, all, names) => `<label>${label} <select data-tf="${k}"><option value="all">${all}</option>${opts.map((o) => `<option value="${esc(o)}"${TF[k] === o ? ' selected' : ''}>${esc(names ? names[o] : o)}</option>`).join('')}</select></label>`;
+  const started = cs.tickets.filter((t) => t.state !== 'todo'), finished = cs.tickets.filter((t) => t.done);
+  const count = (n, of, good) => `<b>${esc(of - n)} of ${esc(of)}</b> ${good}`;
   return `<h3>Tickets in this sprint <span class="muted">${esc(cs.tickets.length)}</span></h3>
-    <div class="filters" role="group" aria-label="Filter tickets">${named ? sel('person', 'Person', people, 'Everyone') : ''}${sel('type', 'Type', types, 'All types')}${sel('state', 'State', ['todo', 'inprogress', 'done'], 'Any state', STATE)}</div>
-    <div class="scrollx"><table class="t sortable" id="tickets"><thead><tr><th>Key</th><th>Summary</th><th>Type</th><th>Status</th>${named ? '<th>Person</th>' : ''}<th class="num">Points</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr></thead><tbody>${ticketRows(cs)}</tbody></table></div>
-    <p class="note">▲ in progress more than 3× the team's normal for its size · ● waiting or flagged · + added after the sprint started. Days since it moved: working days. Click a heading to sort.</p>`;
+    <p class="defsum">${started.length ? `${count(started.filter(startedUnready).length, started.length, 'started tickets were ready')}` : 'Nothing started yet'} · ${finished.length ? count(finished.filter(doneBadly).length, finished.length, 'done tickets are properly done') : 'nothing done yet'}.</p>
+    <details class="defs"><summary>What Ready and Done mean here</summary><div class="twocol">
+      <div><b>Definition of Ready</b><ul>${cs.definitions.ready.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div>
+      <div><b>Definition of Done</b><ul>${cs.definitions.done.map((x) => `<li>${esc(x)}</li>`).join('') || '<li class="muted">No checks switched on.</li>'}</ul></div></div>
+      <p class="note">Set in Admin. Ready reads the ticket as it is now, except the estimate, which must have been set before work started. A check Houston cannot judge for a ticket is left out, not failed.</p></details>
+    <div class="filters" role="group" aria-label="Filter tickets">${named ? sel('person', 'Person', people, 'Everyone') : ''}${sel('type', 'Type', types, 'All types')}${sel('state', 'State', ['todo', 'inprogress', 'done'], 'Any state', STATE)}${sel('check', 'Ready and Done', ['notready', 'notdone', 'unready'], 'All tickets', CHECK)}</div>
+    <div class="scrollx"><table class="t sortable" id="tickets"><thead><tr><th>Key</th><th>Summary</th><th>Type</th><th>Status</th>${named ? '<th>Person</th>' : ''}<th class="num">Points</th><th>Ready</th><th>Done</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr></thead><tbody>${ticketRows(cs)}</tbody></table></div>
+    <p class="note">Ready: ▲ started without meeting the Definition of Ready; grey: to do, not ready yet. Done: ▲ marked done without meeting the Definition of Done. Also ▲ days: more than 3× the team's normal for its size · ● waiting or flagged · + added after the sprint started.</p>`;
 }
 function ticketRows(cs) {
   const named = cs.tickets.some((t) => 'assignee' in t);
-  const rows = cs.tickets.filter((t) => (TF.person === 'all' || (t.assignee ?? 'unassigned') === TF.person) && (TF.type === 'all' || t.type === TF.type) && (TF.state === 'all' || t.state === TF.state));
-  if (!rows.length) return `<tr><td colspan="8" class="muted">No tickets match.</td></tr>`;
+  const check = { all: () => true, notready: startedUnready, notdone: doneBadly, unready: (t) => t.state === 'todo' && !t.ready.ok }[TF.check];
+  const rows = cs.tickets.filter((t) => (TF.person === 'all' || (t.assignee ?? 'unassigned') === TF.person) && (TF.type === 'all' || t.type === TF.type) && (TF.state === 'all' || t.state === TF.state) && check(t));
+  if (!rows.length) return `<tr><td colspan="10" class="muted">No tickets match.</td></tr>`;
+  const ready = (t) => t.ready.ok ? '<span class="st green"><i aria-hidden="true">✓</i>ready</span>'
+    : t.state === 'todo' ? `<span class="st none"><i aria-hidden="true">·</i>not yet: ${esc(t.ready.missing.join(', '))}</span>` : `<span class="st red"><i aria-hidden="true">▲</i>${esc(t.ready.missing.join(', '))}</span>`;
+  const done = (t) => !t.done ? '<span class="muted">·</span>' : t.done.ok ? '<span class="st green"><i aria-hidden="true">✓</i>done</span>' : `<span class="st red"><i aria-hidden="true">▲</i>${esc(t.done.missing.join(', '))}</span>`;
   return rows.map((t) => `<tr><td>${cs.jiraBrowse ? `<a href="${esc(cs.jiraBrowse + t.key)}" target="_blank" rel="noopener"><code>${esc(t.key)}</code></a>` : `<code>${esc(t.key)}</code>`}</td><td>${esc(t.summary)}${t.addedLate ? ' <span class="muted" title="Added after the sprint started">+</span>' : ''}</td><td>${esc(t.type)}</td>
-    <td>${esc(t.status)}${t.waiting || t.flagged ? ` <span class="st amber"><i aria-hidden="true">●</i>${t.flagged ? 'flagged' : 'waiting'}</span>` : ''}</td>${named ? `<td>${esc(t.assignee ?? 'unassigned')}</td>` : ''}<td class="num">${esc(t.points ?? '·')}</td><td class="num ${t.old ? 'warn' : ''}">${t.days == null ? '·' : esc(t.days)}${t.old ? ' ▲' : ''}</td><td class="num">${t.daysSinceMove == null ? '·' : esc(t.daysSinceMove)}</td></tr>`).join('');
+    <td>${esc(t.status)}${t.waiting || t.flagged ? ` <span class="st amber"><i aria-hidden="true">●</i>${t.flagged ? 'flagged' : 'waiting'}</span>` : ''}</td>${named ? `<td>${esc(t.assignee ?? 'unassigned')}</td>` : ''}<td class="num">${esc(t.points ?? '·')}</td>
+    <td data-sort="${t.ready.ok ? 2 : t.state === 'todo' ? 1 : 0}">${ready(t)}</td><td data-sort="${!t.done ? 1 : t.done.ok ? 2 : 0}">${done(t)}</td>
+    <td class="num ${t.old ? 'warn' : ''}">${t.days == null ? '·' : esc(t.days)}${t.old ? ' ▲' : ''}</td><td class="num">${t.daysSinceMove == null ? '·' : esc(t.daysSinceMove)}</td></tr>`).join('');
 }
 document.addEventListener('change', (e) => { const k = e.target.dataset?.tf; if (!k || !TICKETS) return; TF[k] = e.target.value; $('#tickets tbody').innerHTML = ticketRows(TICKETS); });
 

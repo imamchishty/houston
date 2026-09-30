@@ -53,3 +53,7 @@ Feature: Current sprint numbers are exact
       | ABC-2 | Bug   | inprogress | Bob |
       | ABC-3 | Task  | todo       |     |
     And ABC-3 was added after the sprint started
+    # These tickets have an estimate (ABC-1, ABC-2) and acceptance criteria but no epic. The bug needs no epic.
+    And ABC-1 started when not ready: "not in an epic"
+    And ABC-2 was ready
+    And ABC-3 is not ready yet: "not in an epic"

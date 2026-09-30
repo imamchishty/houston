@@ -68,3 +68,7 @@ When('the sprint board is read with names at {word}', async function (at: string
   const { currentSprint } = await import('../../src/sprintNow.js');
   board = currentSprint('ABC', true, Date.parse(`${at}:00Z`));
 });
+const tk = (key: string) => board.tickets.find((x: any) => x.key === key);
+Then('{word} started when not ready: {string}', function (key: string, missing: string) { const t = tk(key); assert.ok(t.state !== 'todo'); assert.deepEqual(t.ready, { ok: false, missing: missing.split(', ') }); });
+Then('{word} was ready', function (key: string) { assert.equal(tk(key).ready.ok, true); });
+Then('{word} is not ready yet: {string}', function (key: string, missing: string) { const t = tk(key); assert.equal(t.state, 'todo'); assert.deepEqual(t.ready.missing, missing.split(', ')); });

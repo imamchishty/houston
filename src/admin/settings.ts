@@ -2,9 +2,10 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, rmSync 
 import { join } from 'node:path';
 import { config, configProblems } from '../config.js';
 import { store } from '../store/index.js';
+import { DONE_CHECKS, READY_CHECKS } from '../definitions.js';
 
 // Settings edited in the admin page: support SLAs per priority (any priority names: P0, P1, Highest, ...), the working
-// week they are measured in, and how support tickets are found. Saved in the data folder (they survive deploys) and applied over .env, exactly as teams are; "reset"
+// week they are measured in, how support tickets are found, and which Definition of Ready and Done checks apply. Saved in the data folder (they survive deploys) and applied over .env, exactly as teams are; "reset"
 // deletes the file and the .env values come back. Checked with the same rules as .env before saving.
 const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 export interface Settings {
@@ -13,6 +14,8 @@ export interface Settings {
   tzOffset: number;                                      // hours from UTC
   supportSla: { priority: string; response: string; resolution: string }[];  // durations: 4h, 2d (working days)
   supportTypes: string[]; supportLabels: string[];
+  readyChecks: string[]; doneChecks: string[];            // Definition of Ready / Done: ids from src/definitions.ts
+  maxPoints: number;                                     // Ready: the biggest ticket that fits a sprint
 }
 
 const FILE = () => join(config.dataDir, 'settings.json');
@@ -22,15 +25,18 @@ const fromConfig = (c: typeof config): Settings => ({
   weekend: c.weekend.map((d) => DAYS[d]).filter(Boolean), tzOffset: c.tzOffset,
   supportSla: Object.entries(c.jira.supportSla).map(([priority, v]) => ({ priority, ...v })),
   supportTypes: [...c.jira.supportTypes], supportLabels: [...c.jira.supportLabels],
+  readyChecks: [...c.definitions.ready], doneChecks: [...c.definitions.done], maxPoints: c.definitions.maxPoints,
 });
 // The .env values, captured once, so a reset can bring them back.
 const ENV = JSON.parse(JSON.stringify(fromConfig(config))) as Settings;
+const definitionsOf = (s: Settings) => ({ readyChecks: s.readyChecks, doneChecks: s.doneChecks, maxPoints: s.maxPoints });
 
 export function savedSettings(): Settings | null {
-  try { return existsSync(FILE()) ? (JSON.parse(readFileSync(FILE(), 'utf8')) as Settings) : null; } catch { return null; }
+  // A file saved before the definitions existed keeps the .env definitions.
+  try { return existsSync(FILE()) ? { ...definitionsOf(ENV), ...(JSON.parse(readFileSync(FILE(), 'utf8')) as Settings) } : null; } catch { return null; }
 }
 // Saved settings as typed (priority names keep their case: P0, Highest); otherwise the .env values in use.
-export const currentSettings = () => ({ settings: savedSettings() ?? fromConfig(config), source: savedSettings() ? 'admin' as const : 'env' as const, env: ENV,
+export const currentSettings = () => ({ checks: { ready: READY_CHECKS, done: DONE_CHECKS }, settings: savedSettings() ?? fromConfig(config), source: savedSettings() ? 'admin' as const : 'env' as const, env: ENV,
   // Priorities seen on support tickets, so a missing SLA is easy to spot.
   prioritiesSeen: [...new Set(store.support().flatMap((s) => s.tickets.map((t) => t.priority ?? 'none')))].sort() });
 
@@ -42,6 +48,10 @@ export function normaliseSettings(b: any): Settings {
     workingHours: str(b?.workingHours), weekend: list(b?.weekend).map((d) => d.toLowerCase().slice(0, 3)), tzOffset: Number(b?.tzOffset),
     supportSla: (Array.isArray(b?.supportSla) ? b.supportSla : []).map((r: any) => ({ priority: str(r?.priority), response: str(r?.response).toLowerCase(), resolution: str(r?.resolution).toLowerCase() })).filter((r: any) => r.priority || r.response || r.resolution),
     supportTypes: list(b?.supportTypes), supportLabels: list(b?.supportLabels).map((x) => x.toLowerCase()),
+    // Left out of the request: keep what is in force (a form that only edits SLAs does not switch the checks off).
+    readyChecks: Array.isArray(b?.readyChecks) ? list(b.readyChecks) : [...config.definitions.ready],
+    doneChecks: Array.isArray(b?.doneChecks) ? list(b.doneChecks) : [...config.definitions.done],
+    maxPoints: b?.maxPoints == null || b.maxPoints === '' ? config.definitions.maxPoints : Number(b.maxPoints),
   };
 }
 
@@ -52,6 +62,7 @@ function layer(c: typeof config, s: Settings) {
   c.tzOffset = s.tzOffset;
   c.jira.supportSla = Object.fromEntries(s.supportSla.map((r) => [r.priority.toLowerCase(), { response: r.response, resolution: r.resolution }]));
   c.jira.supportTypes = [...s.supportTypes]; c.jira.supportLabels = [...s.supportLabels];
+  c.definitions.ready = [...s.readyChecks]; c.definitions.done = [...s.doneChecks]; c.definitions.maxPoints = s.maxPoints;
 }
 
 export function settingsProblems(s: Settings): string[] {

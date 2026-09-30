@@ -81,6 +81,8 @@ function makeSprint(board: string, n: number, health: number, seed: number, base
       : { inProgressSince: null, statusCategory: 'todo', status: 'To Do' });
     if (i.addedToSprintAt && Date.parse(i.addedToSprintAt) > now) i.addedToSprintAt = new Date(now - day).toISOString();
   }
+  // The weak team estimates some tickets only after starting them (every fourth started, estimated ticket).
+  if (health < 0.5) issues.forEach((i, k) => { if (k % 4 === 1 && i.points != null && i.inProgressSince) i.estimatedAt = new Date(Date.parse(i.inProgressSince) + day).toISOString(); });
   // Status histories last, once resolution times and the in-progress sprint are final.
   for (const i of issues) {
     if (!i.inProgressSince) { i.statusHistory = [{ at: i.created, to: 'To Do', category: 'new' }]; continue; }

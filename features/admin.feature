@@ -150,3 +150,16 @@ Feature: Admin section
     Then Ann's signals are "2 in progress items have not moved for 5 or more working days"
     And Bob's signals are "4 in progress items have not moved for 5 or more working days; 4 items in progress and nothing finished in 14 days"
     And the capacity is 2 people, 10 working days, 20 person-days, AED 40000
+
+  Scenario: The Definition of Ready and Definition of Done are set in the admin page
+    When the admin saves the definitions: ready "estimate,acceptance", done "pr,review", largest ticket 5 points
+    Then the response status is 200
+    And the Definition of Ready is "estimate,acceptance" with at most 5 points, and the Definition of Done is "pr,review"
+    And the change log shows "settings changed" by "admin"
+    When the admin saves the definitions: ready "estimate,vibes", done "pr", largest ticket 5 points
+    Then the response status is 400
+    And the Definition of Ready is "estimate,acceptance" with at most 5 points, and the Definition of Done is "pr,review"
+
+  Scenario: Saving SLAs alone leaves the definitions as they are
+    When the admin saves SLAs "P0=1h/4h" with a working day of 08:00 to 17:00
+    Then the Definition of Ready is "estimate,acceptance,epic,size" with at most 8 points, and the Definition of Done is "pr,review,tests,qa,stayed_done"

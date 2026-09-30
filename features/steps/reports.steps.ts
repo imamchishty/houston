@@ -152,3 +152,40 @@ Given('these support tickets:', function (t: DataTable) {
     firstResponse: blank(r['first response']) ? null : at(r['first response']), resolved: blank(r.resolved) ? null : at(r.resolved),
     reopened: yes(r.reopened), duplicate: yes(r.duplicate), changes: blank(r['status changes']) ? [] : r['status changes'].split(',').map(at) }));
 });
+
+// Definition of Ready and Done: sprint tickets built by hand. estimated blank = at creation; path = the statuses the
+// ticket went through, from when it started, an hour apart.
+const defsSaved: { lanes?: unknown; done?: string[] } = {};
+After(async function () {
+  const { config } = await import('../../src/config.js');
+  if (defsSaved.lanes) { config.github.lanes = defsSaved.lanes as typeof config.github.lanes; delete defsSaved.lanes; }
+  if (defsSaved.done) { config.definitions.done = defsSaved.done; delete defsSaved.done; }
+});
+Given("the team's repos have a tests lane", async function () {
+  const { config } = await import('../../src/config.js');
+  defsSaved.lanes ??= config.github.lanes; config.github.lanes = [{ area: 'backend', patterns: ['api/'] }, { area: 'tests', patterns: ['test/'] }];
+});
+Given('the Definition of Done also needs a release', async function () {
+  const { config } = await import('../../src/config.js');
+  defsSaved.done ??= config.definitions.done; config.definitions.done = [...config.definitions.done, 'released'];
+});
+Given('these sprint tickets:', function (t: DataTable) {
+  const issues = t.hashes().map((r) => {
+    const started = blank(r.started) ? null : `${r.started}T09:00:00.000Z`, resolved = blank(r.resolved) ? null : `${r.resolved}T12:00:00.000Z`;
+    const path = blank(r.path) ? [] : r.path.split('>').map((x) => x.trim());
+    const statusHistory = started ? path.map((to, k) => ({ at: new Date(Date.parse(started) + k * 3_600_000).toISOString(), to, category: to === 'Done' ? 'done' : to === 'To Do' ? 'new' : 'indeterminate' })) : [];
+    return { key: r.key, summary: r.key, type: r.type, status: resolved ? 'Done' : started ? 'In Progress' : 'To Do', statusCategory: (resolved ? 'done' : started ? 'inprogress' : 'todo') as 'done',
+      points: blank(r.points) ? null : Number(r.points), assignee: null, hasAcceptanceCriteria: yes(r.ac), created: '2026-08-20T09:00:00.000Z', resolved, addedToSprintAt: null, sprintIds: [1],
+      inProgressSince: started, epic: r.epic || null, estimatedAt: blank(r.estimated) ? null : `${r.estimated}T09:00:00.000Z`, ...(statusHistory.length ? { statusHistory } : {}) };
+  });
+  s.sprints = [{ id: 1, name: 'ABC Sprint 1', board: 'ABC', goal: 'g', start: '2026-09-01T00:00:00.000Z', end: '2026-09-30T00:00:00.000Z', state: 'closed', issues }];
+});
+Then('the tickets are ready or not:', async function (t: DataTable) {
+  const { readiness } = await import('../../src/definitions.js');
+  assert.deepEqual(s.sprints[0].issues.map((i) => { const v = readiness(i); return [i.key, v.ok ? 'ready' : v.missing.join(', ')]; }), t.raw().map((r) => r.map((x) => x.trim())));
+});
+Then('the done tickets are done properly or not:', async function (t: DataTable) {
+  const { doneness, doneContext } = await import('../../src/definitions.js');
+  const ctx = doneContext(s.sprints[0].issues, s.prs, s.deploys);
+  assert.deepEqual(s.sprints[0].issues.map((i) => { const v = doneness(i, ctx); return [i.key, !v ? 'not judged' : v.ok ? 'done' : v.missing.join(', ')]; }), t.raw().map((r) => r.map((x) => x.trim())));
+});

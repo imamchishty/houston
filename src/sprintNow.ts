@@ -3,6 +3,7 @@ import { store } from './store/index.js';
 import { workingDays, hoursExcludingWeekends } from './time.js';
 import { doneInSprint, learnBaseline, sizeBucket } from './cycle.js';
 import type { Issue, Sprint } from './types.js';
+import { definitionsInForce, doneContext, doneness, readiness } from './definitions.js';
 
 // The sprint in progress for each team: time and points left, whether it will make it, and what is in flight.
 // Jira's sprint report only lists the issues in the sprint now; an item removed mid-sprint is not seen, so scope
@@ -91,6 +92,8 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
   const wip = { limit: WIP_LIMIT, people: wipBy.size, overLimit: over.length, max: Math.max(0, ...wipBy.values()),
     unassigned: items.filter((x) => x.statusCategory === 'inprogress' && !x.assignee).length,
     ...(named ? { over: over.map(([name, count]) => ({ name, count })) } : {}) };
+  const gh = store.github().filter((g) => g.board === board);
+  const dctx = doneContext(sprints.flatMap((s) => s.issues), gh.flatMap((g) => g.prs), gh.flatMap((g) => g.deploys));
   const velocity = sprints.filter((s) => s.state === 'closed' && s.start <= sp.start).slice(-6).map((s) => {
     const c = work(s).filter((i) => i.points != null && (!i.addedToSprintAt || i.addedToSprintAt <= s.start));
     return { sprint: s.name, committed: pts(c), completed: pts(c.filter((i) => doneInSprint(i, s))) };
@@ -112,13 +115,16 @@ export function currentSprint(board: string, named: boolean, now = Date.now(), s
     blocked, ageing: inProgress.filter((x) => x.old),
     // Every ticket in the sprint, for the list that filters by person, type and state. Who is on what: assignee for
     // people viewers (everyone signed in, unless HOUSTON_PEOPLE_VIEWERS narrows it).
+    definitions: definitionsInForce(),
     tickets: items.map((i) => {
       const moved = i.statusHistory?.length ? i.statusHistory[i.statusHistory.length - 1].at : i.inProgressSince;
       const ip = inProgress.find((x) => x.key === i.key);
       return { key: i.key, summary: i.summary, type: i.type, status: i.status, state: i.statusCategory, points: i.points, days: ip?.days ?? null, old: !!ip?.old,
         daysSinceMove: moved && i.statusCategory === 'inprogress' ? Math.round((hoursExcludingWeekends(moved, new Date(now).toISOString(), config.weekend, config.tzOffset) / 24) * 10) / 10 : null,
         waiting: config.jira.waitStatuses.includes(i.status.toLowerCase()), flagged: !!i.flaggedSince, resolved: i.resolved?.slice(0, 10) ?? null,
-        addedLate: !!i.addedToSprintAt && i.addedToSprintAt > sp.start, ...(named ? { assignee: i.assignee } : {}) };
+        addedLate: !!i.addedToSprintAt && i.addedToSprintAt > sp.start, ...(named ? { assignee: i.assignee } : {}),
+        // Definition of Ready (a miss once work has started; before that, just not ready yet) and Definition of Done (done tickets only).
+        ready: readiness(i), done: doneness(i, dctx) };
     }),
     jiraBrowse: config.jira.baseUrl ? `${config.jira.baseUrl.replace(/\/+$/, '')}/browse/` : null,
     sprints: sprints.map((s) => ({ id: s.id, name: s.name, state: s.state })),

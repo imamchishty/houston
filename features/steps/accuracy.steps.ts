@@ -66,3 +66,16 @@ Then('it is not flagged', async function () {
   const { fromChangelog } = await import('../../src/collectors/jira.js');
   assert.equal(fromChangelog({ histories: flagHistory }, 1, new Map()).flaggedSince, null);
 });
+
+let estimateHistory: any[] = [];
+Given("a ticket's estimate history, oldest first:", function (t: DataTable) {
+  estimateHistory = t.hashes().map((r) => ({ created: `${r.when}:00.000+0000`, items: [{ field: 'Story Points', fromString: r.from, toString: r.to }] })).reverse();
+});
+Then('it was first estimated at {word}', async function (at: string) {
+  const { fromChangelog } = await import('../../src/collectors/jira.js');
+  assert.equal(fromChangelog({ histories: estimateHistory }, 1, new Map()).estimatedAt, `${at}:00.000+0000`);
+});
+Then('it was estimated when it was created', async function () {
+  const { fromChangelog } = await import('../../src/collectors/jira.js');
+  assert.equal(fromChangelog({ histories: estimateHistory }, 1, new Map()).estimatedAt, null);
+});

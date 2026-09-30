@@ -182,3 +182,13 @@ Then('the allocation has people with lanes, a last recorded date, in-progress an
   assert.ok(a.people.length >= 3);
   for (const p of a.people) { assert.ok(Array.isArray(p.lanes) && Array.isArray(p.inProgress) && Array.isArray(p.finished)); assert.ok(!('prs' in p) && !('commits' in p) && !('lines' in p) && !('score' in p), 'no per person totals'); }
 });
+
+// Definitions
+When('the admin saves the definitions: ready {string}, done {string}, largest ticket {int} points', async function (this: HoustonWorld, ready: string, done: string, max: number) {
+  const cur = (await import('../../src/admin/settings.js')).currentSettings().settings;
+  await this.request('POST', '/api/admin/settings', { ...admin(this), headers: H, body: JSON.stringify({ ...cur, readyChecks: ready.split(','), doneChecks: done.split(','), maxPoints: max }) });
+});
+Then('the Definition of Ready is {string} with at most {int} points, and the Definition of Done is {string}', function (ready: string, max: number, done: string) {
+  const d = houston.config.definitions;
+  assert.deepEqual({ ready: d.ready.join(','), max: d.maxPoints, done: d.done.join(',') }, { ready, max, done });
+});

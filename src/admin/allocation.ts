@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { learnBaseline, sizeBucket } from '../cycle.js';
 import { hoursExcludingWeekends, workingDays } from '../time.js';
 import type { Issue } from '../types.js';
+import { doneContext, doneness, readiness } from '../definitions.js';
 
 // Allocation, for the admin only: who is working on what right now, what has stopped moving, and what finished
 // against the team's own normal for its size. Built from traces (ticket moves, PRs), never effort: a quiet row can
@@ -24,6 +25,7 @@ export function allocation(board: string, now = Date.now()) {
   const people = new Set<string>();
   for (const i of issues.values()) if (i.assignee) people.add(i.assignee);
   for (const p of prs) if (p.author && p.author !== 'unknown') people.add(p.author);
+  const dctx = doneContext(sprints.flatMap((s) => s.issues), store.github().filter((g) => g.board === board).flatMap((g) => g.prs), store.github().filter((g) => g.board === board).flatMap((g) => g.deploys));
   const lastMove = (i: Issue) => i.statusHistory?.length ? i.statusHistory[i.statusHistory.length - 1].at : i.inProgressSince ?? i.created;
 
   const rows = [...people].sort((a, b) => a.localeCompare(b)).map((name) => {
@@ -31,12 +33,12 @@ export function allocation(board: string, now = Date.now()) {
     const inProgress = mine.filter((i) => i.statusCategory === 'inprogress').map((i) => {
       const sinceMove = wd(lastMove(i), now);
       return { key: i.key, summary: i.summary, status: i.status, points: i.points, daysInProgress: i.inProgressSince ? wd(i.inProgressSince, now) : null, daysSinceMove: sinceMove,
-        stuck: sinceMove >= 5, waiting: config.jira.waitStatuses.includes(i.status.toLowerCase()) || !!i.flaggedSince };
+        notReady: readiness(i).missing, stuck: sinceMove >= 5, waiting: config.jira.waitStatuses.includes(i.status.toLowerCase()) || !!i.flaggedSince };
     }).sort((a, b) => b.daysSinceMove - a.daysSinceMove);
     const finished = mine.filter((i) => i.statusCategory === 'done' && i.resolved && now - Date.parse(i.resolved) <= 30 * DAY && Date.parse(i.resolved) <= now).map((i) => {
       const days = i.inProgressSince ? Math.round(((Date.parse(i.resolved!) - Date.parse(i.inProgressSince)) / DAY) * 10) / 10 : null;
       const normal = baseline[sizeBucket(i.points)] ?? null;
-      return { key: i.key, summary: i.summary, points: i.points, resolved: i.resolved!.slice(0, 10), days, normal, over: days != null && normal != null && days > 3 * normal };
+      return { key: i.key, summary: i.summary, points: i.points, resolved: i.resolved!.slice(0, 10), days, normal, over: days != null && normal != null && days > 3 * normal, notDone: doneness(i, dctx)?.missing ?? [] };
     }).sort((a, b) => b.resolved.localeCompare(a.resolved));
     const finished14 = finished.filter((f) => now - Date.parse(f.resolved) <= 14 * DAY).length;
     const myPrs = prs.filter((p) => p.author === name);

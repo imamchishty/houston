@@ -19,6 +19,15 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
   const r = rng(seed);
   const until = Date.now(), since = until - 90 * day;
   const prs: PullRequest[] = []; let n = 100;
+  // A PR names a ticket of the sprint it was opened in (the demo sprints: two weeks each, the sixth started this
+  // week's Monday; ticket keys are base + sprint × 100 + index), one ticket after another so most tickets get one.
+  const monday = (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.getTime(); })();
+  const seq = new Map<number, number>();
+  const ticketKey = (created: number, _draw: number) => {
+    const sprint = Math.max(1, created >= monday ? 6 : 6 - Math.ceil((monday - created) / (14 * day)));
+    const k = seq.get(sprint) ?? 0; seq.set(sprint, k + 1);
+    return `${board}-${(board === 'OSSI' ? 1000 : 2000) + sprint * 100 + (k % 18)}`;
+  };
   const reviewers = weak ? ['Karim', 'Karim', 'Karim', 'Aisha'] : people.map((p) => p.name);
   for (const p of people) for (let i = 0; i < p.prs; i++) {
     const created = since + r() * 88 * day;
@@ -45,7 +54,7 @@ function snapshot(board: string, people: typeof ossi, weak: boolean, seed: numbe
       closedAt: mergedAt ? new Date(mergedAt).toISOString() : stale ? null : new Date(first + day).toISOString(),
       additions: Math.round(size * 0.7), deletions: Math.round(size * 0.3), changedFiles: 1 + Math.floor(size / 80),
       reviewers: rev, reviewCount: rev.length ? 1 + Math.floor(r() * 3) : 0,
-      jiraKeys: r() < (weak ? 0.55 : 0.92) ? [`${board}-${1000 + Math.floor(r() * 400)}`] : [],
+      jiraKeys: r() < (weak ? 0.55 : 0.92) ? [ticketKey(created, r())] : [],
       areas, isHotfix: false, draft: false,
       branch: `${p.lane}/${board}-${n}`, baseBranch: 'main',
       firstCommitAt: new Date(created - (weak ? 6 + r() * 40 : 1 + r() * 12) * hour).toISOString(),

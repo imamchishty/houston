@@ -39,6 +39,7 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
   let inProgressSince: string | null = null;
   const statusHistory: { at: string; to: string; category: string }[] = [];
   const flags: { at: string; on: boolean }[] = [];
+  const estimates: { at: string; from: string; to: string }[] = [];
   for (const h of changelog?.histories ?? []) {
     for (const it of h.items ?? []) {
       if (it.field === 'Sprint' && String(it.to ?? '').split(',').map((x: string) => x.trim()).includes(String(sprintId))) {
@@ -46,6 +47,8 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
       }
       // Jira's flag (Impediment): set when toString has a value, cleared when it is empty.
       if (String(it.field ?? '').toLowerCase() === 'flagged') flags.push({ at: h.created, on: !!String(it.toString ?? '').trim() });
+      // Story points set or changed (the field's id on Cloud, its name on Data Center).
+      if (it.fieldId === config.jira.pointsField || /^story points?( estimate)?$/i.test(String(it.field ?? ''))) estimates.push({ at: h.created, from: String(it.fromString ?? '').trim(), to: String(it.toString ?? '').trim() });
       if (it.field === 'status') {
         const cat = categories.get(String(it.to ?? ''));
         const started = cat ? cat === 'indeterminate' : /in progress/i.test(it.toString ?? ''); // name only if the status is unknown
@@ -58,7 +61,11 @@ export function fromChangelog(changelog: any, sprintId: number, categories: Map<
   // Flagged now if the latest flag change set it; since then.
   const lastFlag = flags.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).at(-1);
   const flaggedSince = lastFlag?.on ? lastFlag.at : null;
-  return { addedToSprintAt, inProgressSince, statusHistory, flaggedSince };
+  // When the estimate was first set. Jira records no change for a value given at creation, so if the first recorded
+  // change already had a value before it, the ticket was estimated when it was created: null.
+  estimates.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const estimatedAt = !estimates.length || estimates[0].from ? null : estimates.find((e) => e.to)?.at ?? null;
+  return { addedToSprintAt, inProgressSince, statusHistory, flaggedSince, estimatedAt };
 }
 
 // Every status's category (new / indeterminate / done), once per run.
@@ -113,6 +120,7 @@ async function sprintIssues(sprintId: number, boardName: string): Promise<Issue[
         inProgressSince: cl.inProgressSince,
         statusHistory: cl.statusHistory,
         flaggedSince: cl.flaggedSince,
+        estimatedAt: cl.estimatedAt,
         // Company-managed projects use the Epic Link field; team-managed ones make the epic the parent.
         epic: f[config.jira.epicField] ?? (f.parent?.fields?.issuetype?.hierarchyLevel === 1 || f.parent?.fields?.issuetype?.name === 'Epic' ? f.parent.key : null),
       });

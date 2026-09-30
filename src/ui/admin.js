@@ -2,7 +2,7 @@
 // Test report for this build, connection health, team setup and the change log. Signs in with the admin account
 // (the browser asks the first time an admin request is made). Token values are never shown or entered here.
 
-const ADMIN_TABS = [['allocation', 'Allocation'], ['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['settings', 'SLAs and working week'], ['log', 'Change log']];
+const ADMIN_TABS = [['allocation', 'Allocation'], ['tests', 'Tests'], ['connections', 'Connections'], ['teams', 'Teams'], ['settings', 'Ready, Done, SLAs'], ['log', 'Change log']];
 const adminApi = async (p, opts) => {
   const r = await fetch('/api/admin' + p, opts);
   const body = await r.json().catch(() => ({}));
@@ -44,9 +44,9 @@ async function adminAllocation() {
   const person = (p) => `<section class="card person"><h3>${esc(p.name)} <span class="muted small">${p.lanes.length ? esc(p.lanes.join(' and ')) : 'no merged PRs in 90 days'} · last recorded ${p.lastTrace ? esc(p.lastTrace) : 'never'}</span></h3>
     ${p.signals.length ? `<p>${p.signals.map((s) => `<span class="st amber"><i aria-hidden="true">●</i>${esc(s)}</span>`).join(' ')}</p>` : ''}
     <details${p.inProgress.some((x) => x.stuck) ? ' open' : ''}><summary>In progress (${esc(p.inProgress.length)})</summary>${p.inProgress.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th>Status</th><th class="num">Points</th><th class="num">Days in progress</th><th class="num">Days since it moved</th></tr>
-      ${p.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}${x.waiting ? ' <span class="st amber"><i aria-hidden="true">●</i>waiting</span>' : ''}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num">${d1(x.daysInProgress)}</td><td class="num ${x.stuck ? 'warn' : ''}">${d1(x.daysSinceMove)}${x.stuck ? ' ▲' : ''}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}</details>
-    <details><summary>Finished, last 30 days (${esc(p.finished.length)})</summary>${p.finished.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th class="num">Points</th><th>Done</th><th class="num">Days</th><th class="num">Team's normal for this size</th></tr>
-      ${p.finished.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td class="num">${esc(x.points ?? '·')}</td><td>${esc(x.resolved)}</td><td class="num ${x.over ? 'warn' : ''}">${d1(x.days)}${x.over ? ' ▲' : ''}</td><td class="num">${d1(x.normal)}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing finished in 30 days.</p>'}</details>
+      ${p.inProgress.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td>${esc(x.status)}${x.waiting ? ' <span class="st amber"><i aria-hidden="true">●</i>waiting</span>' : ''}${x.notReady.length ? ` <span class="st red" title="Started when not ready"><i aria-hidden="true">▲</i>${esc(x.notReady.join(', '))}</span>` : ''}</td><td class="num">${esc(x.points ?? '·')}</td><td class="num">${d1(x.daysInProgress)}</td><td class="num ${x.stuck ? 'warn' : ''}">${d1(x.daysSinceMove)}${x.stuck ? ' ▲' : ''}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing in progress.</p>'}</details>
+    <details><summary>Finished, last 30 days (${esc(p.finished.length)})</summary>${p.finished.length ? `<div class="scrollx"><table class="t"><tr><th>Key</th><th>Summary</th><th class="num">Points</th><th>Done</th><th class="num">Days</th><th class="num">Team's normal for this size</th><th>Done properly</th></tr>
+      ${p.finished.map((x) => `<tr><td><code>${esc(x.key)}</code></td><td>${esc(x.summary)}</td><td class="num">${esc(x.points ?? '·')}</td><td>${esc(x.resolved)}</td><td class="num ${x.over ? 'warn' : ''}">${d1(x.days)}${x.over ? ' ▲' : ''}</td><td class="num">${d1(x.normal)}</td><td>${x.notDone.length ? `<span class="st red"><i aria-hidden="true">▲</i>${esc(x.notDone.join(', '))}</span>` : '<span class="st green"><i aria-hidden="true">✓</i>yes</span>'}</td></tr>`).join('')}</table></div>` : '<p class="note">Nothing finished in 30 days.</p>'}</details>
   </section>`;
   const c = a.capacity;
   return `<div class="card warnbox"><b>For your eyes only.</b> These are traces from Jira and GitHub, not effort. A quiet row can mean leave, incidents, reviews or design work. Use it to find the ticket to ask about, not to grade anyone. There are no totals or rankings per person here on purpose.</div>
@@ -174,6 +174,12 @@ async function adminSettings() {
       <label class="fld"><span>Issue types</span><textarea name="supportTypes" rows="3">${esc(s.supportTypes.join('\n'))}</textarea><small class="muted">One per line</small></label>
       <label class="fld"><span>Labels</span><textarea name="supportLabels" rows="3">${esc(s.supportLabels.join('\n'))}</textarea><small class="muted">One per line</small></label>
     </div>
+    <h3 class="mt">Definition of Ready</h3>
+    <p class="note">What a ticket needs before work starts. A started ticket that misses any ticked check counts as "started when not ready".</p>
+    <fieldset class="fld checks">${Object.entries(r.checks.ready).map(([id, label]) => `<label><input type="checkbox" name="readyChecks" value="${esc(id)}"${s.readyChecks.includes(id) ? ' checked' : ''}> ${esc(label)}${id === 'size' ? `: at most <input type="number" name="maxPoints" min="1" step="1" value="${esc(s.maxPoints)}" aria-label="Largest ticket, in points"> points` : ''}</label>`).join('')}</fieldset>
+    <h3 class="mt">Definition of Done</h3>
+    <p class="note">What a ticket needs to count as done. Checks Houston cannot judge for a ticket (no GitHub data, no QA status in the team's workflow, no tests lane in GITHUB_LANES, ticket types that need no code) are left out for it, not failed.</p>
+    <fieldset class="fld checks">${Object.entries(r.checks.done).map(([id, label]) => `<label><input type="checkbox" name="doneChecks" value="${esc(id)}"${s.doneChecks.includes(id) ? ' checked' : ''}> ${esc(label)}</label>`).join('')}</fieldset>
     <div id="settingsresult"></div>
     <p><button type="button" class="btn primary" data-admin="savesettings">Save</button> ${r.source === 'admin' ? '<button type="button" class="btn" data-admin="resetsettings">Reset to .env</button>' : ''}</p>
   </form>`;
@@ -184,6 +190,7 @@ const formSettings = () => {
     supportSla: [...f.querySelectorAll('tr.slarow')].map((tr) => ({ priority: tr.querySelector('[name=priority]').value, response: tr.querySelector('[name=response]').value, resolution: tr.querySelector('[name=resolution]').value })),
     workingHours: `${fd.get('start')}-${fd.get('end')}`, tzOffset: fd.get('tzOffset'), weekend: fd.getAll('weekend'),
     supportTypes: String(fd.get('supportTypes') ?? ''), supportLabels: String(fd.get('supportLabels') ?? ''),
+    readyChecks: fd.getAll('readyChecks'), doneChecks: fd.getAll('doneChecks'), maxPoints: fd.get('maxPoints'),
   };
 };
 

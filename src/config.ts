@@ -14,6 +14,13 @@ export const config = {
     subscription: process.env.AZURE_SUBSCRIPTION_ID ?? '', workspace: process.env.AZURE_LOG_WORKSPACE ?? '',
     appInsights: pairs(process.env.AZURE_APPINSIGHTS), resourceGroups: pairs(process.env.AZURE_RESOURCE_GROUPS),
   },
+  // Definition of Ready and Definition of Done: which checks apply (src/definitions.ts). Also editable in Admin.
+  definitions: {
+    ready: (process.env.DOR_CHECKS ?? 'estimate,acceptance,epic,size').split(',').map((x) => x.trim()).filter(Boolean),
+    done: (process.env.DOD_CHECKS ?? 'pr,review,tests,qa,stayed_done').split(',').map((x) => x.trim()).filter(Boolean),
+    maxPoints: Number(process.env.DOR_MAX_POINTS ?? 8),                       // "small enough to finish in a sprint"
+    noCodeTypes: (process.env.DOD_NO_CODE_TYPES ?? 'Spike').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),  // ticket types that need no pull request
+  },
   teamsWebhook: process.env.TEAMS_WEBHOOK ?? '',
   // A blended cost per person-day, for the rough sprint cost on the admin Allocation page. 0 = not shown.
   rateDay: Number(process.env.RATE_DAY ?? 0), currency: process.env.CURRENCY ?? 'AED',
@@ -114,6 +121,9 @@ export function configProblems(c = config): string[] {
   if (c.compass.url && !c.compass.url.startsWith('https://')) out.push('COMPASS_URL must be https: the note goes over the network');
   if (!Number.isFinite(c.tzOffset) || c.tzOffset < -12 || c.tzOffset > 14) out.push('TZ_OFFSET_HOURS must be between -12 and 14');
   if (!Number.isFinite(c.rateDay) || c.rateDay < 0) out.push('RATE_DAY must be a number, 0 or more');
+  for (const id of c.definitions.ready) if (!['estimate', 'acceptance', 'epic', 'size'].includes(id)) out.push(`DOR_CHECKS: "${id}" is not a check (estimate, acceptance, epic, size)`);
+  for (const id of c.definitions.done) if (!['pr', 'review', 'tests', 'qa', 'stayed_done', 'released'].includes(id)) out.push(`DOD_CHECKS: "${id}" is not a check (pr, review, tests, qa, stayed_done, released)`);
+  if (!Number.isFinite(c.definitions.maxPoints) || c.definitions.maxPoints <= 0) out.push('DOR_MAX_POINTS must be a number above 0');
   if (c.weekend.some((d) => d < 0)) out.push('WEEKEND: use day names like sat,sun');
   for (const t of (process.env.HOUSTON_API_TOKENS ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
     const i = t.indexOf(':'), name = t.slice(0, i), token = t.slice(i + 1);
